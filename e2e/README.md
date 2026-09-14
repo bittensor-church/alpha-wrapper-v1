@@ -1,0 +1,93 @@
+# End-to-end tests
+
+Pytest scenarios drive a real Subtensor localnet through Foundry, btcli and
+Substrate extrinsics. Chainless unit tests cover the Python harness separately.
+
+## Requirements
+
+- Localnet at `ws://127.0.0.1:9944` / `http://127.0.0.1:9944`, funded for the dev
+  keys in `alpha_e2e/config.py`.
+- `cast` and `forge` on PATH.
+- Python dependencies from `e2e/install-deps.sh`, including btcli.
+- Keys: the suite keeps its own wallets under `e2e/.wallets`, so btcli wallets
+  you already have stay untouched; `ALPHA_E2E_WALLET_PATH` moves that root.
+  Bootstrap generates the dev Alice wallet there when it is absent, and stops if
+  a different coldkey already holds that name.
+
+## Run
+
+From the repository root:
+
+```bash
+cd e2e
+python3 -m pytest tests/test_full_flow.py -v -m scenario
+python3 -m pytest tests -v -m "not scenario"
+```
+
+Use one scenario module per fresh chain. Modules share subnet and contract state
+through the session-scoped `env` fixture; running several against one long-lived
+chain is unsupported. CI gives each scenario its own container.
+
+## Registry and scenario ownership
+
+Every scenario deploys the real `BasicValidatorRegistry` with the deployer as its
+initial owner and uses real Subtensor precompiles. There is no mock registry or
+registry selector in e2e. All 13 scenario modules run on separate fresh localnets.
+
+Bootstrap registers and funds three candidate hotkeys per subnet, then configures
+only the first as the sole target. Deposits use the currently configured hotkey.
+Rotations and parking releases call `setValidator` from the registry owner.
+The full flow covers both exits, emissions, observability and rotation; churn
+rotates A to B and B to C. The minimum-stake case retains its deposit gate and
+rotated-dust consolidation legs.
+
+Five scenarios require simultaneous weighted validators and now run in
+[TAO20's attested e2e suite](https://github.com/alphamind-labs/tao20-contract/tree/main/e2e/tests/attested_vault).
+Their generic Solidity coverage remains here with a controllable registry mock.
+
+| Scenario | Why Basic cannot reproduce it |
+| --- | --- |
+| `test_concurrent_swap_recovery.py` | Multiple unequal recorded balances disappear independently before synchronization. |
+| `test_shared_recovery_deadline.py` | Two slots disappear while another remains located, followed by partial recovery. |
+| `test_recovery_dust.py` | Multiple lost sources and a still-located slot are needed to seed movable parking. |
+| `test_hostile_dust.py` | Foreign alpha lands on an empty but recorded third weighted slot before its rotation out. |
+| `test_dust_exit.py` | A refused slot stays recorded beside live backing at 9999/1 weights; Basic would consolidate it. |
+
+The weighted-rebalance leg of `test_min_stake_floor.py` also remains in TAO20;
+one 100% target cannot develop a weight imbalance. See the full
+[coverage inventory](../docs/registry-migration.md).
+
+## Layout and coverage
+
+`alpha_e2e/` contains configuration, address derivation, chain commands,
+extrinsics, Basic updates, checks, environment actions and bootstrap.
+`conftest.py` switches to the repository root and registers the fixture;
+`pytest.ini` configures imports and the `scenario` marker. `chain_ops.py` is the
+manual CLI for the same chain operations.
+
+Scenario files in `tests/` cover:
+
+- `test_full_flow.py`: deposits, exits, emissions, rotation and observability.
+- `test_transfers_off.py`, `test_convicted_alpha.py`: disabled transfers and locks.
+- `test_locked_deposit.py`: poisoned candidates are rejected before deployment
+  and a fresh UID creates protected mailboxes and subnet clones that own their
+  own hotkeys, so coldkey swaps and locked-alpha transfers into them are refused
+  on the real chain; an honest deposit still wraps and exits.
+- `test_subnet_dissolved.py`: refunds and mailbox recovery.
+- `test_min_stake_floor.py`, `test_dust_dos.py`, `test_min_stake_liveness.py`:
+  minimums, top-ups, dust and repeated position changes.
+- `test_claimable_tao.py`: forced-sale proceeds and holder entitlements.
+- `test_parked_stake.py`: a funded hotkey left without an owner; partial exits wait
+  for the owner to replace the name, then the vault claims the key itself.
+- `test_parked_recovery.py`: a stranger cuts the trail behind a rename; the watcher
+  parks the position, exits pay from the parking hotkey, an owner update releases.
+- `test_parking_isolation.py`: two subnets park on the one parking hotkey; each keeps
+  its own balance, the other keeps trading, and each releases on its own owner update.
+- `test_subnet_generation.py`: a rewritten registration block leaves the token and its
+  exits untouched; dissolving and re-registering the netuid yields a new token.
+Each module's docstring describes its sequence. These scenarios exercise specific
+recovery conditions, not an unconditional exit guarantee; see the
+[design](../docs/hotkey-swaps.md).
+
+Bootstrap creates three subnets, nine validators, the contracts and funded test
+accounts once per scenario process.

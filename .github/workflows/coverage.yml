@@ -1,0 +1,55 @@
+name: Coverage
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+
+      - name: Cache forge artifacts
+        uses: actions/cache@v6
+        with:
+          path: |
+            out
+            cache
+          key: forge-${{ runner.os }}-cov-${{ hashFiles('foundry.toml', 'src/**/*.sol', 'test/**/*.sol', 'lib/**') }}
+          restore-keys: forge-${{ runner.os }}-cov-
+
+      - name: Run forge coverage
+        # Invariant suites are excluded: they run thousands of calls each and coverage builds
+        # unoptimized, so they dominate the runtime while adding no source lines the unit tests
+        # do not already reach. The CI workflow runs them at full depth.
+        # pipefail so a failing coverage run fails the step; without it `tee` returns 0 and the
+        # job goes green on partial output.
+        run: |
+          set -o pipefail
+          forge coverage \
+            --ir-minimum \
+            --no-match-coverage "(test|script)/" \
+            --no-match-contract Invariant \
+            --report summary \
+            | tee /tmp/coverage.txt
+          echo '## Coverage' >> "$GITHUB_STEP_SUMMARY"
+          awk '/^\|/' /tmp/coverage.txt >> "$GITHUB_STEP_SUMMARY"

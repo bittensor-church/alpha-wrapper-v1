@@ -1,0 +1,23 @@
+{
+  "createMailbox: existing": "44561",
+  "createMailbox: first on subnet": "515158",
+  "createMailbox: shared subnet": "285091",
+  "rebalance: after registry weight update": "267986",
+  "rebalance: fully rotated (64 validators)": "11199601",
+  "rebalance: release parked position (64 validators)": "10540315",
+  "recoverStray: collect merged source (64 validators)": "144020",
+  "recoverStray: collect one source (64 validators)": "141496",
+  "syncBacking: loss on file (64 validators)": "3158223",
+  "unwrap: full": "321484",
+  "unwrap: full (64 validators)": "3832682",
+  "unwrap: partial": "390972",
+  "unwrap: partial (64 validators)": "5631119",
+  "unwrapForTao: full (64 validators)": "2442141",
+  "unwrapForTao: full after a rotation (64 validators)": "2442141",
+  "unwrapForTao: partial tail above floor": "246366",
+  "unwrapForTao: sub-floor tail refunded": "226379",
+  "wrap: first": "632378",
+  "wrap: first (64 validators)": "10521616",
+  "wrap: subsequent": "352634",
+  "wrap: subsequent (64 validators)": "6576653"
+}

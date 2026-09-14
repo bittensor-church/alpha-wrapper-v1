@@ -1,0 +1,163 @@
+# User guide
+
+Use an EVM account on Bittensor with TAO for gas. Send transactions to the vault
+and read quotes from its trusted `AlphaVaultLens`. Check that the lens's `vault()`
+matches your vault; this detects a mismatched pair, not a dishonest lens.
+See [How it works](overview.md) for the contract layout.
+
+Alpha amounts use 9 decimals (RAO); native TAO amounts, including `minTaoOut`,
+use 18-decimal EVM wei. One native RAO is 1e9 wei.
+
+## Wrap staked alpha
+
+1. Read `getCurrentValidators(netuid)` on the lens. The deposit must sit under a
+   currently attested hotkey; move your stake there first if needed.
+2. Call `createMailbox(netuid, uid)` with a fresh random `bytes32` UID. This
+   creates your mailbox and, for the first user of this subnet generation, the
+   shared subnet clone. If it reverts `CloneContaminated`, retry with a new UID.
+3. Read `getDepositAddress(you, netuid)` from the vault, or take the addresses
+   the call returns. Zero means creation has not succeeded yet.
+4. Convert that EVM address to its Substrate coldkey using
+   `addressMapping(address)` at `0x080C` (Frontier HashedAddressMapping).
+5. Use Subtensor's `transfer_stake` to send alpha to that coldkey on the same
+   subnet, retaining the chosen hotkey.
+6. Call `wrap(netuid, chosenHotkey, minSharesOut)` from the same EVM account
+   that created the mailbox.
+
+One wrap collects one mailbox hotkey's balance. Use
+`previewWrap(tokenId, assets)` to choose your minimum shares; a lower mint reverts
+`SlippageExceeded`, leaving the deposit intact. Chain rounding can make execution
+differ slightly from the preview. Zero waives the minimum.
+
+After a netuid is recycled, call `createMailbox` again before wrapping its new
+registration; your mailbox stays the same and the new subnet clone is created.
+The first user on a generation pays for the shared clone as well as their
+mailbox; later users pay for a mailbox. A public UID can be front-run, so a
+failed creation can need another attempt.
+
+A deposit below the vault's conservative stake floor reverts `DepositTooSmall`;
+top up the mailbox before retrying. A mailbox holding conviction-locked alpha
+reverts `LockedDeposit`; reclaim it with `reclaimAlphaFromMailbox` to a coldkey
+that accepts locked alpha. Swaps and registry changes may need recovery first;
+a quote alone does not check every transaction prerequisite.
+
+## Shares and exits
+
+Shares transfer as ERC-1155 balances. Keep the token id from `Deposited`:
+`currentTokenId(netuid)` only identifies the live subnet generation.
+`sharePrice(tokenId)` is alpha per share scaled by 1e18; use
+`previewUnwrap(tokenId, shares)` for a specific burn.
+
+### Staked alpha: the default exit
+
+Call `unwrap(tokenId, shares, yourColdkey, minAlphaOut)`. The vault consolidates
+dropped validators, pays staked alpha in one transfer, and aligns the remainder
+toward current weights. This does not trade against the pool; chain rounding can
+still cost a few RAO. Verify the destination coldkey: the chain pays the key you supply.
+
+Choose `minAlphaOut` from `previewUnwrap` with only the rounding tolerance you
+accept. It bounds actual recipient credit. Use at least `1` to refuse a zero-alpha
+exit. Zero explicitly permits either:
+
+- Burning shares for no alpha after a complete write-off, giving up their claim
+  on later-recovered backing. Accrued TAO remains claimable.
+- Receiving TAO instead after subnet dissolution.
+
+### Native TAO: market sale
+
+Call `unwrapForTao(tokenId, shares, minTaoOut)`. It sells backing from its actual
+recorded keys, ignores registry weights, and pays your EVM account. Pool fees and
+price impact reduce proceeds; sales also lower the pool price for remaining holders.
+Prefer the alpha exit when available.
+
+There is no TAO market-sale preview. `minTaoOut` bounds execution proceeds in wei.
+Unsold alpha is refunded as shares, except that a burn of the entire token supply
+discards a sub-floor remainder. A sale yielding nothing reverts `WithdrawTooSmall`.
+
+A recorded slot the pool will not pay for, such as a few RAO left behind by
+rounding, makes the plain call fail, and a refused chain call burns the gas it
+was given. `unwrapForTao(tokenId, shares, minTaoOut, excludedSlots)` sells
+around it: bit `i` of the mask leaves out slot `i` of `recordedSlots(tokenId)`
+as the record stands when the call runs. Your entitlement still counts every
+slot, and what an excluded slot would have sold comes back as shares. Before a
+TAO exit, quote each recorded slot's balance with `simSwapAlphaForTao` on the
+alpha precompile through `eth_call`, where a refused quote costs nothing,
+exclude the slots that fail or quote zero, then dry-run the masked call the
+same way; `scripts/plan_tao_exit.py` does exactly this, quoting each slot from
+the key the vault would sell it from, which it reads off the lens. Quotes are
+taken one at a time and earlier sales move the pool, so the dry run is the real
+check, and a state change between it and inclusion can still call for one retry.
+
+A full-supply burn uses floor-exempt full stake drains. This is not an unconditional
+exit guarantee: ownership, backing, pool execution and slippage checks still apply.
+A small holder with co-holders may need a top-up or combine shares with another
+holder to clear minimums. Top-ups themselves may need watcher recovery first.
+
+### Dissolved subnet
+
+After cleanup, `unwrap(tokenId, shares, anything, 0)` pays your share of the clone's
+TAO refund; the coldkey argument is unused. `previewUnwrap` quotes that TAO amount.
+Payouts floor to whole RAO; a smaller slice reverts `ClaimBelowNativePrecision`.
+A positive alpha minimum prevents a transaction prepared for alpha from unexpectedly
+burning for TAO. See [dissolution](edge-cases.md#subnet-dissolution).
+
+## Recovery status
+
+On a live subnet, `BackingShortfall` blocks wraps, rebalances, both exits and value
+quotes until the position parks or the loss is written off. It means expected
+alpha is unlocated, not proof it was destroyed. While a loss is on file the
+token stays shut (`ShortfallOnFile`) until recovery completes or sync writes
+off the remaining deficit. Shares still transfer and accrued TAO stays claimable.
+
+The lens exposes:
+
+- `locatedStake(tokenId)`: alpha currently found.
+- `missingStake(tokenId)`: the aggregate alpha still missing.
+- `isBackingIntact(tokenId)`: whether all recorded expectations are covered and
+  no loss is on file.
+- `frozenUntil(tokenId)`: zero while the position accounts for itself, the
+  maximum value while a shortfall is still undeclared, otherwise the deadline
+  at which `syncBacking` can write the loss off.
+- `awaitingAttestation(tokenId)`: whether the position still waits for an
+  attestation newer than the one it parked under. It turns false the moment a
+  newer set is published, while the alpha keeps sitting on the parking hotkey,
+  earning nothing, until the first wrap, rebalance or alpha exit moves it.
+
+A parked position pays alpha exits from the parking hotkey: the alpha arrives
+delegated to that hotkey and earns nothing until you move it to a validator
+with your own `moveStake`. TAO exits, transfers and claims work as usual.
+Deposits (`Parked`) and weight alignment wait for the attesters to publish a
+new validator set; the first wrap, rebalance or alpha exit after that lands the
+parked alpha on the new set.
+
+`syncBacking` parks located backing before starting one fixed window.
+`recoverStray(tokenId, source)` then collects one hotkey per call without changing
+the deadline. Call sync again after full recovery to clear the freeze. At expiry,
+sync collects returns before writing off the remaining deficit.
+Below-floor piles may remain outside parking and be written off without delaying
+the window. A larger return can collect that dust; after write-off its location
+must be supplied explicitly to `recoverStray`. Other collection failures revert
+without changing the obligation or clock.
+An intact backing report does not guarantee an exit either. See the
+[watcher runbook](hotkey-swaps.md).
+
+## Claim TAO and reclaim deposits
+
+Native TAO received by a live clone outside exits is indexed to holders when
+synchronized. Read `claimableTaoOf(you, tokenId)`; call
+`claimTao(tokenId, recipient)` to collect it. Claims survive share transfers and
+full exits; sub-RAO residue stays reserved.
+
+Mailbox recovery always acts on your own mailbox:
+
+- `reclaimAlphaFromMailbox(netuid, hotkey, destColdkey)`: return staked alpha,
+  including from unlisted hotkeys.
+- `reclaimMailboxAlphaAsTao(netuid, hotkey, minTaoOut)`: sell it for native TAO.
+- `reclaimTaoFromMailbox(netuid)`: collect native TAO, including dissolution refunds.
+
+Stake recovery still depends on source ownership and chain rules. Disabled alpha
+transfers prevent the first method, not the TAO sale itself.
+
+If a swap moved your deposit, wrapping the old key can revert `ZeroAmount`.
+Locate the mailbox's stake from chain state/history, reclaim from its actual key,
+then redeposit under a currently attested hotkey.

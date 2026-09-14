@@ -1,0 +1,423 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.36;
+
+import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
+import { ClaimBelowNativePrecision, SupplyCapExceeded, ZeroAddress, ZeroAmount } from "src/VaultErrors.sol";
+import { ClaimDuringTransferReceiver, RevertingReceiver, ClaimReentrantReceiver } from "./helpers/TaoRailReceivers.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+contract ClaimableTaoTest is AlphaVaultTestBase {
+    uint256 internal constant DEPOSIT = 30 ether;
+
+    uint256 internal constant NATIVE_TRANSFER_QUANTUM = 1e9;
+
+    function _donateToTokenClone(uint256 tokenId, uint256 amount) internal {
+        _donateToClone(vault.subnetClone(tokenId), amount);
+    }
+
+    function _claimAs(address user) internal {
+        vm.prank(user);
+        vault.claimTao(TOKEN1, payable(user));
+    }
+
+    function _assertCloneCoversReservedTao(uint256 tokenId) internal view {
+        address clone = vault.subnetClone(tokenId);
+        assertGe(clone.balance, vault.taoLiability(tokenId));
+    }
+
+    function _touch(address user, uint256 tokenId) internal {
+        vm.prank(user);
+        vault.safeTransferFrom(user, user, tokenId, 0, "");
+    }
+
+    function _exitCompletely(address user, uint256 tokenId) internal {
+        uint256 shares = vault.balanceOf(user, tokenId);
+        vm.prank(user);
+        vault.unwrap(tokenId, shares, _toSubstrate(user), 0);
+    }
+
+    function test_DonationBeforeSecondWrap_AccruesOnlyToFirstHolder() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        uint256 donated = 5 ether;
+        _donateToTokenClone(TOKEN1, donated);
+
+        _depositAndWrap(bob, NETUID1, DEPOSIT);
+
+        assertEq(lens.claimableTaoOf(bob, TOKEN1), 0);
+        assertApproxEqAbs(lens.claimableTaoOf(alice, TOKEN1), donated, NATIVE_TRANSFER_QUANTUM);
+        assertLe(lens.claimableTaoOf(alice, TOKEN1), donated);
+        assertLe(vault.taoLiability(TOKEN1), donated);
+    }
+
+    function test_TransferAfterDonation_SenderKeepsEarnedEntitlement() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        uint256 donated = 3 ether;
+        _donateToTokenClone(TOKEN1, donated);
+
+        uint256 shares = vault.balanceOf(alice, TOKEN1);
+        vm.prank(alice);
+        vault.safeTransferFrom(alice, bob, TOKEN1, shares, "");
+
+        assertApproxEqAbs(lens.claimableTaoOf(alice, TOKEN1), donated, NATIVE_TRANSFER_QUANTUM);
+        assertLe(lens.claimableTaoOf(alice, TOKEN1), donated);
+        assertEq(lens.claimableTaoOf(bob, TOKEN1), 0);
+    }
+
+    function test_BatchWithDuplicateIds_SettlesEachIdOnce() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        uint256 donated = 4 ether;
+        _donateToTokenClone(TOKEN1, donated);
+
+        uint256 shares = vault.balanceOf(alice, TOKEN1);
+        uint256[] memory ids = new uint256[](2);
+        ids[0] = TOKEN1;
+        ids[1] = TOKEN1;
+        uint256[] memory values = new uint256[](2);
+        values[0] = shares / 2;
+        values[1] = shares / 2;
+        vm.prank(alice);
+        vault.safeBatchTransferFrom(alice, bob, ids, values, "");
+
+        assertApproxEqAbs(lens.claimableTaoOf(alice, TOKEN1), donated, NATIVE_TRANSFER_QUANTUM);
+        assertEq(lens.claimableTaoOf(bob, TOKEN1), 0);
+
+        _donateToTokenClone(TOKEN1, donated);
+        _touch(bob, TOKEN1);
+        uint256 bobShare = (donated * vault.balanceOf(bob, TOKEN1)) / vault.totalSupply(TOKEN1);
+        assertApproxEqAbs(lens.claimableTaoOf(bob, TOKEN1), bobShare, NATIVE_TRANSFER_QUANTUM);
+        assertLe(lens.claimableTaoOf(bob, TOKEN1), bobShare);
+    }
+
+    function test_SelfTransfer_LeavesEntitlementUnchanged() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        uint256 donated = 2 ether;
+        _donateToTokenClone(TOKEN1, donated);
+        uint256 entitlementBefore = lens.claimableTaoOf(alice, TOKEN1);
+
+        _touch(alice, TOKEN1);
+        assertEq(lens.claimableTaoOf(alice, TOKEN1), entitlementBefore);
+
+        _touch(alice, TOKEN1);
+        assertEq(lens.claimableTaoOf(alice, TOKEN1), entitlementBefore);
+    }
+
+    function test_ClaimTao_PaysSettledEntitlement() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        uint256 donated = 5 ether;
+        _donateToTokenClone(TOKEN1, donated);
+        _touch(alice, TOKEN1);
+
+        uint256 expected = lens.claimableTaoOf(alice, TOKEN1);
+        uint256 storedBefore = vault.claimableTao(TOKEN1, alice);
+        uint256 liabilityBefore = vault.taoLiability(TOKEN1);
+        vm.expectEmit(true, true, false, true, address(vault));
+        emit TaoClaimed(alice, TOKEN1, alice, expected);
+        _claimAs(alice);
+
+        assertEq(alice.balance, expected);
+        assertEq(lens.claimableTaoOf(alice, TOKEN1), 0);
+        assertEq(vault.claimableTao(TOKEN1, alice), storedBefore - expected);
+        assertEq(vault.taoLiability(TOKEN1), liabilityBefore - expected);
+        _assertCloneCoversReservedTao(TOKEN1);
+    }
+
+    function test_RevertWhen_ClaimingWithNoEntitlement() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        vm.expectRevert(ZeroAmount.selector);
+        _claimAs(bob);
+    }
+
+    function test_RevertWhen_ClaimingSubQuantumEntitlement() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        _donateToTokenClone(TOKEN1, NATIVE_TRANSFER_QUANTUM - 1);
+
+        assertEq(lens.claimableTaoOf(alice, TOKEN1), 0);
+        vm.expectRevert(ClaimBelowNativePrecision.selector);
+        _claimAs(alice);
+    }
+
+    function test_RevertWhen_ClaimingToZeroAddress() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        vm.expectRevert(ZeroAddress.selector);
+        vm.prank(alice);
+        vault.claimTao(TOKEN1, payable(address(0)));
+    }
+
+    function test_ClaimToAnotherRecipient_PaysThemAndDebitsOnlyTheHolder() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        _donateToTokenClone(TOKEN1, 5 ether);
+        uint256 quote = lens.claimableTaoOf(alice, TOKEN1);
+        vm.deal(alice, 2 ether);
+        vm.deal(bob, 3 ether);
+        uint256 aliceBefore = alice.balance;
+        uint256 bobBefore = bob.balance;
+
+        vm.prank(alice);
+        vault.claimTao(TOKEN1, payable(bob));
+
+        assertEq(alice.balance, aliceBefore);
+        assertEq(bob.balance - bobBefore, quote);
+        assertApproxEqAbs(bob.balance - bobBefore, 5 ether, NATIVE_TRANSFER_QUANTUM);
+        assertEq(lens.claimableTaoOf(alice, TOKEN1), 0);
+        assertEq(lens.claimableTaoOf(bob, TOKEN1), 0, "recipient acquires no entitlement");
+    }
+
+    function test_RejectedClaim_PreservesCreditForAnotherRecipient() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        _donateToTokenClone(TOKEN1, 5 ether);
+        _touch(alice, TOKEN1);
+        RevertingReceiver receiver = new RevertingReceiver();
+        uint256 credit = vault.claimableTao(TOKEN1, alice);
+        uint256 liability = vault.taoLiability(TOKEN1);
+        uint256 cloneBalance = vault.subnetClone(TOKEN1).balance;
+
+        vm.expectRevert(bytes("nope"));
+        vm.prank(alice);
+        vault.claimTao(TOKEN1, payable(address(receiver)));
+
+        assertEq(vault.claimableTao(TOKEN1, alice), credit);
+        assertEq(vault.taoLiability(TOKEN1), liability);
+        assertEq(vault.subnetClone(TOKEN1).balance, cloneBalance);
+        vm.prank(alice);
+        vault.claimTao(TOKEN1, payable(bob));
+        assertApproxEqAbs(bob.balance, 5 ether, NATIVE_TRANSFER_QUANTUM);
+    }
+
+    function test_ClaimReceiver_CannotReenterThePayout() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        _donateToTokenClone(TOKEN1, 5 ether);
+        ClaimReentrantReceiver receiver = new ClaimReentrantReceiver(vault, TOKEN1);
+
+        vm.prank(alice);
+        vault.claimTao(TOKEN1, payable(address(receiver)));
+
+        assertEq(receiver.reentryError(), abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector));
+        assertFalse(receiver.reentrySucceeded());
+        assertApproxEqAbs(address(receiver).balance, 5 ether, NATIVE_TRANSFER_QUANTUM);
+    }
+
+    function test_InterleavedBatchTransfer_KeepsEachTokensHistoricalDonations() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        _depositAndWrap(alice, NETUID2, DEPOSIT);
+        _donateToTokenClone(TOKEN1, 3 ether);
+        _donateToTokenClone(TOKEN2, 7 ether);
+        uint256[] memory ids = new uint256[](3);
+        ids[0] = TOKEN1;
+        ids[1] = TOKEN2;
+        ids[2] = TOKEN1;
+        uint256[] memory amounts = new uint256[](3);
+        amounts[0] = vault.balanceOf(alice, TOKEN1) / 2;
+        amounts[1] = vault.balanceOf(alice, TOKEN2);
+        amounts[2] = amounts[0];
+        vm.prank(alice);
+        vault.setApprovalForAll(bob, true);
+        vm.prank(bob);
+        vault.safeBatchTransferFrom(alice, bob, ids, amounts, "");
+
+        assertApproxEqAbs(_claimQuotedAmount(alice, TOKEN1), 3 ether, NATIVE_TRANSFER_QUANTUM);
+        assertApproxEqAbs(_claimQuotedAmount(alice, TOKEN2), 7 ether, NATIVE_TRANSFER_QUANTUM);
+        assertEq(lens.claimableTaoOf(bob, TOKEN1), 0);
+        assertEq(lens.claimableTaoOf(bob, TOKEN2), 0);
+    }
+
+    function test_ClaimAfterFullExit_StillPays() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        uint256 donated = 5 ether;
+        _donateToTokenClone(TOKEN1, donated);
+
+        _exitCompletely(alice, TOKEN1);
+
+        assertApproxEqAbs(lens.claimableTaoOf(alice, TOKEN1), donated, NATIVE_TRANSFER_QUANTUM);
+        uint256 paid = _claimQuotedAmount(alice, TOKEN1);
+        assertApproxEqAbs(paid, donated, NATIVE_TRANSFER_QUANTUM);
+        assertLe(paid, donated);
+    }
+
+    function test_ReceiverClaimDuringSafeTransfer_GainsNothing() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        uint256 donated = 5 ether;
+        _donateToTokenClone(TOKEN1, donated);
+        ClaimDuringTransferReceiver receiver = new ClaimDuringTransferReceiver(vault);
+
+        uint256 shares = vault.balanceOf(alice, TOKEN1);
+        vm.prank(alice);
+        vault.safeTransferFrom(alice, address(receiver), TOKEN1, shares, "");
+
+        assertFalse(receiver.claimSucceeded());
+        assertEq(address(receiver).balance, 0);
+        assertApproxEqAbs(lens.claimableTaoOf(alice, TOKEN1), donated, NATIVE_TRANSFER_QUANTUM);
+    }
+
+    function test_UnwrapForTaoAfterDonation_ExitPaysSaleProceedsOnly() public {
+        // The sale narrows slot balances to the chain's 64-bit stake amounts, so this deposit stays in RAO.
+        uint256 deposit = 30 * ALPHA;
+        _depositAndWrap(alice, NETUID1, deposit);
+        _depositAndWrap(bob, NETUID1, deposit);
+        uint256 donated = 5 ether;
+        _donateToTokenClone(TOKEN1, donated);
+
+        uint256 shares = vault.balanceOf(bob, TOKEN1);
+        (uint256 bobAlpha,) = lens.previewUnwrap(TOKEN1, shares);
+        vm.prank(bob);
+        vault.unwrapForTao(TOKEN1, shares, 0);
+
+        uint256 exitPaid = bob.balance;
+        assertGt(exitPaid, 0);
+        assertLe(exitPaid, _expectedTaoFor(bobAlpha));
+        _assertCloneCoversReservedTao(TOKEN1);
+        uint256 keptClaims = lens.claimableTaoOf(alice, TOKEN1) + lens.claimableTaoOf(bob, TOKEN1);
+        assertApproxEqAbs(keptClaims, donated, 2 * NATIVE_TRANSFER_QUANTUM);
+        assertLe(keptClaims, donated);
+    }
+
+    function testFuzz_ClaimsAcrossHolders_ConserveArrivedTao(uint256 donation, uint256 aliceDeposit, uint256 bobDeposit)
+        public
+    {
+        donation = bound(donation, 1, 1_000_000 ether);
+        aliceDeposit = bound(aliceDeposit, 1 ether, 1_000_000 ether);
+        bobDeposit = bound(bobDeposit, 1 ether, 1_000_000 ether);
+
+        _depositAndWrap(alice, NETUID1, aliceDeposit);
+        _depositAndWrap(bob, NETUID1, bobDeposit);
+        _donateToTokenClone(TOKEN1, donation);
+
+        // Exercise both checkpointed entitlement and still-unindexed TAO.
+        uint256 aliceShares = vault.balanceOf(alice, TOKEN1);
+        vm.prank(alice);
+        vault.safeTransferFrom(alice, bob, TOKEN1, aliceShares / 2, "");
+        uint256 secondDonation = donation / 3 + 1;
+        _donateToTokenClone(TOKEN1, secondDonation);
+
+        uint256 arrived = donation + secondDonation;
+        uint256 paid = _claimQuotedAmount(alice, TOKEN1) + _claimQuotedAmount(bob, TOKEN1);
+        assertLe(paid, arrived);
+        // At most one sub-RAO remainder per holder, plus index flooring.
+        assertApproxEqAbs(paid, arrived, 2 * NATIVE_TRANSFER_QUANTUM + 8);
+        _assertCloneCoversReservedTao(TOKEN1);
+    }
+
+    function test_DissolutionRefund_NotIndexedToHolders() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        uint256 indexBefore = vault.cumulativeTaoPerShare(TOKEN1);
+
+        _simulateDissolutionStarted(NETUID1);
+        _donateToTokenClone(TOKEN1, 5 ether);
+        _simulateTaoAwardedOnDissolution(TOKEN1, 20 ether);
+        uint256 shares = vault.balanceOf(alice, TOKEN1);
+        vm.prank(alice);
+        vault.safeTransferFrom(alice, bob, TOKEN1, shares / 2, "");
+
+        assertEq(vault.cumulativeTaoPerShare(TOKEN1), indexBefore);
+        assertEq(vault.taoLiability(TOKEN1), 0);
+
+        _simulateDissolutionCompleted(NETUID1);
+        _touch(bob, TOKEN1);
+
+        assertEq(vault.cumulativeTaoPerShare(TOKEN1), indexBefore);
+        assertEq(vault.taoLiability(TOKEN1), 0);
+        assertEq(lens.claimableTaoOf(alice, TOKEN1), 0);
+        assertEq(lens.claimableTaoOf(bob, TOKEN1), 0);
+    }
+
+    function test_DissolvedUnwrap_ExcludesReservedTao() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        _depositAndWrap(bob, NETUID1, DEPOSIT);
+        uint256 donated = 6 ether;
+        _donateToTokenClone(TOKEN1, donated);
+        _touch(alice, TOKEN1);
+
+        uint256 refund = 20 ether;
+        _simulateDissolutionStarted(NETUID1);
+        _simulateTaoAwardedOnDissolution(TOKEN1, refund);
+        _simulateDissolutionCompleted(NETUID1);
+
+        uint256 aliceShares = vault.balanceOf(alice, TOKEN1);
+        uint256 supply = vault.totalSupply(TOKEN1);
+        (, uint256 previewTao) = lens.previewUnwrap(TOKEN1, aliceShares);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, aliceShares, bytes32(0), 0);
+
+        assertEq(alice.balance, previewTao);
+        assertApproxEqAbs(alice.balance, (refund * aliceShares) / supply, 2);
+
+        _claimQuotedAmount(alice, TOKEN1);
+        assertApproxEqAbs(alice.balance, previewTao + donated / 2, NATIVE_TRANSFER_QUANTUM + 4);
+        assertLe(alice.balance, previewTao + donated / 2);
+    }
+
+    function test_ClaimDuringBlackout_PaysExistingEntitlement() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        uint256 donated = 5 ether;
+        _donateToTokenClone(TOKEN1, donated);
+        _touch(alice, TOKEN1);
+
+        _simulateDissolutionStarted(NETUID1);
+
+        uint256 paid = _claimQuotedAmount(alice, TOKEN1);
+        assertApproxEqAbs(paid, donated, NATIVE_TRANSFER_QUANTUM);
+        assertLe(paid, donated);
+    }
+
+    function test_UnwrapAfterFullSweep_RetiresSharesAndKeepsClaim() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        uint256 proceeds = 7 ether;
+        _simulateTaoAwardedOnDissolution(TOKEN1, proceeds);
+        _catchRecordUpFor(TOKEN1);
+
+        uint256 shares = vault.balanceOf(alice, TOKEN1);
+        (uint256 previewAlpha, uint256 previewTao) = lens.previewUnwrap(TOKEN1, shares);
+        assertEq(previewAlpha, 0);
+        assertEq(previewTao, 0);
+        vm.expectEmit(true, true, false, true, address(vault));
+        emit Unwrapped(alice, TOKEN1, shares, 0);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
+
+        assertEq(vault.totalSupply(TOKEN1), 0);
+        uint256 paid = _claimQuotedAmount(alice, TOKEN1);
+        assertApproxEqAbs(paid, proceeds, NATIVE_TRANSFER_QUANTUM);
+        assertLe(paid, proceeds);
+    }
+
+    function test_WrapAfterFullSweep_StaysWithinClaimIndexBound() public {
+        uint256 seed = 1e10;
+        _depositAndWrap(alice, NETUID1, seed);
+        _simulateTaoAwardedOnDissolution(TOKEN1, 5 ether);
+        _catchRecordUpFor(TOKEN1);
+        _depositAndWrap(bob, NETUID1, seed);
+        assertLe(vault.totalSupply(TOKEN1), 1e45);
+
+        uint256 liabilityBefore = vault.taoLiability(TOKEN1);
+        _donateToTokenClone(TOKEN1, 100 * NATIVE_TRANSFER_QUANTUM);
+        _touch(bob, TOKEN1);
+        assertGt(vault.taoLiability(TOKEN1), liabilityBefore);
+        _claimQuotedAmount(bob, TOKEN1);
+    }
+
+    function test_RevertWhen_RecapitalizationWouldBreachClaimIndexBound() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        _simulateTaoAwardedOnDissolution(TOKEN1, 5 ether);
+        _catchRecordUpFor(TOKEN1);
+
+        bytes32 chosen = lens.getCurrentValidators(NETUID1)[0];
+        _simulateAlphaDeposit(bob, NETUID1, DEPOSIT);
+        vm.expectRevert(SupplyCapExceeded.selector);
+        vm.prank(bob);
+        vault.wrap(NETUID1, chosen, 0);
+    }
+
+    function test_TaoArrivingAtZeroSupply_AccruesToNextHolders() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        _exitCompletely(alice, TOKEN1);
+        assertEq(vault.totalSupply(TOKEN1), 0);
+
+        uint256 orphaned = 5 ether;
+        _donateToTokenClone(TOKEN1, orphaned);
+        _depositAndWrap(bob, NETUID1, DEPOSIT);
+
+        assertEq(lens.claimableTaoOf(alice, TOKEN1), 0);
+        assertApproxEqAbs(lens.claimableTaoOf(bob, TOKEN1), orphaned, NATIVE_TRANSFER_QUANTUM);
+        _claimQuotedAmount(bob, TOKEN1);
+        _assertCloneCoversReservedTao(TOKEN1);
+    }
+}

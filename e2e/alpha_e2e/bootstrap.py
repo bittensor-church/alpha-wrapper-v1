@@ -1,0 +1,380 @@
+"""One-time localnet setup shared by every scenario.
+
+build_environment() brings a fresh localnet to the point where a position can
+be deposited:
+
+  pre-flight  chain reachable, dev Alice wallet present (regen from seed if not)
+  Phase 0     fund the deployer EVM account from Alice
+  Phase 1     create 3 subnets, disable the admin freeze window, start
+              emissions, raise the per-block registration limit
+  Phase 2     create + register 3 validator hotkeys per subnet
+  Phase 3     stake TAO per validator at ratio 3:2:1
+  Phase 4     deploy the contracts and set one target per subnet via the Basic owner
+  Phase 5     fund the wrapper user account
+
+btcli calls go through chain.btcli() (auto-appends --network) or
+chain.btcli_json() where the outcome is read back; wallet regen/creation calls
+go through chain.btcli_local() because they touch only local key files and must
+not carry the --network flag. Keys live under config.WALLET_PATH.
+"""
+import os
+import secrets
+import time
+from typing import List, NamedTuple, Tuple
+
+from . import chain, config, extrinsics, substrate, validators
+from .environment import Environment, read_stake
+
+
+
+class DeployedContracts(NamedTuple):
+    vault_address: str
+    lens_address: str
+    mailbox_implementation_address: str
+    subnet_clone_implementation_address: str
+    validator_registry_address: str
+
+
+def _log(message: str) -> None:
+    print(f"\n=== {message} ===", flush=True)
+
+
+# --- Chain ops shared with the scenarios ---------------------------------------
+
+def create_subnet() -> int:
+    """Create a subnet and return the netuid the chain assigned it."""
+    result = chain.btcli_json(
+        ["subnets", "create", "--wallet", config.ALICE_WALLET,
+         "--wallet-hotkey", config.ALICE_HOTKEY_NAME, "--yes"],
+    )
+    netuid = result.get("data", {}).get("netuid")
+    if netuid is None:
+        raise RuntimeError(f"Could not extract netuid: {result}")
+    return int(netuid)
+
+
+# A repeat registration is turned away for the hotkey already holding a slot,
+# which is exactly the state this function is asked to reach.
+_ALREADY_REGISTERED = "HotKeyAlreadyRegisteredInSubNet"
+
+
+def register_hotkey(netuid: int, hotkey_name: str) -> Tuple[str, str]:
+    """Create the hotkey if missing and register it on a subnet, retrying across
+    blocks (registration is rate-limited even at the raised per-block limit).
+    Returns the hotkey's (bytes32 pubkey, SS58 address)."""
+    hotkey_file = substrate.hotkey_file_path(config.ALICE_WALLET, hotkey_name)
+    if not os.path.isfile(hotkey_file):
+        chain.btcli_local(
+            ["wallet", "new-hotkey", "--wallet", config.ALICE_WALLET,
+             "--wallet-hotkey", hotkey_name, "--n-words", "12"],
+        )
+
+    pubkey = substrate.read_hotkey_pubkey(config.ALICE_WALLET, hotkey_name)
+    ss58 = substrate.read_hotkey_ss58(config.ALICE_WALLET, hotkey_name)
+
+    refusal = None
+    for attempt in (1, 2, 3):
+        try:
+            extrinsics.burned_register(ss58, netuid)
+            return pubkey, ss58
+        except extrinsics.ExtrinsicError as error:
+            if _ALREADY_REGISTERED in str(error):
+                return pubkey, ss58
+            refusal = error
+        print(f"  Retry {attempt} for {hotkey_name} (waiting for next block)...")
+        time.sleep(6)
+
+    raise RuntimeError(
+        f"register failed for {hotkey_name} on netuid {netuid} after 3 attempts: {refusal}"
+    )
+
+
+# --- Pre-flight -----------------------------------------------------------------
+
+def _check_repo_root() -> None:
+    if not (os.path.isdir("src") and os.path.isdir("e2e")):
+        raise RuntimeError("Run from the repo root (CWD must contain e2e/ and src/).")
+
+
+def _check_chain_reachable() -> None:
+    _log("Pre-flight checks")
+    try:
+        chain_id = chain.cast_chain_id()
+    except chain.ChainError as error:
+        raise RuntimeError(f"Cannot connect to {config.RPC_URL}") from error
+    print(f"  Chain reachable (chain-id: {chain_id})")
+    try:
+        balance = chain.cast_balance_ether(config.DEPLOYER_ADDRESS)
+    except chain.ChainError:
+        balance = 0.0
+    print(f"  Deployer balance: {balance} TAO")
+
+
+def _ensure_alice_wallet() -> None:
+    """Make sure the suite's alice wallet is the dev Alice (generating it from the
+    dev seed when it is absent) and has a hotkey."""
+    wallet_dir = substrate.wallet_dir_path(config.ALICE_WALLET)
+    coldkey_file = substrate.coldkeypub_file_path(config.ALICE_WALLET)
+    move_aside = "Move it aside, or point ALPHA_E2E_WALLET_PATH at another directory."
+
+    if os.path.isfile(coldkey_file):
+        with open(coldkey_file) as coldkey_pub_file:
+            content = coldkey_pub_file.read()
+        # Keys here may be an operator's own, and a regeneration would overwrite
+        # them, so a foreign wallet stops the run instead.
+        if config.ALICE_COLDKEY_SS58 not in content:
+            raise RuntimeError(f"{wallet_dir} holds a coldkey that is not the dev Alice. {move_aside}")
+        print("  Alice coldkey is the dev Alice")
+    elif os.path.isdir(wallet_dir) and os.listdir(wallet_dir):
+        # A private key with no public file is still a key; only an empty directory is safe to fill.
+        raise RuntimeError(f"{wallet_dir} exists without a readable coldkeypub. {move_aside}")
+    else:
+        print("  Setting up dev Alice wallet from seed...")
+        chain.btcli_local(
+            ["wallet", "regen-coldkey", "--wallet", config.ALICE_WALLET,
+             "--seed", config.ALICE_COLDKEY_SEED, "--no-password"],
+        )
+        if not os.path.isfile(coldkey_file):
+            raise RuntimeError(f"Failed to regenerate the Alice coldkey at {coldkey_file}")
+        print("  Alice coldkey regenerated from dev seed (5Grwva...)")
+
+    hotkey_file = substrate.hotkey_file_path(config.ALICE_WALLET, config.ALICE_HOTKEY_NAME)
+    if not os.path.isfile(hotkey_file):
+        print(f"  Creating hotkey '{config.ALICE_HOTKEY_NAME}' for wallet '{config.ALICE_WALLET}'...")
+        chain.btcli_local(
+            ["wallet", "new-hotkey", "--wallet", config.ALICE_WALLET,
+             "--wallet-hotkey", config.ALICE_HOTKEY_NAME, "--n-words", "12"],
+        )
+        print(f"  Created hotkey '{config.ALICE_HOTKEY_NAME}'")
+    else:
+        print(f"  Alice hotkey '{config.ALICE_HOTKEY_NAME}' exists")
+    print("  Alice wallet ready")
+
+
+# --- Phase 0/5: fund the EVM test accounts from Alice ------------------------------
+
+def _ensure_evm_account_funded(
+    label: str, address: str, ss58: str, minimum_tao: int, transfer_tao: int,
+) -> None:
+    balance = chain.cast_balance_ether(address)
+    if int(balance) < minimum_tao:
+        chain.btcli(
+            ["wallet", "transfer", "--wallet", config.ALICE_WALLET,
+             "--dest", ss58, "--amount-tao", str(transfer_tao), "--yes"],
+            check=True,
+        )
+        print(f"  Transferred {transfer_tao} TAO -> {address} ({ss58})")
+        print(f"  New balance: {chain.cast_balance_ether(address)} TAO")
+    else:
+        print(f"  {label} already funded: {balance} TAO (>{minimum_tao}, skipping transfer)")
+
+
+# --- Phase 1: subnets, freeze window, emissions -----------------------------------
+
+def _create_subnets() -> List[int]:
+    _log("Phase 1: Create 3 subnets")
+    netuids = []
+    for subnet_number in (1, 2, 3):
+        print(f"  Creating subnet {subnet_number} of 3 ...")
+        netuid = create_subnet()
+        netuids.append(netuid)
+        print(f"  netuid {netuid}")
+
+    # Let scenario setup change administrative settings without waiting for an epoch.
+    _log("Disable admin freeze window (deterministic sudo hyperparameter writes)")
+    extrinsics.set_admin_freeze_window(0)
+    print("  AdminFreezeWindow -> 0")
+
+    _log("Start emissions + raise the per-block registration cap")
+    for netuid in netuids:
+        chain.btcli(
+            ["sudo", "start", "--netuid", str(netuid),
+             "--wallet", config.ALICE_WALLET, "--wallet-hotkey", config.ALICE_HOTKEY_NAME,
+             "--yes"],
+            check=True,
+        )
+        print(f"  netuid {netuid} emissions started")
+        extrinsics.set_max_registrations_per_block(netuid, 8)
+        print(f"  netuid {netuid} registrations per block -> 8")
+    return netuids
+
+
+# --- Phase 2: hotkeys + validator registration -------------------------------------
+
+def _register_validators(netuids: List[int]) -> Tuple[List[str], List[str], List[str]]:
+    _log("Phase 2: Hotkeys & validators (3 per subnet)")
+    hotkey_names: List[str] = []
+    hotkey_pubkeys: List[str] = []
+    hotkey_ss58s: List[str] = []
+
+    for subnet_index, netuid in enumerate(netuids):
+        for suffix in config.HOTKEY_SUFFIXES:
+            hotkey_name = f"hk_e2e_{subnet_index + 1}{suffix}"
+            pubkey, ss58 = register_hotkey(netuid, hotkey_name)
+            hotkey_names.append(hotkey_name)
+            hotkey_pubkeys.append(pubkey)
+            hotkey_ss58s.append(ss58)
+            print(f"  {hotkey_name} registered on netuid {netuid}: {pubkey[:18]}...")
+
+    return hotkey_names, hotkey_pubkeys, hotkey_ss58s
+
+
+# --- Phase 3: stake TAO per validator, ratio 3:2:1 ----------------------------------
+
+def _stake_validators(
+    netuids: List[int], hotkey_names: List[str],
+    hotkey_pubkeys: List[str], hotkey_ss58s: List[str],
+) -> None:
+    _log("Phase 3: Stake TAO per validator (ratio 3:2:1)")
+    for subnet_index, netuid in enumerate(netuids):
+        for validator_index, amount_tao in enumerate(config.VALIDATOR_STAKE_TAO):
+            flat_index = subnet_index * config.VALIDATORS_PER_SUBNET + validator_index
+            hotkey_name = hotkey_names[flat_index]
+
+            extrinsics.add_stake(hotkey_ss58s[flat_index], netuid, amount_tao * config.RAO_PER_TAO)
+            stake = read_stake(hotkey_pubkeys[flat_index], config.ALICE_COLDKEY_PUBKEY, netuid)
+            if stake == 0:
+                raise RuntimeError(
+                    f"stake add landed but {hotkey_name} reads 0 RAO on netuid {netuid}"
+                )
+            print(f"  netuid {netuid} {hotkey_name}: {amount_tao} TAO -> {stake} RAO")
+
+
+# --- Phase 4: deploy contracts -------------------------------------------------------
+
+def _deploy_registry() -> str:
+    address = chain.forge_create(
+        "src/BasicValidatorRegistry.sol:BasicValidatorRegistry",
+        private_key=config.DEPLOYER_PRIVATE_KEY,
+        constructor_args=[config.DEPLOYER_ADDRESS],
+    )
+    print(f"  BasicValidatorRegistry: {address} (initial owner={config.DEPLOYER_ADDRESS})")
+    return address
+
+
+def _deploy_contracts(
+    netuids: List[int], hotkey_pubkeys: List[str], *, recovery_window: int,
+):
+    _log("Phase 4: Deploy")
+
+    # Capture the deploy block so a downstream observability phase can scope its
+    # event queries.
+    observation_block_start = chain.cast_block_number()
+    print(f"  Observability block range start: {observation_block_start}")
+
+    chain.forge_build()
+    print("  Compiled")
+
+    mailbox_implementation_address = chain.forge_create(
+        "src/DepositMailbox.sol:DepositMailbox", private_key=config.DEPLOYER_PRIVATE_KEY,
+    )
+    print(f"  DepositMailbox: {mailbox_implementation_address}")
+
+    subnet_clone_implementation_address = chain.forge_create(
+        "src/SubnetClone.sol:SubnetClone", private_key=config.DEPLOYER_PRIVATE_KEY,
+    )
+    print(f"  SubnetClone: {subnet_clone_implementation_address}")
+
+    validator_registry_address = _deploy_registry()
+
+    allocation_library = "src/libraries/VaultAllocation.sol:VaultAllocation"
+    allocation_address = chain.forge_create(allocation_library, private_key=config.DEPLOYER_PRIVATE_KEY)
+    print(f"  VaultAllocation: {allocation_address}")
+
+    # The vault claims this account id for its own coldkey; a fresh one keeps repeated
+    # bootstraps against the same chain from colliding.
+    parking_hotkey = "0x" + secrets.token_hex(32)
+    vault_address = chain.forge_create(
+        "src/AlphaVault.sol:AlphaVault", private_key=config.DEPLOYER_PRIVATE_KEY,
+        libraries=[f"{allocation_library}:{allocation_address}"],
+        constructor_args=[
+            "https://api.tao20.io/{id}.json", mailbox_implementation_address,
+            subnet_clone_implementation_address, validator_registry_address,
+            str(recovery_window), parking_hotkey,
+        ],
+    )
+    print(f"  AlphaVault: {vault_address}")
+
+    lens_address = chain.forge_create(
+        "src/AlphaVaultLens.sol:AlphaVaultLens", private_key=config.DEPLOYER_PRIVATE_KEY,
+        constructor_args=[vault_address],
+    )
+    print(f"  AlphaVaultLens: {lens_address}")
+
+    token_ids: List[int] = []
+    for netuid in netuids:
+        token_id = chain.cast_call(vault_address, "currentTokenId(uint256)(uint256)", netuid)
+        if not token_id or token_id == "0":
+            raise RuntimeError(
+                f"currentTokenId returned 0 for netuid {netuid} (subnet not registered?)"
+            )
+        token_ids.append(int(token_id))
+        print(f"  netuid {netuid} -> tokenId {token_id}")
+
+    registry_block_start = chain.cast_block_number()
+    for subnet_index, netuid in enumerate(netuids):
+        subnet_pubkeys = hotkey_pubkeys[
+            subnet_index * config.VALIDATORS_PER_SUBNET:
+            (subnet_index + 1) * config.VALIDATORS_PER_SUBNET
+        ]
+        validators.set_basic_validator(validator_registry_address, netuid, subnet_pubkeys[0])
+    registry_block_end = chain.cast_block_number()
+
+    contracts = DeployedContracts(
+        vault_address=vault_address,
+        lens_address=lens_address,
+        mailbox_implementation_address=mailbox_implementation_address,
+        subnet_clone_implementation_address=subnet_clone_implementation_address,
+        validator_registry_address=validator_registry_address,
+    )
+    return observation_block_start, registry_block_start, registry_block_end, contracts, token_ids
+
+
+# --- Composition -------------------------------------------------------------------------
+
+def build_environment(*, recovery_window: int = 3 * 60 * 60) -> Environment:
+    _check_repo_root()
+    _check_chain_reachable()
+    _ensure_alice_wallet()
+    _log("Phase 0: Fund deployer")
+    _ensure_evm_account_funded(
+        "Deployer", config.DEPLOYER_ADDRESS, config.DEPLOYER_SS58,
+        minimum_tao=50, transfer_tao=10_000,
+    )
+    netuids = _create_subnets()
+    hotkey_names, hotkey_pubkeys, hotkey_ss58s = _register_validators(netuids)
+    _stake_validators(netuids, hotkey_names, hotkey_pubkeys, hotkey_ss58s)
+    (observation_block_start, registry_block_start, registry_block_end,
+     contracts, token_ids) = _deploy_contracts(netuids, hotkey_pubkeys, recovery_window=recovery_window)
+    _log("Phase 5: Fund user account")
+    _ensure_evm_account_funded(
+        "User account", config.WRAPPER_USER_ADDRESS, config.WRAPPER_USER_SS58,
+        minimum_tao=5, transfer_tao=100,
+    )
+
+    for netuid in netuids:
+        receipt = chain.cast_send(
+            contracts.vault_address, "createMailbox(uint256,bytes32)", netuid,
+            "0x" + secrets.token_hex(32),
+            private_key=config.WRAPPER_USER_PRIVATE_KEY, gas_limit=2_000_000,
+        )
+        if not chain.receipt_ok(receipt):
+            raise RuntimeError(f"createMailbox failed for netuid {netuid}: {receipt}")
+        print(f"  Protected mailbox and subnet clone prepared for netuid {netuid}")
+
+    wrapper_substrate_coldkey = substrate.h160_to_substrate_b32(config.WRAPPER_USER_ADDRESS)
+    print(f"  Wrapper substrate coldkey: {wrapper_substrate_coldkey}")
+
+    return Environment(
+        netuids=netuids, token_ids=token_ids,
+        hotkey_names=hotkey_names, hotkey_pubkeys=hotkey_pubkeys, hotkey_ss58s=hotkey_ss58s,
+        vault_address=contracts.vault_address,
+        lens_address=contracts.lens_address,
+        mailbox_implementation_address=contracts.mailbox_implementation_address,
+        subnet_clone_implementation_address=contracts.subnet_clone_implementation_address,
+        validator_registry_address=contracts.validator_registry_address,
+        wrapper_substrate_coldkey=wrapper_substrate_coldkey,
+        observation_block_start=observation_block_start,
+        registry_block_start=registry_block_start,
+        registry_block_end=registry_block_end,
+    )
