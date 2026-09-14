@@ -17,9 +17,7 @@ ERC-1155 shares of Bittensor staked alpha, with alpha and native-TAO exits.
 ## Layout
 
 - `src/`: vault, read-only lens, clones, registry, shared stake operations, math
-  and precompile interfaces. The vault links `VaultAllocation`, a deployed library
-  holding its receiving-key rules, stake consolidation, payout gathering, weight
-  alignment, deposit admission and clone initialization/recovery.
+  and precompile interfaces.
 - `test/`: Foundry tests and chain mocks.
 - `script/DeployAlpha.s.sol`: deployment; configure the registry separately first
   and pass `PARKING_HOTKEY`, an unused 32-byte account id the vault claims for
@@ -31,28 +29,8 @@ ERC-1155 shares of Bittensor staked alpha, with alpha and native-TAO exits.
 
 Dependencies are git submodules:
 
-OpenZeppelin Contracts is pinned to the official stable [v5.4.0 release](https://github.com/OpenZeppelin/openzeppelin-contracts/releases/tag/v5.4.0).
-
 ```bash
 git submodule update --init --recursive
 forge build
 forge test
 ```
-
-## Gas snapshots
-
-CI checks deterministic tests in `.gas-snapshot` and per-call files in
-`snapshots/`. Fuzz and invariant tests run in separate steps; their sampled gas
-costs vary with generated inputs and are excluded from snapshots. These tests
-use mocked precompiles: compare regressions here, but use e2e transaction
-receipts to size live-chain gas.
-
-Regenerate using CI's profile, fuzz seed, and thread count:
-
-```bash
-FOUNDRY_PROFILE=ci FOUNDRY_GAS_SNAPSHOT_CHECK=false FOUNDRY_GAS_SNAPSHOT_EMIT=true \
-  forge snapshot --tolerance 1 --no-match-contract Invariant --no-match-test testFuzz --fuzz-seed 0x1 --threads 4
-```
-
-Coverage uses a different optimization mode and can overwrite snapshots;
-regenerate them with the command above before committing.
