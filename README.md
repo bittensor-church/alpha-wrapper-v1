@@ -23,6 +23,12 @@ ERC-1155 shares of Bittensor staked alpha, with alpha and native-TAO exits.
 - [scripts/](scripts/README.md): read-only chain observability.
 - [e2e/](e2e/README.md): localnet scenarios and their Python harness.
 
+## Custom validator registry
+
+`BasicValidatorRegistry` is an example validator registry provided as a stub
+for building a custom implementation. Use it as a starting point and adapt it
+to your validator selection and management requirements.
+
 ## Build and test
 
 Dependencies are git submodules:
