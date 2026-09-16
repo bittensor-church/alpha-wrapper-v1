@@ -7,7 +7,7 @@ clones. `BasicValidatorRegistry` has one owner choosing a single hotkey per subn
 at 100% weight. OpenZeppelin two-step ownership transfers require the nominated
 successor to accept; the existing owner retains authority until then. Renunciation
 is disabled. Downstream registries may supply different governance and weighted
-sets through `IValidatorRegistry`; TAO20's attested registry is maintained there.
+sets through `IValidatorRegistry`.
 
 The registry owner cannot directly withdraw backing, mint/burn users' shares,
 access their mailboxes or change vault code.

@@ -171,6 +171,33 @@ def receipt_block_number(receipt: dict, message: str) -> int:
     return int(str(value), 0)
 
 
+def revert_reason(receipt: dict, to: str, signature: str, *args, rpc: str = config.RPC_URL) -> Optional[str]:
+    """Replay a mined revert as a call so a failed broadcast can name its custom error.
+    A receipt carries no revert data, and the reason is what makes an intermittent CI
+    failure diagnosable from the log alone. Replays against the parent block, the closest
+    state the transaction actually ran on. Returns None when the replay cannot run or
+    does not reproduce the revert."""
+    sender = receipt.get("from")
+    block = receipt.get("blockNumber")
+    if not sender or block is None:
+        return None
+    try:
+        parent = int(str(block), 0) - 1
+    except (TypeError, ValueError):
+        return None
+    try:
+        probe = run(
+            _cast_call_command(to, signature, args, rpc, parent) + ["--from", sender],
+            check=False, timeout=_READ_TIMEOUT,
+        )
+    except ChainError:
+        # A diagnostic must never replace the failure it is describing.
+        return None
+    if probe.returncode == 0:
+        return None
+    return " ".join((probe.stdout + probe.stderr).split()) or None
+
+
 def forge_create(
     contract: str, *, private_key: str,
     constructor_args: Optional[List[str]] = None, libraries: Optional[List[str]] = None,

@@ -65,6 +65,5 @@ parked until the registry owner publishes an update. A name claimed by a strange
 must be replaced with the intended validator. The example, watcher steps and exit restrictions are in
 [Hotkey swaps and recovery](hotkey-swaps.md).
 
-Start with the [user guide](user-guide.md) for transactions,
-[Basic registry guide](basic-validator-registry.md) for registry updates, and
+Start with the [user guide](user-guide.md) for transactions and the
 [security model](security-model.md) for trust and loss assumptions.

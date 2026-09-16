@@ -21,41 +21,11 @@ From the repository root:
 ```bash
 cd e2e
 python3 -m pytest tests/test_full_flow.py -v -m scenario
-python3 -m pytest tests -v -m "not scenario"
 ```
 
 Use one scenario module per fresh chain. Modules share subnet and contract state
 through the session-scoped `env` fixture; running several against one long-lived
 chain is unsupported. CI gives each scenario its own container.
-
-## Registry and scenario ownership
-
-Every scenario deploys the real `BasicValidatorRegistry` with the deployer as its
-initial owner and uses real Subtensor precompiles. There is no mock registry or
-registry selector in e2e. All 13 scenario modules run on separate fresh localnets.
-
-Bootstrap registers and funds three candidate hotkeys per subnet, then configures
-only the first as the sole target. Deposits use the currently configured hotkey.
-Rotations and parking releases call `setValidator` from the registry owner.
-The full flow covers both exits, emissions, observability and rotation; churn
-rotates A to B and B to C. The minimum-stake case retains its deposit gate and
-rotated-dust consolidation legs.
-
-Five scenarios require simultaneous weighted validators and now run in
-[TAO20's attested e2e suite](https://github.com/alphamind-labs/tao20-contract/tree/main/e2e/tests/attested_vault).
-Their generic Solidity coverage remains here with a controllable registry mock.
-
-| Scenario | Why Basic cannot reproduce it |
-| --- | --- |
-| `test_concurrent_swap_recovery.py` | Multiple unequal recorded balances disappear independently before synchronization. |
-| `test_shared_recovery_deadline.py` | Two slots disappear while another remains located, followed by partial recovery. |
-| `test_recovery_dust.py` | Multiple lost sources and a still-located slot are needed to seed movable parking. |
-| `test_hostile_dust.py` | Foreign alpha lands on an empty but recorded third weighted slot before its rotation out. |
-| `test_dust_exit.py` | A refused slot stays recorded beside live backing at 9999/1 weights; Basic would consolidate it. |
-
-The weighted-rebalance leg of `test_min_stake_floor.py` also remains in TAO20;
-one 100% target cannot develop a weight imbalance. See the full
-[coverage inventory](../docs/registry-migration.md).
 
 ## Layout and coverage
 

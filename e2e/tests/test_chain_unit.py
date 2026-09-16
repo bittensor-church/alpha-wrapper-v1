@@ -93,3 +93,44 @@ def test_quote_raises_on_a_transport_failure(monkeypatch):
     _probe(monkeypatch, 1, stderr="error sending request for url: connection refused")
     with pytest.raises(chain.ChainError):
         chain.quote_alpha_for_tao(2, 1)
+
+
+REVERTED_RECEIPT = {"status": "0x0", "from": "0xd10375caed456c5902d7b155117dd155398145c7", "blockNumber": "0x205"}
+
+
+def test_revert_reason_replays_against_the_parent_block_as_the_sender(monkeypatch):
+    seen = {}
+
+    def capture(cmd, **kwargs):
+        seen["cmd"] = cmd
+        return CompletedProcess(cmd, 1, "", "execution reverted: ConsolidationBelowFloor()")
+
+    monkeypatch.setattr(chain, "run", capture)
+    reason = chain.revert_reason(REVERTED_RECEIPT, "0xvault", "unwrapForTao(uint256,uint256,uint256)", 1, 2, 3)
+
+    assert "ConsolidationBelowFloor()" in reason
+    assert seen["cmd"][:4] == ["cast", "call", "0xvault", "unwrapForTao(uint256,uint256,uint256)"]
+    # 0x205 is 517, so the replay runs on the state the reverted transaction opened with.
+    assert seen["cmd"][seen["cmd"].index("--block") + 1] == "516"
+    assert seen["cmd"][seen["cmd"].index("--from") + 1] == REVERTED_RECEIPT["from"]
+
+
+def test_revert_reason_is_none_when_the_replay_does_not_revert(monkeypatch):
+    _probe(monkeypatch, 0, stdout="0x\n")
+    assert chain.revert_reason(REVERTED_RECEIPT, "0xvault", "claimTao(uint256,address)", 1, "0x456") is None
+
+
+@pytest.mark.parametrize(
+    "receipt", [{}, {"from": "0xabc"}, {"blockNumber": "0x1"}, {"from": "0xabc", "blockNumber": "oops"}],
+)
+def test_revert_reason_gives_up_on_a_receipt_it_cannot_replay(monkeypatch, receipt):
+    _probe(monkeypatch, 1, stderr="should not be reached")
+    assert chain.revert_reason(receipt, "0xvault", "claimTao(uint256,address)", 1, "0x456") is None
+
+
+def test_revert_reason_does_not_replace_the_failure_it_describes(monkeypatch):
+    def unreachable_node(cmd, **kwargs):
+        raise chain.ChainError("command timed out")
+
+    monkeypatch.setattr(chain, "run", unreachable_node)
+    assert chain.revert_reason(REVERTED_RECEIPT, "0xvault", "claimTao(uint256,address)", 1, "0x456") is None

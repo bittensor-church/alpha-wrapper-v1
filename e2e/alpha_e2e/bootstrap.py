@@ -288,7 +288,7 @@ def _deploy_contracts(
         "src/AlphaVault.sol:AlphaVault", private_key=config.DEPLOYER_PRIVATE_KEY,
         libraries=[f"{allocation_library}:{allocation_address}"],
         constructor_args=[
-            "https://api.tao20.io/{id}.json", mailbox_implementation_address,
+            "https://example.com/{id}.json", mailbox_implementation_address,
             subnet_clone_implementation_address, validator_registry_address,
             str(recovery_window), parking_hotkey,
         ],
