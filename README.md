@@ -16,7 +16,8 @@ currently deployed on a public network.
 ## Security review
 
 The contracts have undergone internal review, including AI-assisted analysis with
-Fable 5.1, Sol and Kimi. A community review is planned, and Church of Rao also
+Anthropic's Claude Fable 5.1, OpenAI's GPT-5.6 Sol, and Moonshot AI's Kimi K3
+at max reasoning effort. A community review is planned, and Church of Rao also
 intends to commission an independent commercial security audit.
 
 No independent audit has yet been completed; users and integrators should conduct
