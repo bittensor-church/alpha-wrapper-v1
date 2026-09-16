@@ -38,7 +38,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     bytes32 public hotkey4 = keccak256("hotkey4");
     bytes32 public hotkey5 = keccak256("hotkey5");
 
-    string internal constant VAULT_URI = "https://api.tao20.io/{id}.json";
+    string internal constant VAULT_URI = "https://example.com/{id}.json";
     uint256 internal constant RECOVERY_WINDOW = 3 hours;
     uint256 internal constant BACKING_SLACK_RAO = VaultReads.TRACKED_SLACK_RAO;
     bytes32 internal constant PARKING_HOTKEY = keccak256("parking-hotkey");
