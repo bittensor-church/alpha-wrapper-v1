@@ -1,8 +1,7 @@
 # Hotkey swaps and recovery
 
 The vault supports weighted `IValidatorRegistry` implementations. Here, registry
-updates come from the Basic owner and select one target. ABI names such as
-`awaitingAttestation` remain unchanged.
+updates come from the Basic owner and select one target.
 
 The design uses automatic one-hop swap handling plus an external watcher.
 Temporary wrap/exit failures while the watcher repairs chain state are accepted.
