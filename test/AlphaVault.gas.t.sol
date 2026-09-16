@@ -98,6 +98,14 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         vm.snapshotGasLastCall("AlphaVault", "rebalance: after registry weight update");
     }
 
+    function test_gas_previewWrap() public {
+        _simulateAlphaDeposit(alice, NETUID1, 10 ether);
+        _wrap(alice, NETUID1);
+
+        lens.previewWrap(TOKEN1, 5 ether);
+        vm.snapshotGasLastCall("AlphaVaultLens", "previewWrap");
+    }
+
     function test_gas_previewUnwrap() public {
         _simulateAlphaDeposit(alice, NETUID1, 10 ether);
         _wrap(alice, NETUID1);

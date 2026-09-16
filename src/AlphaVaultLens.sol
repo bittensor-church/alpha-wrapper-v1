@@ -134,7 +134,6 @@ contract AlphaVaultLens {
 
     function previewWrap(uint256 tokenId, uint256 assets) external view returns (uint256) {
         _requireCurrentRegistration(tokenId);
-        VaultReads.requireTransfersEnabled(VaultMath.netuidOf(tokenId));
         if (vault.awaitingAttestation(tokenId)) revert Parked();
         return VaultMath.sharesFor(totalStake(tokenId), vault.totalSupply(tokenId), assets);
     }
@@ -158,7 +157,6 @@ contract AlphaVaultLens {
             return (0, VaultMath.toNativeQuantum(VaultMath.proRata(backing, shares, supply)));
         }
 
-        VaultReads.requireTransfersEnabled(read.netuid);
         if (_shortSince(tokenId) != 0) revert ShortfallOnFile();
         // Passing the dissolution check means this generation is live and its alpha is not in flux.
         _locateBacking(read, tokenId, false);
