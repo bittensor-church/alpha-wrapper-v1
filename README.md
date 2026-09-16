@@ -13,6 +13,15 @@ and improve.
 This repository is a source release. No contracts from this repository are
 currently deployed on a public network.
 
+## Security review
+
+The contracts have undergone internal review, including AI-assisted analysis with
+Fable 5.1, Sol and Kimi. A community review is planned, and Church of Rao also
+intends to commission an independent commercial security audit.
+
+No independent audit has yet been completed; users and integrators should conduct
+their own review before relying on these contracts.
+
 ## What it does
 
 - Mints ERC-1155 shares backed by alpha staked on a Bittensor subnet.
