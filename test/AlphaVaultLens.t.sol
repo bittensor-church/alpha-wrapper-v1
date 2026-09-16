@@ -8,6 +8,8 @@ import { AlphaVault } from "src/AlphaVault.sol";
 import { AlphaVaultLens } from "src/AlphaVaultLens.sol";
 import {
     AlphaTransfersDisabled,
+    BackingShortfall,
+    LockedBacking,
     Parked,
     SharePriceBelowPrecision,
     ShortfallOnFile,
@@ -172,16 +174,76 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         assertGt(lens.previewWrap(TOKEN1, 1 ether), 0, "and the mint quote answers again");
     }
 
-    function test_DisabledTransfers_RefuseTheAlphaQuotesOnly() public {
+    function test_DisabledTransfers_PreviewWrapStillPricesTheDeposit() public {
         _depositAndWrap(alice, NETUID1, 30 ether);
+        _simulateEmissions(NETUID1, 6 ether);
+        _simulateAlphaDeposit(bob, NETUID1, 6 ether);
+        uint256 expectedShares = lens.previewWrap(TOKEN1, 6 ether);
         _setTransfersEnabled(NETUID1, false);
 
-        bytes memory refusal = abi.encodeWithSelector(AlphaTransfersDisabled.selector, uint16(NETUID1));
-        vm.expectRevert(refusal);
+        assertGt(expectedShares, 0, "the deposit has value");
+        assertEq(lens.previewWrap(TOKEN1, 6 ether), expectedShares, "the switch does not change the quote");
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(AlphaTransfersDisabled.selector, uint16(NETUID1)));
+        vault.wrap(NETUID1, hotkey1, 0);
+        assertEq(vault.balanceOf(bob, TOKEN1), 0, "the disabled wrap mints nothing");
+
+        _setTransfersEnabled(NETUID1, true);
+        _wrap(bob, NETUID1);
+        assertEq(vault.balanceOf(bob, TOKEN1), expectedShares, "the enabled wrap honors the quote");
+    }
+
+    function test_DisabledTransfers_PreviewUnwrapStillPricesThePosition() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 30 ether);
+        _simulateEmissions(NETUID1, 6 ether);
+        (uint256 expectedAlpha, uint256 expectedTao) = lens.previewUnwrap(TOKEN1, shares / 2);
+        uint256 stakeBefore = _totalVaultStakeAcrossHotkeys(NETUID1);
+        _setTransfersEnabled(NETUID1, false);
+
+        (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, shares / 2);
+        assertGt(alpha, 0, "the position has value");
+        assertEq(alpha, expectedAlpha, "the switch does not change the alpha quote");
+        assertEq(tao, expectedTao, "the switch does not change the TAO quote");
+        assertEq(tao, 0, "a live position quotes alpha");
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(AlphaTransfersDisabled.selector, uint16(NETUID1)));
+        vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
+        assertEq(vault.balanceOf(alice, TOKEN1), shares, "the disabled exit preserves shares");
+        assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), stakeBefore, "the disabled exit preserves backing");
+
+        _setTransfersEnabled(NETUID1, true);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), expectedAlpha);
+        assertEq(stakeBefore - _totalVaultStakeAcrossHotkeys(NETUID1), expectedAlpha, "the enabled exit honors the quote");
+        assertEq(vault.balanceOf(alice, TOKEN1), shares - shares / 2, "the enabled exit burns the quoted shares");
+    }
+
+    function test_DisabledTransfers_PreviewsStillRejectMissingBackingAndRecovery() public {
+        _depositAndWrap(alice, NETUID1, 30 ether);
+        _setTransfersEnabled(NETUID1, false);
+        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
+
+        vm.expectPartialRevert(BackingShortfall.selector);
         lens.previewWrap(TOKEN1, 1 ether);
-        vm.expectRevert(refusal);
+        vm.expectPartialRevert(BackingShortfall.selector);
         lens.previewUnwrap(TOKEN1, 1 ether);
-        assertGt(lens.sharePrice(TOKEN1), 0, "the position still prices");
+
+        vault.syncBacking(TOKEN1);
+        vm.expectRevert(ShortfallOnFile.selector);
+        lens.previewWrap(TOKEN1, 1 ether);
+        vm.expectRevert(ShortfallOnFile.selector);
+        lens.previewUnwrap(TOKEN1, 1 ether);
+    }
+
+    function test_DisabledTransfers_PreviewsStillRejectLockedBacking() public {
+        _depositAndWrap(alice, NETUID1, 30 ether);
+        _setTransfersEnabled(NETUID1, false);
+        MockStaking(STAKING_PRECOMPILE).setLockedAlpha(_subnetColdkey(NETUID1), NETUID1, hotkey1, 1 ether);
+
+        vm.expectRevert(LockedBacking.selector);
+        lens.previewWrap(TOKEN1, 1 ether);
+        vm.expectRevert(LockedBacking.selector);
+        lens.previewUnwrap(TOKEN1, 1 ether);
     }
 
     function test_DeclaredShortfall_ReadsAsNotIntactUntilSynced() public {

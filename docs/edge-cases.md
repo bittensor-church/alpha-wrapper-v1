@@ -34,6 +34,10 @@ have taken. `unwrapForTao` and `reclaimMailboxAlphaAsTao` unstake instead, so
 this setting does not block them; ownership, backing, minimums and pool
 execution still can.
 
+`previewWrap` and `previewUnwrap` continue to quote while transfers are disabled.
+The quotes describe share value, not permission to execute; backing, recovery and
+dissolution checks still apply.
+
 ## Locked alpha
 
 A coldkey can conviction-lock its alpha on a subnet. Locked alpha cannot be

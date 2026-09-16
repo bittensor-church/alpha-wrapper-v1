@@ -35,9 +35,6 @@ def test_disabling_alpha_transfers_preserves_both_tao_exit_rails(env):
     )
     position_shares = env.vault_shares(position_token_id)
     assert position_shares != 0, f"no shares minted by wrap on netuid {position_netuid}"
-    # Guard the Phase 9 premise: the position must actually back alpha, else unwrap
-    # would revert early with NothingToUnwrap and the revert assertion would pass
-    # for the wrong reason.
     position_total_stake = env.vault_total_stake(position_token_id)
     assert position_total_stake != 0, (
         f"wrap on netuid {position_netuid} left zero backing alpha"
@@ -78,9 +75,12 @@ def test_disabling_alpha_transfers_preserves_both_tao_exit_rails(env):
     )
 
     # --- Phase 9: the alpha rail is closed - unwrap must revert -------------------
-    # The alpha rail ends in clone flush -> transferStake, which now reverts
-    # TransferDisallowed (asserted directly in Phase 8), rolling back the whole
-    # unwrap and leaving the shares intact.
+    preview_alpha, preview_tao = env.preview_unwrap(position_token_id, position_shares)
+    assert preview_alpha > 0, "previewUnwrap must still quote alpha with transfers off"
+    assert preview_tao == 0, "a live position must quote alpha, not TAO"
+    assert env.preview_wrap(position_token_id, config.PER_HOTKEY_TRANSFER_RAO) > 0, (
+        "previewWrap must still quote shares with transfers off"
+    )
     shares_before_revert = env.vault_shares(position_token_id)
     env.assert_vault_reverts_with(
         "AlphaTransfersDisabled(uint16)", 2_000_000,
@@ -96,7 +96,6 @@ def test_disabling_alpha_transfers_preserves_both_tao_exit_rails(env):
     print(f"  Alpha-rail unwrap reverted; shares preserved ({shares_after_revert})")
 
     # --- Phase 10: withdraw the deposit clone as TAO (unwrapForTao) ----------------
-    # The alpha-exit preview refuses while transfers are off; a full exit sells the whole backing.
     position_alpha = env.vault_total_stake(position_token_id)
 
     user_tao_before = env.user_tao_wei()
