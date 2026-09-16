@@ -317,8 +317,15 @@ class Environment:
             gas_limit, signature, *args,
             private_key=private_key, label=self._gas_label(signature, message, label),
         )
-        assert chain.receipt_ok(receipt), f"{message}: {receipt}"
+        # Composed lazily: the replay only runs when the assertion is already failing.
+        assert chain.receipt_ok(receipt), self._revert_detail(message, receipt, signature, args)
         return receipt
+
+    def _revert_detail(self, message: str, receipt: dict, signature: str, args: tuple) -> str:
+        """An unexpected revert reported by name, so a one-off CI failure is diagnosable
+        without reproducing the scenario."""
+        reason = chain.revert_reason(receipt, self.vault_address, signature, *args)
+        return f"{message}: {reason or 'revert reason unavailable'}: {receipt}"
 
     def vault_send_expect_revert(
         self, gas_limit: int, message: str, signature: str, *args,

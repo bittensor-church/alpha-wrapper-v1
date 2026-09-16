@@ -20,10 +20,8 @@ cast send <registry> 'setValidator(uint256,bytes32)' <netuid> <hotkey> \
   --rpc-url <url> --private-key <owner-key>
 ```
 
-The hotkey must have an owner record. See the
-[Basic registry guide](basic-validator-registry.md) for rotation, owner snapshots
-and parking release. Other `IValidatorRegistry` implementations can be supplied
-by downstream projects; TAO20 owns its `AttestedValidatorRegistry`.
+The hotkey must have an owner record. Other `IValidatorRegistry`
+implementations can be supplied by downstream projects.
 
 ## Vault set
 
@@ -32,7 +30,7 @@ The deployment script reads four environment variables:
 | Variable | Meaning | Default |
 | --- | --- | --- |
 | `VALIDATOR_REGISTRY` | Address of the deployed registry. | required |
-| `VAULT_URI` | ERC-1155 metadata URI, with `{id}` substitution. | `https://api.tao20.io/metadata/{id}.json` |
+| `VAULT_URI` | ERC-1155 metadata URI, with `{id}` substitution. | `https://example.com/metadata/{id}.json` |
 | `RECOVERY_WINDOW` | Length of the recovery window, in seconds. | 21600 (6 hours) |
 | `PARKING_HOTKEY` | An unused 32-byte account id the vault claims for its own coldkey. | required |
 

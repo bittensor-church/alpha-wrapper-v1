@@ -15,7 +15,7 @@ import { AlphaVaultLens } from "src/AlphaVaultLens.sol";
 contract DeployAlpha is Script {
     function run() public {
         address validatorRegistry = vm.envAddress("VALIDATOR_REGISTRY");
-        string memory vaultUri = vm.envOr("VAULT_URI", string("https://api.tao20.io/metadata/{id}.json"));
+        string memory vaultUri = vm.envOr("VAULT_URI", string("https://example.com/metadata/{id}.json"));
         uint256 recoveryWindow = vm.envOr("RECOVERY_WINDOW", uint256(6 hours));
         bytes32 parkingHotkey = vm.envBytes32("PARKING_HOTKEY");
         console.log("Recovery window (s):   %s", recoveryWindow);

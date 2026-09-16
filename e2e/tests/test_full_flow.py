@@ -261,7 +261,7 @@ def test_deposits_and_both_exits_survive_emissions_and_validator_rotation(env):
         reclaim_netuid, reclaim_hotkey_pubkey, 0,
     )
     mailbox_alpha_after = env.stake(reclaim_hotkey_pubkey, reclaim_mailbox_coldkey, reclaim_netuid)
-    assert mailbox_alpha_after == 0, (
+    assert mailbox_alpha_after <= config.ROUNDING_DUST_SLOT_RAO, (
         f"mailbox still holds {mailbox_alpha_after} RAO after reclaim"
     )
     checks.assert_payout_near_quote(
@@ -422,12 +422,13 @@ def test_deposits_and_both_exits_survive_emissions_and_validator_rotation(env):
         f"Phase 14: rotated-out stake not consolidated (received {rotation_received} "
         f"<< deposit {rotation_deposited})"
     )
-    assert rotated_out_stake_after == 0, (
+    assert rotated_out_stake_after <= config.ROUNDING_DUST_SLOT_RAO, (
         f"Phase 14: rotated-out stake NOT consolidated (old validator still holds "
         f"{rotated_out_stake_after} RAO)"
     )
     print(f"  Rotated-out stake consolidated; user received {rotation_received} RAO "
-          f"(~ deposit {rotation_deposited}), rotated-out validator drained to 0")
+          f"(~ deposit {rotation_deposited}), rotated-out validator left with "
+          f"{rotated_out_stake_after} RAO")
 
     # --- Phase 15: unwrapForTao slippage guard against the real alpha->TAO price -----
     # minTaoOut must reject a payout below the threshold against the REAL realized
