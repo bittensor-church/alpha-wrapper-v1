@@ -143,6 +143,7 @@ contract AlphaVaultLens {
     ///      Chain rounding can reduce alpha credit; ownership, transfer, size and registry checks may
     ///      still reject an exit.
     ///      A zero quote does not authorize a zero payout: the caller must set `minAlphaOut` to zero.
+    ///      Dissolved positions with no unreserved TAO quote zero; execution still rejects the exit.
     function previewUnwrap(uint256 tokenId, uint256 shares) external view returns (uint256 alpha, uint256 tao) {
         if (shares == 0) return (0, 0);
         BackingRead memory read;
@@ -153,7 +154,7 @@ contract AlphaVaultLens {
 
         if (VaultReads.isDissolved(tokenId)) {
             uint256 backing = VaultMath.unreservedTao(read.clone.balance, vault.taoLiability(tokenId));
-            if (backing == 0) revert SubnetDissolved();
+            if (backing == 0) return (0, 0);
             return (0, VaultMath.toNativeQuantum(VaultMath.proRata(backing, shares, supply)));
         }
 

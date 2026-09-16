@@ -89,6 +89,31 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         assertEq(tao, 0, "tao");
     }
 
+    function test_PreviewUnwrap_QuotesZeroWhenDissolvedTaoIsFullyReserved() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 10 ether);
+        address clone = vault.subnetClone(TOKEN1);
+        _donateToClone(clone, 5 ether);
+        vm.prank(alice);
+        vault.safeTransferFrom(alice, alice, TOKEN1, 0, "");
+        assertEq(vault.taoLiability(TOKEN1), 5 ether, "the existing claim reserves all TAO");
+
+        _simulateDissolutionStarted(NETUID1);
+        _simulateTaoAwardedOnDissolution(TOKEN1, 0);
+        _simulateDissolutionCompleted(NETUID1);
+
+        assertEq(clone.balance, 5 ether, "the clone is funded but has no unreserved refund");
+        (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, shares);
+        assertEq(alpha, 0);
+        assertEq(tao, 0, "reserved claims do not back dissolved redemptions");
+        assertEq(lens.claimableTaoOf(alice, TOKEN1), 5 ether, "the separate claim survives");
+
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        vault.claimTao(TOKEN1, payable(alice));
+        assertEq(alice.balance - before, 5 ether);
+        assertEq(vault.balanceOf(alice, TOKEN1), shares, "claiming does not burn shares");
+    }
+
     /// @dev NETUID2 is configured but has no clone.
     function test_ClaimableTaoOf_QuotesZeroBeforeTheCloneExists() public view {
         assertEq(vault.subnetClone(TOKEN2), address(0), "the scenario needs a position with no clone");

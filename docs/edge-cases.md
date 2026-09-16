@@ -14,7 +14,7 @@ After cleanup, the old token permanently redeems for its clone's unreserved TAO.
 `unwrap` pays pro rata in whole RAO; sub-RAO slices revert
 `ClaimBelowNativePrecision` without burning shares. Combining shares with another
 holder can clear that rounding boundary. With no unreserved refund, `unwrap`
-reverts `NothingToUnwrap` and `previewUnwrap` reverts `SubnetDissolved`.
+reverts `NothingToUnwrap` and `previewUnwrap` returns `(0, 0)`.
 `sharePrice` and `previewWrap` reject dissolved positions. Accrued `claimTao`
 entitlements remain available.
 

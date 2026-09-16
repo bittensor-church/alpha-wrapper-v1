@@ -1658,7 +1658,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         lens.previewWrap(tokenId, 10 ether);
     }
 
-    function test_RevertWhen_PreviewUnwrapDissolvedZeroBalance() public {
+    function test_PreviewUnwrapDissolvedZeroBalance() public {
         _simulateAlphaDeposit(alice, NETUID1, 10 ether);
         _wrap(alice, NETUID1);
         uint256 tokenId = vault.currentTokenId(NETUID1);
@@ -1666,10 +1666,25 @@ contract AlphaVaultTest is AlphaVaultTestBase {
 
         _simulateDissolutionStarted(NETUID1);
         _simulateTaoAwardedOnDissolution(tokenId, 0);
+        _setRegBlock(NETUID1, 0);
+
+        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
+        lens.previewUnwrap(tokenId, shares);
         _simulateDissolutionCompleted(NETUID1);
 
-        vm.expectRevert(SubnetDissolved.selector);
-        lens.previewUnwrap(tokenId, shares);
+        (uint256 alpha, uint256 tao) = lens.previewUnwrap(tokenId, shares);
+        assertEq(alpha, 0, "no alpha remains after dissolution");
+        assertEq(tao, 0, "no refund quotes zero");
+
+        vm.prank(alice);
+        vm.expectRevert(NothingToUnwrap.selector);
+        vault.unwrap(tokenId, shares, _toSubstrate(alice), 0);
+        assertEq(vault.balanceOf(alice, tokenId), shares, "a zero quote does not burn shares");
+
+        _donateToClone(vault.subnetClone(tokenId), 5 ether);
+        (alpha, tao) = lens.previewUnwrap(tokenId, shares);
+        assertEq(alpha, 0);
+        assertEq(tao, 5 ether, "later TAO remains available to the retained shares");
     }
 
     function test_ForceSendDoesNotAffectAlphaPayout() public {
