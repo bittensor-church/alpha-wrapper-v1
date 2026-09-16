@@ -1,11 +1,62 @@
 # alpha-wrapper
 
-ERC-1155 shares of Bittensor staked alpha, with alpha and native-TAO exits.
+`alpha-wrapper` is an open-source suite of EVM smart contracts from Church of Rao
+for projects building on Bittensor. It wraps staked alpha in transferable ERC-1155 shares, so
+an application can offer its users exposure to staked alpha without giving up a
+clear route back to either staked alpha or native TAO.
+
+We believe the Bittensor EVM ecosystem deserves a robust, reusable alpha wrapper
+rather than each project rebuilding this critical infrastructure. Church of Rao is
+releasing the code under the MIT license for the community to inspect, use, adapt
+and improve.
+
+This repository is a source release. No contracts from this repository are
+currently deployed on a public network.
+
+## What it does
+
+- Mints ERC-1155 shares backed by alpha staked on a Bittensor subnet.
+- Separates validator-selection and staking policy from the vault, letting
+  integrators choose their own governance and security controls.
+- Lets holders redeem shares for staked alpha, or sell their backing for native
+  TAO through an opt-in market-sale exit.
+- Isolates each subnet registration in its own vault-controlled account, so a
+  recycled netuid does not mix a new position with an old dissolved one.
+- Accounts separately for native TAO that reaches a position, including
+  dissolution refunds and claimable TAO.
+- Handles Bittensor-specific operational hazards including hotkey swaps,
+  deregistration and dissolution, stake minimums, rounding and dust, disabled
+  alpha transfers, conviction-locked alpha, and missing-backing recovery.
+
+`AlphaVault` itself has no admin and no upgrade path. Its validator registry,
+recovery window and parking hotkey are also immutable once deployed. The registry has
+its own governance model, chosen by each integrator and described below.
+
+## Validator registry
+
+The vault uses the small `IValidatorRegistry` interface, which lets projects
+implement their own validator-selection strategy and security controls without
+modifying the wrapper.
+For example, a registry can use a multisig, timelock, attestations, an automated
+selection policy, or another governance model appropriate for its users.
+
+This repository includes `BasicValidatorRegistry` as a minimal reference
+implementation. It maintains one validator hotkey at 100% weight per subnet. Its
+owner can replace that hotkey to rotate the vault's stake. Ownership uses
+OpenZeppelin `Ownable2Step`: a nominated successor must explicitly accept before
+control transfers, and ownership renunciation is disabled.
+
+`BasicValidatorRegistry` is usable, but its owner key is a critical security
+boundary. Operators must protect it with appropriate key management and have a
+recovery plan. A lost owner key can permanently prevent registry updates; a
+compromised owner can select poor or malicious validator destinations. Integrators
+who need a different risk model should implement their own registry.
 
 ## Documentation
 
 - [Overview](docs/overview.md): contracts, shares and allocation.
 - [User guide](docs/user-guide.md): deposits, exits and mailbox recovery.
+- [Source flow guide](docs/source-flow-guide.md): position lifecycle and control flow.
 - [Hotkey swaps](docs/hotkey-swaps.md): the empty-slot issue, automatic handling
   and watcher-assisted recovery.
 - [Edge cases](docs/edge-cases.md): dissolution, minimums, disabled transfers and dust.
@@ -22,12 +73,6 @@ ERC-1155 shares of Bittensor staked alpha, with alpha and native-TAO exits.
   its own coldkey at deployment.
 - [scripts/](scripts/README.md): read-only chain observability.
 - [e2e/](e2e/README.md): localnet scenarios and their Python harness.
-
-## Custom validator registry
-
-`BasicValidatorRegistry` is an example validator registry provided as a stub
-for building a custom implementation. Use it as a starting point and adapt it
-to your validator selection and management requirements.
 
 ## Build and test
 
