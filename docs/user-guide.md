@@ -49,6 +49,21 @@ Shares transfer as ERC-1155 balances. Keep the token id from `Deposited`:
 `sharePrice(tokenId)` is alpha per share scaled by 1e18; use
 `previewUnwrap(tokenId, shares)` for a specific burn.
 
+### Read alpha backing
+
+Call these functions on `AlphaVaultLens` for the position's `tokenId`:
+
+- `totalStake(tokenId)`: total staked alpha backing the position. Shortfalls or
+  locked backing can make this revert.
+- `locatedStake(tokenId)`: located alpha without shortfall or lock checks.
+- `resolvedBacking(tokenId)`: backing hotkeys in `keys`, with each hotkey's
+  staked alpha in `balances` at the same index. `total` is their sum;
+  `short[i]` flags insufficient backing for slot `i`.
+
+Amounts are in RAO; divide by `1e9` to display alpha. These reads cover recorded
+backing for one subnet generation. Resolved keys follow at most one swap per
+slot and may include the parking hotkey or differ from the registry's current set.
+
 Vault `recordedSlots(tokenId)` lists recorded keys and expected alpha in slot
 order. Use that order for the `excludedSlots` mask of `unwrapForTao`, and compare
 with lens `resolvedBacking(tokenId)` for current keys and balances.
