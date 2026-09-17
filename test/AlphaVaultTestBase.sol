@@ -200,7 +200,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     }
 
     function _attestedHotkeys(uint256 netuid) internal view returns (bytes32[] memory hotkeys) {
-        (hotkeys,,) = registry.getValidators(netuid);
+        (hotkeys,,) = vault.validatorRegistry().getValidators(netuid);
     }
 
     function _simulateAlphaDepositHotkey(address user, uint256 netuid, uint256 amount, bytes32 hotkey) internal {

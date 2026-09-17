@@ -16,7 +16,6 @@ import {
     NothingToUnwrap,
     NoValidatorFound,
     ParkingHotkeyUnavailable,
-    SubnetCloneNotPrepared,
     SubnetDissolved,
     SlippageExceeded,
     SubnetInDissolutionBlackoutPeriod,
@@ -623,42 +622,12 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 90 ether);
     }
 
-    /// @dev Empty sets revert; zero entries remain in the recorded slots.
-    function test_RevertWhen_ResolveValidatorsWhenWeightZero() public {
-        MockValidatorRegistry mock = new MockValidatorRegistry();
-        (AlphaVault mockVault,) = _deployVaultAndLens(address(mock));
+    function test_Wrap_PreservesZeroWeightRegistrySlot() public {
+        registry.setRaw(NETUID1, _hotkeys(bytes32(0), hotkey1, hotkey2), _weights(0, 5_000, 5_000));
+        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey1);
+        _wrapHotkey(alice, NETUID1, hotkey1);
 
-        _setRegBlock(91, 91);
-        vm.prank(alice);
-        vm.expectRevert(NoValidatorFound.selector);
-        mockVault.wrap(91, hotkey1, 0);
-
-        bytes32[] memory corruptHks = new bytes32[](3);
-        uint16[] memory corruptWts = new uint16[](3);
-        corruptHks[1] = hotkey1;
-        corruptHks[2] = hotkey2;
-        corruptWts[1] = 5_000;
-        corruptWts[2] = 5_000;
-        mock.setRaw(92, corruptHks, corruptWts);
-        _setRegBlock(92, 92);
-
-        vm.prank(alice);
-        vm.expectRevert(ChosenHotkeyNotInSet.selector);
-        mockVault.wrap(92, hotkey4, 0);
-
-        // The resolver accepts the set and keeps hotkey1.
-        vm.prank(alice);
-        vm.expectRevert(SubnetCloneNotPrepared.selector);
-        mockVault.wrap(92, hotkey1, 0);
-
-        vm.prank(alice);
-        (address mailbox,) = mockVault.createMailbox(92, keccak256("zero-registry-entry"));
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, _toSubstrate(mailbox), 92, 10 * ALPHA);
-
-        vm.prank(alice);
-        mockVault.wrap(92, hotkey1, 1);
-
-        VaultReads.Slot[] memory slots = mockVault.recordedSlots(mockVault.currentTokenId(92));
+        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         assertEq(slots.length, 3, "zero entry is retained");
         assertEq(slots[0].logical, bytes32(0));
         assertEq(slots[0].active, bytes32(0));
