@@ -102,7 +102,6 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     }
 
     /// @notice Whether deposits and weight alignment wait for an attestation newer than the parking one.
-    /// @dev Alpha may stay parked until the next wrap, rebalance or alpha exit.
     function awaitingAttestation(uint256 tokenId) public view returns (bool) {
         uint256 parkedAtNonce = recovery[tokenId].parkedAtNonce;
         return parkedAtNonce != 0 && validatorRegistry.nonces(VaultMath.netuidOf(tokenId)) == parkedAtNonce;
