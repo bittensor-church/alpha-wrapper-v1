@@ -35,8 +35,6 @@ import { DepositMailbox } from "src/DepositMailbox.sol";
 import { SubnetClone } from "src/SubnetClone.sol";
 import { CHAIN_MIN_STAKE, MockStaking } from "./mocks/MockStaking.sol";
 import { MockValidatorRegistry } from "./mocks/MockValidatorRegistry.sol";
-import { VaultReadsHarness } from "./helpers/VaultReadsHarness.sol";
-import { IValidatorRegistry } from "src/interfaces/IValidatorRegistry.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
@@ -625,7 +623,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 90 ether);
     }
 
-    /// @dev Synthetic malformed sets: only empty arrays mean unconfigured; nonempty zero entries are surfaced.
+    /// @dev Empty sets revert; zero entries remain in the recorded slots.
     function test_RevertWhen_ResolveValidatorsWhenWeightZero() public {
         MockValidatorRegistry mock = new MockValidatorRegistry();
         (AlphaVault mockVault,) = _deployVaultAndLens(address(mock));
@@ -648,15 +646,27 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.expectRevert(ChosenHotkeyNotInSet.selector);
         mockVault.wrap(92, hotkey4, 0);
 
-        // Reaching the clone check means the corrupt set counted as configured and hotkey1 was surfaced.
+        // The resolver accepts the set and keeps hotkey1.
         vm.prank(alice);
         vm.expectRevert(SubnetCloneNotPrepared.selector);
         mockVault.wrap(92, hotkey1, 0);
 
-        VaultReads.ValidatorSet memory surfaced =
-            new VaultReadsHarness().resolveValidators(IValidatorRegistry(address(mock)), 92);
-        assertEq(surfaced.hotkeys.length, 3, "the zero entry is passed through, not filtered out");
-        assertEq(surfaced.hotkeys[0], bytes32(0));
+        vm.prank(alice);
+        (address mailbox,) = mockVault.createMailbox(92, keccak256("zero-registry-entry"));
+        MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, _toSubstrate(mailbox), 92, 10 * ALPHA);
+
+        vm.prank(alice);
+        mockVault.wrap(92, hotkey1, 1);
+
+        VaultReads.Slot[] memory slots = mockVault.recordedSlots(mockVault.currentTokenId(92));
+        assertEq(slots.length, 3, "zero entry is retained");
+        assertEq(slots[0].logical, bytes32(0));
+        assertEq(slots[0].active, bytes32(0));
+        assertEq(slots[0].tracked, 0);
+        assertEq(slots[1].logical, hotkey1);
+        assertEq(slots[1].tracked, 5 * ALPHA);
+        assertEq(slots[2].logical, hotkey2);
+        assertEq(slots[2].tracked, 5 * ALPHA);
     }
 
     function test_RevertWhen_RegistryReturnsMismatchedLengths() public {
