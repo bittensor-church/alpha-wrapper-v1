@@ -35,6 +35,9 @@ import { DepositMailbox } from "src/DepositMailbox.sol";
 import { SubnetClone } from "src/SubnetClone.sol";
 import { CHAIN_MIN_STAKE, MockStaking } from "./mocks/MockStaking.sol";
 import { MockValidatorRegistry } from "./mocks/MockValidatorRegistry.sol";
+import { VaultReadsHarness } from "./helpers/VaultReadsHarness.sol";
+import { IValidatorRegistry } from "src/interfaces/IValidatorRegistry.sol";
+import { VaultReads } from "src/libraries/VaultReads.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
@@ -649,6 +652,11 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(SubnetCloneNotPrepared.selector);
         mockVault.wrap(92, hotkey1, 0);
+
+        VaultReads.ValidatorSet memory surfaced =
+            new VaultReadsHarness().resolveValidators(IValidatorRegistry(address(mock)), 92);
+        assertEq(surfaced.hotkeys.length, 3, "the zero entry is passed through, not filtered out");
+        assertEq(surfaced.hotkeys[0], bytes32(0));
     }
 
     function test_RevertWhen_RegistryReturnsMismatchedLengths() public {

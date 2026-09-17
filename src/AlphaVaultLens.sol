@@ -51,8 +51,9 @@ contract AlphaVaultLens {
     /// @notice How much of the recorded obligation is nowhere to be found, summed over every slot.
     /// @dev A size, not a verdict: zero here does not mean the position is usable. Slots are summed,
     ///      so a slot running an emissions surplus can mask another slot's deficit, and unlike
-    ///      `isBackingIntact` this allows no per-slot dust tolerance. Ask `isBackingIntact` whether
-    ///      the vault will act on the position.
+    ///      `isBackingIntact` this allows no per-slot dust tolerance. `isBackingIntact` answers the
+    ///      coverage question; `totalStake` reverting is the full answer to whether the vault will
+    ///      price the position.
     ///      Dust still sitting on a recorded key counts as found, even when the vault cannot collect
     ///      it and eventually writes it off.
     function missingStake(uint256 tokenId) external view returns (uint256) {
@@ -78,15 +79,16 @@ contract AlphaVaultLens {
         return VaultReads.activesOf(vault.recordedSlots(tokenId));
     }
 
-    /// @notice True when every recorded slot is covered and no loss is on file, which is the gate
-    ///         wrap, unwrap and the value quotes apply.
-    /// @dev Checks each slot on its own, with a small dust tolerance, so this is not
+    /// @notice True when every recorded slot is covered and no loss is on file.
+    /// @dev One of the gates wrap, unwrap and the value quotes apply, not all of them: backing under
+    ///      a conviction lock reverts those calls with `LockedBacking` while this still reads true.
+    ///      Says nothing either about who owns the hotkeys.
+    ///      Checks each slot on its own, with a small dust tolerance, so this is not
     ///      `missingStake(tokenId) == 0`: a surplus on one slot cannot cover another slot's deficit,
     ///      and a fully recovered position still reads false until `syncBacking` clears the loss
     ///      from the record.
-    ///      Says nothing about who owns the hotkeys, or whether a withdrawal would pass its other
-    ///      checks. A dissolving or dissolved position skips the coverage check, so it reads true
-    ///      unless a loss is already on file.
+    ///      A dissolving or dissolved position skips the coverage check, so it reads true unless a
+    ///      loss is already on file.
     function isBackingIntact(uint256 tokenId) external view returns (bool) {
         if (_shortSince(tokenId) != 0) return false;
         return VaultReads.firstShortOf(_readBacking(tokenId).backing.short) == VaultReads.NO_SHORT_SLOT;
