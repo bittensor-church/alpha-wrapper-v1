@@ -10,8 +10,8 @@ use 18-decimal EVM wei. One native RAO is 1e9 wei.
 
 ## Wrap staked alpha
 
-1. Read `getCurrentValidators(netuid)` on the lens. The deposit must sit under a
-   currently attested hotkey; move your stake there first if needed.
+1. Read the attested hotkeys from `getValidators(netuid)` on
+   `vault.validatorRegistry()` (first return value). Deposit under one of them.
 2. Call `createMailbox(netuid, uid)` with a fresh random `bytes32` UID. This
    creates your mailbox and, for the first user of this subnet generation, the
    shared subnet clone. If it reverts `CloneContaminated`, retry with a new UID.
@@ -45,8 +45,28 @@ a quote alone does not check every transaction prerequisite.
 
 Shares transfer as ERC-1155 balances. Keep the token id from `Deposited`:
 `currentTokenId(netuid)` only identifies the live subnet generation.
+`vault.totalSupply(tokenId)` returns shares outstanding.
 `sharePrice(tokenId)` is alpha per share scaled by 1e18; use
 `previewUnwrap(tokenId, shares)` for a specific burn.
+
+### Read alpha backing
+
+Call these functions on `AlphaVaultLens` for the position's `tokenId`:
+
+- `totalStake(tokenId)`: total staked alpha backing the position. Shortfalls or
+  locked backing can make this revert.
+- `locatedStake(tokenId)`: located alpha without shortfall or lock checks.
+- `resolvedBacking(tokenId)`: backing hotkeys in `keys`, with each hotkey's
+  staked alpha in `balances` at the same index. `total` is their sum;
+  `short[i]` flags insufficient backing for slot `i`.
+
+Amounts are in RAO; divide by `1e9` to display alpha. These reads cover recorded
+backing for one subnet generation. Resolved keys follow at most one swap per
+slot and may include the parking hotkey or differ from the registry's current set.
+
+Vault `recordedSlots(tokenId)` lists recorded keys and expected alpha in slot
+order. Use that order for the `excludedSlots` mask of `unwrapForTao`, and compare
+with lens `resolvedBacking(tokenId)` for current keys and balances.
 
 ### Staked alpha: the default exit
 
@@ -115,13 +135,12 @@ The lens exposes:
 - `missingStake(tokenId)`: the aggregate alpha still missing.
 - `isBackingIntact(tokenId)`: whether all recorded expectations are covered and
   no loss is on file.
-- `frozenUntil(tokenId)`: zero while the position accounts for itself, the
-  maximum value while a shortfall is still undeclared, otherwise the deadline
-  at which `syncBacking` can write the loss off.
-- `awaitingAttestation(tokenId)`: whether the position still waits for an
-  attestation newer than the one it parked under. It turns false the moment a
-  newer set is published, while the alpha keeps sitting on the parking hotkey,
-  earning nothing, until the first wrap, rebalance or alpha exit moves it.
+- `writeOffDeadline(tokenId)`: recorded deadline, max uint256 for an undeclared
+  shortfall, or zero if intact. `syncBacking` performs the write-off.
+- `resolvedBacking(tokenId)`: keys and alpha balances after at most one swap per slot.
+
+Vault `awaitingAttestation(tokenId)` reports whether parking awaits a newer
+validator set. Alpha stays parked until the next wrap, rebalance or alpha exit.
 
 A parked position pays alpha exits from the parking hotkey: the alpha arrives
 delegated to that hotkey and earns nothing until you move it to a validator

@@ -28,7 +28,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
     function _emptyRecovery() private returns (bytes32[] memory tips, uint256 deadline) {
         tips = _missingPosition();
         vault.syncBacking(TOKEN1);
-        deadline = lens.frozenUntil(TOKEN1);
+        deadline = lens.writeOffDeadline(TOKEN1);
         assertEq(_parkedStake(NETUID1), 0);
         assertEq(vault.recordedSlots(TOKEN1)[0].tracked, EXPECTED);
     }
@@ -39,7 +39,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
         vm.expectRevert(NothingToRecover.selector);
         vault.recoverStray(TOKEN1, hotkey4);
-        assertEq(lens.frozenUntil(TOKEN1), block.timestamp + vault.recoveryWindow());
+        assertEq(lens.writeOffDeadline(TOKEN1), block.timestamp + vault.recoveryWindow());
         assertEq(vault.recordedSlots(TOKEN1)[0].tracked, EXPECTED);
         assertEq(_parkedStake(NETUID1), 0);
         assertEq(_getVaultStake(hotkey4, NETUID1), DUST);
@@ -53,7 +53,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         vm.warp(deadline - 1);
         vm.expectRevert(BackingUnchanged.selector);
         vault.syncBacking(TOKEN1);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
         assertEq(vault.recordedSlots(TOKEN1)[0].tracked, EXPECTED);
 
         vm.warp(deadline);
@@ -62,7 +62,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
         assertEq(_getVaultStake(hotkey1, NETUID1), DUST);
         assertEq(lens.totalStake(TOKEN1), 0);
-        assertEq(lens.frozenUntil(TOKEN1), 0);
+        assertEq(lens.writeOffDeadline(TOKEN1), 0);
         uint256 shares = vault.balanceOf(alice, TOKEN1);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
@@ -78,7 +78,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         assertEq(_parkedStake(NETUID1), recovered + DUST);
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
         assertEq(lens.missingStake(TOKEN1), EXPECTED - recovered - DUST);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
     }
 
     function test_AboveFloorReturnAtExpiry_CollectsPreviouslySkippedDust() public {
@@ -100,7 +100,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         _plant(hotkey1, DUST);
         vault.syncBacking(TOKEN1);
         assertEq(_parkedStake(NETUID1), 0);
-        uint256 deadline = lens.frozenUntil(TOKEN1);
+        uint256 deadline = lens.writeOffDeadline(TOKEN1);
         _setAlphaPrice(NETUID1, 3e18);
         vm.warp(deadline);
         vm.expectEmit(true, false, false, true, address(vault));
@@ -137,7 +137,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         // The mock supplies this reason; a native refusal consumes the forwarded gas.
         vm.expectRevert(bytes("MockStaking: AmountTooLow"));
         vault.syncBacking(TOKEN1);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
         assertEq(vault.recordedSlots(TOKEN1)[0].tracked, EXPECTED);
         assertEq(_getVaultStake(hotkey1, NETUID1), DUST);
     }
@@ -150,7 +150,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         vm.warp(deadline);
         vm.expectRevert(bytes("MockStaking: moveStake reverted"));
         vault.syncBacking(TOKEN1);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
         assertEq(_parkedStake(NETUID1), 0);
         assertEq(_getVaultStake(hotkey1, NETUID1), CHAIN_MIN_STAKE);
         assertEq(_getVaultStake(hotkey2, NETUID1), DUST);
@@ -173,7 +173,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         vault.syncBacking(tokenId);
         assertEq(vault.recordedSlots(tokenId)[0].tracked, 100e6);
         assertEq(_parkedStake(netuid), movable ? located : 0);
-        uint256 deadline = lens.frozenUntil(tokenId);
+        uint256 deadline = lens.writeOffDeadline(tokenId);
         vm.warp(deadline);
         vm.expectEmit(true, false, false, true, address(vault));
         emit BackingWrittenOff(tokenId, 100e6, movable ? located : 0);

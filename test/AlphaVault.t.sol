@@ -34,6 +34,7 @@ import { DepositMailbox } from "src/DepositMailbox.sol";
 import { SubnetClone } from "src/SubnetClone.sol";
 import { CHAIN_MIN_STAKE, MockStaking } from "./mocks/MockStaking.sol";
 import { MockValidatorRegistry } from "./mocks/MockValidatorRegistry.sol";
+import { VaultReads } from "src/libraries/VaultReads.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
@@ -87,8 +88,8 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(vault.uri(TOKEN1), VAULT_URI);
     }
 
-    function test_GetCurrentValidatorsReturnsThree() public view {
-        bytes32[] memory hotkeys = lens.getCurrentValidators(NETUID1);
+    function test_AttestedSetHoldsThreeValidators() public view {
+        bytes32[] memory hotkeys = _attestedHotkeys(NETUID1);
         assertEq(hotkeys[0], hotkey1);
         assertEq(hotkeys[1], hotkey2);
         assertEq(hotkeys[2], hotkey3);
@@ -596,10 +597,11 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     }
 
     function test_RevertWhen_RegistryWhenNoValidatorsSet() public {
-        (, AlphaVaultLens freshLens) = _deployVaultAndLens(address(new MockValidatorRegistry()));
+        (AlphaVault freshVault,) = _deployVaultAndLens(address(new MockValidatorRegistry()));
 
+        vm.prank(alice);
         vm.expectRevert(NoValidatorFound.selector);
-        freshLens.getCurrentValidators(NETUID1);
+        freshVault.wrap(NETUID1, hotkey1, 0);
     }
 
     function test_TotalStakeMatchesDepositAcrossValidatorSetSizes() public {
@@ -620,31 +622,25 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 90 ether);
     }
 
-    /// @dev Synthetic malformed sets: only empty arrays mean unconfigured; nonempty zero entries are surfaced.
-    function test_RevertWhen_ResolveValidatorsWhenWeightZero() public {
-        MockValidatorRegistry mock = new MockValidatorRegistry();
-        (, AlphaVaultLens mockLens) = _deployVaultAndLens(address(mock));
+    function test_Wrap_PreservesZeroWeightRegistrySlot() public {
+        registry.setRaw(NETUID1, _hotkeys(bytes32(0), hotkey1, hotkey2), _weights(0, 5_000, 5_000));
+        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey1);
+        _wrapHotkey(alice, NETUID1, hotkey1);
 
-        _setRegBlock(91, 91);
-        vm.expectRevert(NoValidatorFound.selector);
-        mockLens.getCurrentValidators(91);
-
-        bytes32[] memory corruptHks = new bytes32[](3);
-        uint16[] memory corruptWts = new uint16[](3);
-        corruptHks[1] = hotkey1;
-        corruptHks[2] = hotkey2;
-        corruptWts[1] = 5_000;
-        corruptWts[2] = 5_000;
-        mock.setRaw(92, corruptHks, corruptWts);
-        _setRegBlock(92, 92);
-        bytes32[] memory surfaced = mockLens.getCurrentValidators(92);
-        assertEq(surfaced.length, 3);
-        assertEq(surfaced[0], bytes32(0));
+        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
+        assertEq(slots.length, 3, "zero entry is retained");
+        assertEq(slots[0].logical, bytes32(0));
+        assertEq(slots[0].active, bytes32(0));
+        assertEq(slots[0].tracked, 0);
+        assertEq(slots[1].logical, hotkey1);
+        assertEq(slots[1].tracked, 5 * ALPHA);
+        assertEq(slots[2].logical, hotkey2);
+        assertEq(slots[2].tracked, 5 * ALPHA);
     }
 
     function test_RevertWhen_RegistryReturnsMismatchedLengths() public {
         MockValidatorRegistry mock = new MockValidatorRegistry();
-        (, AlphaVaultLens mockLens) = _deployVaultAndLens(address(mock));
+        (AlphaVault mockVault,) = _deployVaultAndLens(address(mock));
 
         bytes32[] memory hotkeys = new bytes32[](1);
         uint16[] memory weights = new uint16[](2);
@@ -654,8 +650,9 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         mock.setRaw(91, hotkeys, weights);
         _setRegBlock(91, 91);
 
+        vm.prank(alice);
         vm.expectRevert(ValidatorSetMalformed.selector);
-        mockLens.getCurrentValidators(91);
+        mockVault.wrap(91, hotkey4, 0);
     }
 
     function test_UnwrapDecreasesTotalStake() public {
@@ -928,9 +925,6 @@ contract AlphaVaultTest is AlphaVaultTestBase {
 
         vm.expectRevert(NetuidOutOfRange.selector);
         vault.getDepositAddress(alice, oob);
-
-        vm.expectRevert(NetuidOutOfRange.selector);
-        lens.getCurrentValidators(oob);
     }
 
     function test_CurrentTokenIdChangesAfterRecycle() public {

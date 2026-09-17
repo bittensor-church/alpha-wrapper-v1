@@ -2,21 +2,18 @@
 pragma solidity 0.8.36;
 
 import { AlphaVault } from "./AlphaVault.sol";
-import { IValidatorRegistry } from "./interfaces/IValidatorRegistry.sol";
 import { VaultMath } from "./libraries/VaultMath.sol";
 import { VaultReads } from "./libraries/VaultReads.sol";
 import {
-    NetuidOutOfRange, LockedBacking, NoSharesOutstanding,
-    Parked, SharePriceBelowPrecision, ShortfallOnFile,
+    LockedBacking, NoSharesOutstanding, Parked,
+    SharePriceBelowPrecision, ShortfallOnFile,
     SubnetDissolved, ZeroAddress
 } from "./VaultErrors.sol";
 
-/// @dev Quotes share the vault's math, but do not guarantee a call will execute.
-///      Use a trusted build; `vault()` alone does not authenticate the lens.
-///      Reads during callbacks can observe mid-operation state.
+/// @notice Quotes and backing reads for AlphaVault.
+/// @dev Use a trusted build. Quotes do not guarantee execution; callback reads may see incomplete state.
 contract AlphaVaultLens {
-    /// @dev Every vault and precompile value a backing reading needs, fetched once per external call.
-    ///      An absent clone leaves `slots` and `backing` empty.
+    /// @dev Cached backing data. Without a clone, `slots` and `backing` are empty.
     struct BackingRead {
         address clone;
         uint16 netuid;
@@ -27,25 +24,24 @@ contract AlphaVaultLens {
     }
 
     AlphaVault public immutable vault;
-    IValidatorRegistry public immutable validatorRegistry;
 
     constructor(AlphaVault _vault) {
         if (address(_vault) == address(0)) revert ZeroAddress();
-        vault = _vault; validatorRegistry = _vault.validatorRegistry();
+        vault = _vault;
     }
 
-    /// @dev Rejects missing backing and a loss on file, as the vault's priced operations do, except
-    ///      during/after dissolution when alpha balances are in flux. Refuses unexpected conviction locks.
+    /// @notice Alpha backing `tokenId`, in RAO.
+    /// @dev Rejects recorded losses. Checks coverage and locks only on live, non-dissolving positions.
     function totalStake(uint256 tokenId) public view returns (uint256) {
         if (_shortSince(tokenId) != 0) revert ShortfallOnFile();
         return _intactStakeOf(_readBacking(tokenId));
     }
 
-    /// @notice Located alpha, including when a shortfall makes `totalStake` revert.
+    /// @notice Located alpha in RAO, even when backing is short or locked.
     function locatedStake(uint256 tokenId) external view returns (uint256) { return _readBacking(tokenId).backing.total; }
 
-    /// @notice Unlocated alpha relative to the recorded obligation.
-    /// @dev Dust at recorded keys reduces this amount, even if it cannot be parked and is later written off.
+    /// @notice Missing alpha in RAO. Zero during and after dissolution.
+    /// @dev Counts dust and offsets deficits with surpluses; zero does not imply intact backing.
     function missingStake(uint256 tokenId) external view returns (uint256) {
         BackingRead memory read = _readBacking(tokenId);
         uint256 expected;
@@ -53,8 +49,8 @@ contract AlphaVaultLens {
         return expected > read.backing.total ? expected - read.backing.total : 0;
     }
 
-    /// @notice The recorded keys resolved one successor hop each, as a TAO exit reads them before selling.
-    /// @dev A slot marked short makes that exit revert; `keys[i]` is the key slot `i` sells from.
+    /// @notice Backing keys and alpha RAO, following at most one swap per slot.
+    /// @dev TAO exits sell from `keys`; any `short` flag blocks the exit.
     function resolvedBacking(uint256 tokenId) external view returns (VaultReads.Backing memory backing) {
         address clone = vault.subnetClone(tokenId);
         if (clone == address(0)) return backing;
@@ -62,22 +58,22 @@ contract AlphaVaultLens {
             vault.recordedSlots(tokenId), VaultReads.coldkeyOf(clone), VaultMath.netuidOf(tokenId));
     }
 
-    /// @notice Recorded active keys, before resolving any new swap.
+    /// @notice Recorded active hotkeys, without resolving later swaps.
     function lastSeenHotkeys(uint256 tokenId) external view returns (bytes32[] memory) {
         return VaultReads.activesOf(vault.recordedSlots(tokenId));
     }
 
-    /// @dev Checks backing coverage and the shortfall clock, not hotkey ownership or withdrawal
-    ///      eligibility. Dissolving/dissolved positions bypass the coverage check.
+    /// @notice Whether backing passes coverage and recorded-loss checks.
+    /// @dev Allows per-slot dust; skips coverage during/after dissolution. Ignores locks and ownership.
     function isBackingIntact(uint256 tokenId) external view returns (bool) {
         if (_shortSince(tokenId) != 0) return false;
         return VaultReads.firstShortOf(_readBacking(tokenId).backing.short) == VaultReads.NO_SHORT_SLOT;
     }
 
-    /// @return deadline Write-off time, zero if intact, or VaultReads.UNDECLARED_SHORTFALL.
-    /// @dev Collection starts a fixed window; below-floor piles may stay behind.
-    ///      Expiry permits a write-off by syncBacking; it does not finalize recovery.
-    function frozenUntil(uint256 tokenId) external view returns (uint256 deadline) {
+    /// @notice Earliest time `syncBacking` may write off a recorded loss.
+    /// @return deadline Recorded deadline, max uint256 for an undeclared shortfall, or zero if intact.
+    /// @dev Expiry alone does not clear the loss.
+    function writeOffDeadline(uint256 tokenId) external view returns (uint256 deadline) {
         uint64 shortSince = _shortSince(tokenId);
         if (shortSince != 0) return shortSince + vault.recoveryWindow();
         if (VaultReads.firstShortOf(_readBacking(tokenId).backing.short) != VaultReads.NO_SHORT_SLOT) {
@@ -85,18 +81,12 @@ contract AlphaVaultLens {
         }
     }
 
-    /// @notice Whether deposits and weight alignment await an attestation newer than the parking one.
-    /// @dev Alpha can rest on the parking hotkey after this turns false, until the next wrap, rebalance or alpha
-    ///      exit moves it.
-    function awaitingAttestation(uint256 tokenId) external view returns (bool) { return vault.awaitingAttestation(tokenId); }
-
     function _readBacking(uint256 tokenId) private view returns (BackingRead memory read) {
         read.netuid = VaultMath.netuidOf(tokenId); read.clone = vault.subnetClone(tokenId);
         if (read.clone == address(0)) return read;
         _locateBacking(read, tokenId, VaultReads.isDissolvingOrDissolved(tokenId));
     }
 
-    /// @dev Dissolution converts alpha to TAO; do not treat that drain as missing backing.
     function _locateBacking(BackingRead memory read, uint256 tokenId, bool alphaInFlux) private view {
         read.coldkey = VaultReads.coldkeyOf(read.clone); read.alphaInFlux = alphaInFlux;
         if (alphaInFlux) {
@@ -108,7 +98,6 @@ contract AlphaVaultLens {
         read.backing = VaultReads.resolveBacking(read.slots, read.coldkey, read.netuid);
     }
 
-    /// @dev Alpha in flux during dissolution carries no lock to check.
     function _intactStakeOf(BackingRead memory read) private view returns (uint256) {
         VaultReads.requireIntact(read.slots, read.backing, read.netuid);
         if (read.clone != address(0) && !read.alphaInFlux && VaultReads.lockedAlphaOf(read.coldkey, read.netuid) != 0) {
@@ -118,32 +107,29 @@ contract AlphaVaultLens {
     }
 
     /// @notice Alpha per share, scaled by 1e18, including virtual offsets.
-    /// @dev Zero backing quotes zero; positive backing below quote precision reverts.
-    ///      `previewUnwrap` can still price a larger burn.
+    /// @dev Zero backing quotes zero; positive backing below precision reverts. Use `previewUnwrap` for a burn.
     function sharePrice(uint256 tokenId) external view returns (uint256) {
         _requireCurrentRegistration(tokenId);
         uint256 supply = vault.totalSupply(tokenId);
         if (supply == 0) revert NoSharesOutstanding();
         uint256 stake = totalStake(tokenId);
-        // Do not let the virtual asset imply value after a complete write-off.
+        // Ignore the virtual asset after a full write-off.
         if (stake == 0) return 0;
         uint256 price = VaultMath.assetsFor(stake, supply, VaultMath.SHARE_PRICE_SCALE);
         if (price == 0) revert SharePriceBelowPrecision();
         return price;
     }
 
+    /// @notice Estimated shares for depositing `assets` alpha RAO.
+    /// @dev Reverts while awaiting attestation. Actual shares may differ; set `minSharesOut`.
     function previewWrap(uint256 tokenId, uint256 assets) external view returns (uint256) {
         _requireCurrentRegistration(tokenId);
         if (vault.awaitingAttestation(tokenId)) revert Parked();
         return VaultMath.sharesFor(totalStake(tokenId), vault.totalSupply(tokenId), assets);
     }
 
-    /// @notice Nominal alpha RAO for a live exit, or TAO wei for a dissolved exit.
-    /// @dev Excludes claimable TAO, does not quote `unwrapForTao`, and does not consult the registry.
-    ///      Chain rounding can reduce alpha credit; ownership, transfer, size and registry checks may
-    ///      still reject an exit.
-    ///      A zero quote does not authorize a zero payout: the caller must set `minAlphaOut` to zero.
-    ///      Dissolved positions with no unreserved TAO quote zero; execution still rejects the exit.
+    /// @notice Estimated exit payout: live alpha RAO or dissolved TAO wei.
+    /// @dev Excludes claims and market sales. Rounding may reduce alpha; zero quotes may still revert on exit.
     function previewUnwrap(uint256 tokenId, uint256 shares) external view returns (uint256 alpha, uint256 tao) {
         if (shares == 0) return (0, 0);
         BackingRead memory read;
@@ -165,11 +151,12 @@ contract AlphaVaultLens {
         return (VaultMath.assetsFor(_intactStakeOf(read), supply, shares), 0);
     }
 
-    /// @notice Claimable TAO in EVM wei, including pending accrual, rounded down to whole RAO.
+    /// @notice Claimable TAO in wei, including pending accrual, rounded down to whole RAO.
     function claimableTaoOf(address account, uint256 tokenId) external view returns (uint256) {
         return _claimableTaoOf(account, tokenId);
     }
 
+    /// @notice Claimable TAO for each token ID, in input order.
     function batchClaimableTaoOf(address account, uint256[] calldata tokenIds) external view returns (uint256[] memory amounts) {
         amounts = new uint256[](tokenIds.length);
         for (uint256 i = 0; i < tokenIds.length; i++) { amounts[i] = _claimableTaoOf(account, tokenIds[i]); }
@@ -182,12 +169,6 @@ contract AlphaVaultLens {
         uint256 backing = liability + liabilityIncrease;
         uint256 entitlement = vault.claimableTao(tokenId, account) + _pendingAt(account, tokenId, index);
         return VaultMath.toNativeQuantum(VaultMath.backedEntitlement(entitlement, backing));
-    }
-
-    function getCurrentValidators(uint256 netuid) external view returns (bytes32[] memory) {
-        if (netuid > type(uint16).max) revert NetuidOutOfRange();
-        // forge-lint: disable-next-line(unsafe-typecast)
-        return VaultReads.resolveValidators(validatorRegistry, uint16(netuid)).hotkeys;
     }
 
     function _shortSince(uint256 tokenId) private view returns (uint64 shortSince) { (shortSince,) = vault.recovery(tokenId); }

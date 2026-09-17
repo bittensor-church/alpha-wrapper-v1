@@ -196,7 +196,11 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     }
 
     function _simulateAlphaDeposit(address user, uint256 netuid, uint256 amount) internal {
-        _simulateAlphaDepositHotkey(user, netuid, amount, lens.getCurrentValidators(netuid)[0]);
+        _simulateAlphaDepositHotkey(user, netuid, amount, _attestedHotkeys(netuid)[0]);
+    }
+
+    function _attestedHotkeys(uint256 netuid) internal view returns (bytes32[] memory hotkeys) {
+        (hotkeys,,) = vault.validatorRegistry().getValidators(netuid);
     }
 
     function _simulateAlphaDepositHotkey(address user, uint256 netuid, uint256 amount, bytes32 hotkey) internal {
@@ -221,7 +225,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     }
 
     function _wrap(address user, uint256 netuid) internal {
-        _wrapHotkey(user, netuid, lens.getCurrentValidators(netuid)[0]);
+        _wrapHotkey(user, netuid, _attestedHotkeys(netuid)[0]);
     }
 
     function _wrapHotkey(address user, uint256 netuid, bytes32 chosenHotkey) internal {
@@ -539,7 +543,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     /// @dev Declares the shortfall, waits out the window and writes it off, leaving the token parked.
     function _runOutRecoveryWindow(uint256 tokenId) internal {
         vault.syncBacking(tokenId);
-        vm.warp(lens.frozenUntil(tokenId));
+        vm.warp(lens.writeOffDeadline(tokenId));
         vault.syncBacking(tokenId);
     }
 

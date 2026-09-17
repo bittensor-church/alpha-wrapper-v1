@@ -235,7 +235,7 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 ether);
         _wrap(alice, NETUID1);
-        _buildSwapTrail(NETUID1, lens.getCurrentValidators(NETUID1)[0], 2);
+        _buildSwapTrail(NETUID1, _attestedHotkeys(NETUID1)[0], 2);
 
         vault.syncBacking(TOKEN1);
         vm.snapshotGasLastCall("AlphaVault", "syncBacking: loss on file (64 validators)");
@@ -245,7 +245,7 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 ether);
         _wrap(alice, NETUID1);
-        bytes32 lost = lens.getCurrentValidators(NETUID1)[0];
+        bytes32 lost = _attestedHotkeys(NETUID1)[0];
         bytes32 tip = _buildSwapTrail(NETUID1, lost, 2);
         vault.syncBacking(TOKEN1);
 
@@ -271,7 +271,7 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
 
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), 10 ether);
-        assertEq(lens.frozenUntil(TOKEN1), 0);
+        assertEq(lens.writeOffDeadline(TOKEN1), 0);
         assertEq(_getVaultStake(source, NETUID1), 0);
     }
 
@@ -279,7 +279,7 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 ether);
         _wrap(alice, NETUID1);
-        bytes32 tip = _buildSwapTrail(NETUID1, lens.getCurrentValidators(NETUID1)[0], 2);
+        bytes32 tip = _buildSwapTrail(NETUID1, _attestedHotkeys(NETUID1)[0], 2);
         vault.syncBacking(TOKEN1);
         vault.recoverStray(TOKEN1, tip);
         vault.syncBacking(TOKEN1);
@@ -288,7 +288,7 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
         vm.snapshotGasLastCall("AlphaVault", "rebalance: release parked position (64 validators)");
 
-        assertFalse(lens.awaitingAttestation(TOKEN1));
+        assertFalse(vault.awaitingAttestation(TOKEN1));
         assertEq(_parkedStake(NETUID1), 0);
     }
 

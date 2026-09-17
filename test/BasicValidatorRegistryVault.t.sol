@@ -75,19 +75,19 @@ contract BasicValidatorRegistryVaultTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
         vault.recoverStray(TOKEN1, hotkey4);
         vault.syncBacking(TOKEN1);
-        assertTrue(lens.awaitingAttestation(TOKEN1));
+        assertTrue(vault.awaitingAttestation(TOKEN1));
         assertEq(_parkedStake(NETUID1), 10 * ALPHA);
 
         basicRegistry.transferOwnership(bob);
-        assertTrue(lens.awaitingAttestation(TOKEN1), "nomination does not publish a validator update");
+        assertTrue(vault.awaitingAttestation(TOKEN1), "nomination does not publish a validator update");
         vm.prank(bob);
         basicRegistry.acceptOwnership();
-        assertTrue(lens.awaitingAttestation(TOKEN1), "acceptance does not publish a validator update");
+        assertTrue(vault.awaitingAttestation(TOKEN1), "acceptance does not publish a validator update");
         assertEq(basicRegistry.nonces(NETUID1), 1);
         _recordHotkeyOwner(hotkey4);
         vm.prank(bob);
         basicRegistry.setValidator(NETUID1, hotkey4);
-        assertFalse(lens.awaitingAttestation(TOKEN1));
+        assertFalse(vault.awaitingAttestation(TOKEN1));
         vault.rebalance(NETUID1);
         assertEq(_parkedStake(NETUID1), 0);
         assertEq(_getVaultStake(hotkey4, NETUID1), 10 * ALPHA);

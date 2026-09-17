@@ -60,7 +60,7 @@ def park(env: Environment, token_id: int, stranding: Stranding, context: str) ->
     backing_before = stranding.backing_before
 
     env.sync_backing(token_id, label="syncBacking [declare]")
-    assert env.frozen_until(token_id) > 0, f"{context}: the shortfall should be on file with a deadline"
+    assert env.write_off_deadline(token_id) > 0, f"{context}: the shortfall should be on file with a deadline"
     env.recover_stray(token_id, stranding.successor_pubkey, f"{context}: recoverStray failed")
 
     env.sync_backing(token_id, label="syncBacking [finalize]")
@@ -70,5 +70,5 @@ def park(env: Environment, token_id: int, stranding: Stranding, context: str) ->
     )
     assert env.awaiting_attestation(token_id), f"{context}: the position should wait for the registry owner"
     assert env.backing_intact(token_id), f"{context}: parked backing accounts for itself"
-    assert env.frozen_until(token_id) == 0, f"{context}: nothing should be on file any more"
+    assert env.write_off_deadline(token_id) == 0, f"{context}: nothing should be on file any more"
     return parked

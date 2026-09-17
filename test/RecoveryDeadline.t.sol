@@ -15,7 +15,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         firstTip = _buildSwapTrail(NETUID1, hotkey1, 2);
         secondTip = _buildSwapTrail(NETUID1, hotkey2, 2);
         vault.syncBacking(TOKEN1);
-        deadline = lens.frozenUntil(TOKEN1);
+        deadline = lens.writeOffDeadline(TOKEN1);
         assertEq(_parkedStake(NETUID1), 8 ether);
         assertEq(lens.missingStake(TOKEN1), 32 ether);
     }
@@ -25,7 +25,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         uint256 lost = _getVaultStake(hotkey1, NETUID1);
         _buildSwapTrail(NETUID1, hotkey1, 2);
         vault.syncBacking(TOKEN1);
-        uint256 deadline = lens.frozenUntil(TOKEN1);
+        uint256 deadline = lens.writeOffDeadline(TOKEN1);
         assertEq(_parkedStake(NETUID1), 30 ether - lost);
         assertEq(_getVaultStake(hotkey2, NETUID1), 0);
 
@@ -34,14 +34,14 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(lateTip, NETUID1), 0, "the late swap cannot take the secured balance");
         vm.expectRevert(BackingUnchanged.selector);
         vault.syncBacking(TOKEN1);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
 
         vm.warp(deadline);
         vm.expectEmit(true, false, false, true, address(vault));
         emit BackingWrittenOff(TOKEN1, 30 ether, 30 ether - lost);
         vault.syncBacking(TOKEN1);
         assertEq(_parkedStake(NETUID1), 30 ether - lost);
-        assertEq(lens.frozenUntil(TOKEN1), 0);
+        assertEq(lens.writeOffDeadline(TOKEN1), 0);
     }
 
     function test_PartialRecovery_AcceptsTheLargerSourceFirstWithoutAttribution() public {
@@ -52,7 +52,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertEq(lens.missingStake(TOKEN1), 8 ether);
         assertEq(vault.recordedSlots(TOKEN1)[0].tracked, 40 ether);
         assertEq(_getVaultStake(secondTip, NETUID1), 0);
-        assertEq(lens.frozenUntil(TOKEN1), deadline, "partial recovery cannot extend the window");
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline, "partial recovery cannot extend the window");
         vm.expectRevert(ShortfallOnFile.selector);
         lens.totalStake(TOKEN1);
         vm.expectRevert(NothingToRecover.selector);
@@ -61,12 +61,12 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         vault.recoverStray(TOKEN1, firstTip);
         assertEq(_parkedStake(NETUID1), 40 ether);
         assertEq(lens.missingStake(TOKEN1), 0);
-        assertEq(lens.frozenUntil(TOKEN1), deadline, "only sync finalizes recovery");
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline, "only sync finalizes recovery");
         assertFalse(lens.isBackingIntact(TOKEN1));
         vault.syncBacking(TOKEN1);
-        assertEq(lens.frozenUntil(TOKEN1), 0);
+        assertEq(lens.writeOffDeadline(TOKEN1), 0);
         assertEq(vault.recordedSlots(TOKEN1).length, 1);
-        assertTrue(lens.awaitingAttestation(TOKEN1));
+        assertTrue(vault.awaitingAttestation(TOKEN1));
     }
 
     function test_ReturnedBalance_IsSecuredBeforeItsHotkeyCanSwapAgain() public {
@@ -77,7 +77,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
         assertEq(_parkedStake(NETUID1), 16 ether);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
 
         vm.warp(deadline - 1);
         _simulateOffVaultSwap(NETUID1, hotkey1, firstTip);
@@ -101,7 +101,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), 40 ether);
         assertEq(_parkedStake(NETUID1), 40 ether);
-        assertEq(lens.frozenUntil(TOKEN1), 0);
+        assertEq(lens.writeOffDeadline(TOKEN1), 0);
     }
 
     function test_PartialRecoveryAfterSync_PreservesItsClock() public {
@@ -114,7 +114,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertEq(_parkedStake(NETUID1), 30 ether - secondLost);
         assertEq(lens.missingStake(TOKEN1), secondLost);
         assertEq(_getVaultStake(tip, NETUID1), 0);
-        assertEq(lens.frozenUntil(TOKEN1), block.timestamp + vault.recoveryWindow());
+        assertEq(lens.writeOffDeadline(TOKEN1), block.timestamp + vault.recoveryWindow());
     }
 
     function test_FailedParking_LeavesTheRecordAndClockUntouched() public {
@@ -133,7 +133,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         vm.warp(block.timestamp + 1 days);
         MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(false);
         vault.syncBacking(TOKEN1);
-        assertEq(lens.frozenUntil(TOKEN1), block.timestamp + vault.recoveryWindow());
+        assertEq(lens.writeOffDeadline(TOKEN1), block.timestamp + vault.recoveryWindow());
     }
 
     function test_FailedCollectionAtExpiry_PreservesReturnedBackingAndTheObligation() public {
@@ -146,7 +146,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertEq(_parkedStake(NETUID1), 8 ether);
         assertEq(_getVaultStake(hotkey1, NETUID1), 8 ether);
         assertEq(vault.recordedSlots(TOKEN1)[0].tracked, 40 ether);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
         MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(false);
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), 16 ether);
@@ -160,7 +160,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         vault.recoverStray(TOKEN1, hotkey5);
         assertEq(_parkedStake(NETUID1), 8 ether);
         assertEq(lens.missingStake(TOKEN1), 32 ether);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
         assertEq(_getStakeForColdkey(hotkey5, _toSubstrate(bob), NETUID1), 100 ether);
     }
 
@@ -173,7 +173,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertEq(_parkedStake(NETUID1), 9 ether - 10, "two roller moves each lose five alpha units");
         assertEq(lens.missingStake(TOKEN1), 31 ether + 10);
         assertEq(vault.recordedSlots(TOKEN1)[0].tracked, 40 ether);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
     }
 
     function testFuzz_PartialRecovery_IsIndependentOfSourceOrder(uint256 rawSplit, bool secondSourceFirst) public {
@@ -187,7 +187,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         bytes32 second = secondSourceFirst ? firstTip : secondTip;
         vault.recoverStray(TOKEN1, first);
         assertEq(lens.missingStake(TOKEN1), secondSourceFirst ? split : 32 ether - split);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
         vault.recoverStray(TOKEN1, second);
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), 40 ether);
@@ -221,15 +221,15 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertEq(_parkedStake(NETUID1), 40 ether);
         assertEq(_getVaultStake(hotkey1, NETUID1), 8 ether, "only the supplied source moved");
         assertEq(keccak256(abi.encode(vault.recordedSlots(TOKEN1))), record);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
         assertFalse(lens.isBackingIntact(TOKEN1), "sync must finalize the record");
 
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), 48 ether, "no returned backing was dropped at completion");
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
         assertEq(vault.recordedSlots(TOKEN1).length, 1);
-        assertEq(lens.frozenUntil(TOKEN1), 0);
-        assertTrue(lens.awaitingAttestation(TOKEN1));
+        assertEq(lens.writeOffDeadline(TOKEN1), 0);
+        assertTrue(vault.awaitingAttestation(TOKEN1));
     }
 
     function test_RecoverStray_AcceptsAReturnAtAKnownCollectionKey() public {
@@ -239,7 +239,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertEq(_parkedStake(NETUID1), 16 ether);
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
         assertEq(lens.missingStake(TOKEN1), 24 ether);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
         assertEq(vault.recordedSlots(TOKEN1)[0].tracked, 40 ether);
     }
 
@@ -248,13 +248,13 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         vm.warp(deadline);
         vault.recoverStray(TOKEN1, first);
         vault.recoverStray(TOKEN1, second);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
         assertEq(vault.recordedSlots(TOKEN1)[0].tracked, 40 ether);
         vm.expectEmit(true, false, false, true, address(vault));
         emit BackingShortfallCleared(TOKEN1);
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), 40 ether);
-        assertEq(lens.frozenUntil(TOKEN1), 0);
+        assertEq(lens.writeOffDeadline(TOKEN1), 0);
     }
 
     function test_RecoverStray_RejectsZeroAndParkingWithoutChangingRecovery() public {
@@ -266,7 +266,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         vault.recoverStray(TOKEN1, parking);
         assertEq(_parkedStake(NETUID1), 8 ether);
         assertEq(vault.recordedSlots(TOKEN1)[0].tracked, 40 ether);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
     }
 
     function test_RecoverStray_CanAnnexUntrackedParkingStakeToLiveBacking() public {
@@ -276,8 +276,8 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         vault.recoverStray(TOKEN1, parking);
         assertEq(lens.totalStake(TOKEN1), 33 ether);
         assertEq(_parkedStake(NETUID1), 0);
-        assertEq(lens.frozenUntil(TOKEN1), 0);
-        assertFalse(lens.awaitingAttestation(TOKEN1));
+        assertEq(lens.writeOffDeadline(TOKEN1), 0);
+        assertFalse(vault.awaitingAttestation(TOKEN1));
     }
 
     function test_MovableSourceFirst_EnablesNineSeparateDustRecoveries() public {
@@ -289,7 +289,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         _buildSwapTrail(NETUID1, hotkey2, 2);
         _buildSwapTrail(NETUID1, hotkey3, 2);
         vault.syncBacking(TOKEN1);
-        uint256 deadline = lens.frozenUntil(TOKEN1);
+        uint256 deadline = lens.writeOffDeadline(TOKEN1);
         MockStaking staking = MockStaking(STAKING_PRECOMPILE);
         bytes32 coldkey = _subnetColdkey(NETUID1);
         for (uint256 i; i < dustSources; ++i) {
@@ -311,7 +311,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         uint256 collected = CHAIN_MIN_STAKE + dustSources * dust;
         assertEq(_parkedStake(NETUID1), collected);
         assertEq(lens.missingStake(TOKEN1), expected - collected);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
         vm.warp(deadline);
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), collected, "all ten collected balances survive write-off");
@@ -339,7 +339,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
         assertEq(_parkedStake(NETUID1), 30 ether - lost);
         assertEq(lens.missingStake(TOKEN1), lost);
-        assertEq(lens.frozenUntil(TOKEN1), block.timestamp + vault.recoveryWindow());
+        assertEq(lens.writeOffDeadline(TOKEN1), block.timestamp + vault.recoveryWindow());
     }
 
     function test_IncompleteCollectionAtExpiry_CannotWriteOffLocatedBackingAndCanBeRetried() public {
@@ -352,7 +352,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         vm.expectRevert(BackingNotSecured.selector);
         vault.syncBacking(TOKEN1);
         assertEq(keccak256(abi.encode(vault.recordedSlots(TOKEN1))), record);
-        assertEq(lens.frozenUntil(TOKEN1), deadline);
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
         assertEq(_parkedStake(NETUID1), 8 ether);
         assertEq(_getVaultStake(hotkey1, NETUID1), 8 ether);
 
@@ -360,7 +360,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), 16 ether);
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
-        assertEq(lens.frozenUntil(TOKEN1), 0);
+        assertEq(lens.writeOffDeadline(TOKEN1), 0);
     }
 
     function testFuzz_Declaration_ParksTheComplementOfAnyNonemptyLostSubset(uint256 rawCount, uint256 rawMask) public {
@@ -389,10 +389,10 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
             assertEq(_getVaultStake(keys[i], netuid), 0);
         }
 
-        vm.warp(lens.frozenUntil(tokenId));
+        vm.warp(lens.writeOffDeadline(tokenId));
         vault.syncBacking(tokenId);
         assertEq(lens.totalStake(tokenId), expected - lost, "expiry preserves every located balance");
-        assertEq(lens.frozenUntil(tokenId), 0);
+        assertEq(lens.writeOffDeadline(tokenId), 0);
     }
 
     function testFuzz_MergedSlots_FinalizeAtDeclarationForAnySplit(uint256 rawWeight) public {
@@ -414,9 +414,9 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 30 ether);
         assertEq(_parkedStake(NETUID1), 30 ether);
         assertEq(lens.missingStake(TOKEN1), 0);
-        assertEq(lens.frozenUntil(TOKEN1), 0);
+        assertEq(lens.writeOffDeadline(TOKEN1), 0);
         assertEq(vault.recordedSlots(TOKEN1).length, 1);
-        assertTrue(lens.awaitingAttestation(TOKEN1));
+        assertTrue(vault.awaitingAttestation(TOKEN1));
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
         assertEq(_getVaultStake(hotkey2, NETUID1), 0);
         assertEq(_getVaultStake(hotkey4, NETUID1), 0);

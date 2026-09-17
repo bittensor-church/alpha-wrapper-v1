@@ -399,7 +399,7 @@ contract ClaimableTaoTest is AlphaVaultTestBase {
         _simulateTaoAwardedOnDissolution(TOKEN1, 5 ether);
         _catchRecordUpFor(TOKEN1);
 
-        bytes32 chosen = lens.getCurrentValidators(NETUID1)[0];
+        bytes32 chosen = _attestedHotkeys(NETUID1)[0];
         _simulateAlphaDeposit(bob, NETUID1, DEPOSIT);
         vm.expectRevert(SupplyCapExceeded.selector);
         vm.prank(bob);

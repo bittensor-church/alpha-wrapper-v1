@@ -113,12 +113,12 @@ class Environment:
             self.lens_address, "isBackingIntact(uint256)(bool)", token_id,
         ).strip() == "true"
 
-    def frozen_until(self, token_id: int) -> int:
+    def write_off_deadline(self, token_id: int) -> int:
         """Write-off deadline of a declared shortfall; max uint256 while a shortfall is
         undeclared, 0 while backing is intact. Expiry lets syncBacking write the deficit
         off; it does not reopen the token by itself."""
         return int(chain.cast_call(
-            self.lens_address, "frozenUntil(uint256)(uint256)", token_id,
+            self.lens_address, "writeOffDeadline(uint256)(uint256)", token_id,
         ))
 
     def sync_backing(self, token_id: int, label: Optional[str] = None) -> None:
@@ -138,7 +138,7 @@ class Environment:
         """Whether the position rests on the parking hotkey with deposits and alignment shut
         until the registry publishes a newer set."""
         return chain.cast_call(
-            self.lens_address, "awaitingAttestation(uint256)(bool)", token_id,
+            self.vault_address, "awaitingAttestation(uint256)(bool)", token_id,
         ).strip() == "true"
 
     def parking_hotkey(self) -> str:
