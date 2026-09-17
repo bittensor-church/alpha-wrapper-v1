@@ -130,10 +130,6 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         assertEq(lens.claimableTaoOf(alice, TOKEN1), 0);
     }
 
-    function test_Constructor_ResolvesTheVaultsRegistry() public view {
-        assertEq(address(lens.validatorRegistry()), address(vault.validatorRegistry()));
-    }
-
     function test_BatchClaimableTaoOf_MatchesTheSingleQuotePositionForPosition() public {
         _depositAndWrap(alice, NETUID1, 10 ether);
         _depositAndWrap(alice, NETUID2, 4 ether);
@@ -186,16 +182,16 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         vault.recoverStray(TOKEN1, hotkey4);
         vault.syncBacking(TOKEN1);
 
-        assertTrue(lens.awaitingAttestation(TOKEN1), "the lens reports the parked position");
+        assertTrue(vault.awaitingAttestation(TOKEN1), "the position is parked");
         assertTrue(lens.isBackingIntact(TOKEN1), "parked backing is whole");
-        assertEq(lens.frozenUntil(TOKEN1), 0, "and no clock runs on it");
+        assertEq(lens.writeOffDeadline(TOKEN1), 0, "and no clock runs on it");
         assertEq(lens.lastSeenHotkeys(TOKEN1)[0], vault.parkingHotkey(), "the record names the parking hotkey");
         assertGt(lens.sharePrice(TOKEN1), 0, "the position still quotes");
         vm.expectRevert(Parked.selector);
         lens.previewWrap(TOKEN1, 1 ether);
 
         _reattestCurrentSet(NETUID1);
-        assertFalse(lens.awaitingAttestation(TOKEN1), "a newer attestation releases it");
+        assertFalse(vault.awaitingAttestation(TOKEN1), "a newer attestation releases it");
         assertGt(lens.previewWrap(TOKEN1, 1 ether), 0, "and the mint quote answers again");
     }
 
@@ -274,12 +270,12 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
     function test_DeclaredShortfall_ReadsAsNotIntactUntilSynced() public {
         _depositAndWrap(alice, NETUID1, 30 ether);
         _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
-        assertEq(lens.frozenUntil(TOKEN1), VaultReads.UNDECLARED_SHORTFALL, "short and not yet declared");
+        assertEq(lens.writeOffDeadline(TOKEN1), VaultReads.UNDECLARED_SHORTFALL, "short and not yet declared");
         vault.syncBacking(TOKEN1);
         _simulateOffVaultSwap(NETUID1, hotkey4, hotkey1);
 
         assertFalse(lens.isBackingIntact(TOKEN1), "the alpha is back but the shortfall is still on file");
-        assertEq(lens.frozenUntil(TOKEN1), block.timestamp + RECOVERY_WINDOW, "with its clock still running");
+        assertEq(lens.writeOffDeadline(TOKEN1), block.timestamp + RECOVERY_WINDOW, "with its clock still running");
         vm.expectRevert(ShortfallOnFile.selector);
         lens.sharePrice(TOKEN1);
         vm.expectRevert(ShortfallOnFile.selector);
@@ -287,7 +283,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
 
         vault.syncBacking(TOKEN1);
         assertTrue(lens.isBackingIntact(TOKEN1), "syncing takes it off file");
-        assertEq(lens.frozenUntil(TOKEN1), 0, "and stops the clock");
+        assertEq(lens.writeOffDeadline(TOKEN1), 0, "and stops the clock");
     }
 
     function test_DissolvedToken_ReadsWithoutARecordToAnswerTo() public {
@@ -298,7 +294,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
 
         assertEq(lens.locatedStake(TOKEN1), staked, "the reading counts what the record names");
         assertTrue(lens.isBackingIntact(TOKEN1), "with nothing to be short against");
-        assertEq(lens.frozenUntil(TOKEN1), 0, "and nothing holding it shut");
+        assertEq(lens.writeOffDeadline(TOKEN1), 0, "and nothing holding it shut");
     }
 
     function test_ResolvedBacking_NamesEachRecordedKeyAndItsBalance() public {
@@ -361,7 +357,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, _subnetColdkey(NETUID1), NETUID1, 0);
 
         assertTrue(lens.isBackingIntact(TOKEN1), "the drain is not a shortfall");
-        assertEq(lens.frozenUntil(TOKEN1), 0, "and starts no clock");
+        assertEq(lens.writeOffDeadline(TOKEN1), 0, "and starts no clock");
         assertEq(lens.totalStake(TOKEN1), lens.locatedStake(TOKEN1), "the total is the in-flux reading");
         assertLt(lens.totalStake(TOKEN1), 30 ether, "which reflects the drain so far");
     }

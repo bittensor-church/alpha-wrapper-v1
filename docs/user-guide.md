@@ -10,8 +10,9 @@ use 18-decimal EVM wei. One native RAO is 1e9 wei.
 
 ## Wrap staked alpha
 
-1. Read `getCurrentValidators(netuid)` on the lens. The deposit must sit under a
-   currently attested hotkey; move your stake there first if needed.
+1. Read `getValidators(netuid)` on the validator registry, whose address is
+   `vault.validatorRegistry()`. The first return value is the attested hotkeys.
+   The deposit must sit under one of them; move your stake there first if needed.
 2. Call `createMailbox(netuid, uid)` with a fresh random `bytes32` UID. This
    creates your mailbox and, for the first user of this subnet generation, the
    shared subnet clone. If it reverts `CloneContaminated`, retry with a new UID.
@@ -45,8 +46,15 @@ a quote alone does not check every transaction prerequisite.
 
 Shares transfer as ERC-1155 balances. Keep the token id from `Deposited`:
 `currentTokenId(netuid)` only identifies the live subnet generation.
+`vault.totalSupply(tokenId)` is the shares outstanding for that position.
 `sharePrice(tokenId)` is alpha per share scaled by 1e18; use
 `previewUnwrap(tokenId, shares)` for a specific burn.
+
+`recordedSlots(tokenId)` on the vault lists the position's validator slots in
+order, each with the key the vault last recorded and the alpha it expects there.
+Read it to index the `excludedSlots` mask of `unwrapForTao` (below), and compare
+it against the lens's `resolvedBacking(tokenId)` to see expectation against what
+is actually on chain.
 
 ### Staked alpha: the default exit
 
@@ -115,13 +123,17 @@ The lens exposes:
 - `missingStake(tokenId)`: the aggregate alpha still missing.
 - `isBackingIntact(tokenId)`: whether all recorded expectations are covered and
   no loss is on file.
-- `frozenUntil(tokenId)`: zero while the position accounts for itself, the
+- `writeOffDeadline(tokenId)`: zero while the position accounts for itself, the
   maximum value while a shortfall is still undeclared, otherwise the deadline
   at which `syncBacking` can write the loss off.
-- `awaitingAttestation(tokenId)`: whether the position still waits for an
-  attestation newer than the one it parked under. It turns false the moment a
-  newer set is published, while the alpha keeps sitting on the parking hotkey,
-  earning nothing, until the first wrap, rebalance or alpha exit moves it.
+- `resolvedBacking(tokenId)`: each recorded slot's key and the alpha on it,
+  following one hotkey swap, which is what a TAO exit sells from.
+
+The vault itself exposes `awaitingAttestation(tokenId)`: whether the position
+still waits for an attestation newer than the one it parked under. It turns
+false the moment a newer set is published, while the alpha keeps sitting on the
+parking hotkey, earning nothing, until the first wrap, rebalance or alpha exit
+moves it.
 
 A parked position pays alpha exits from the parking hotkey: the alpha arrives
 delegated to that hotkey and earns nothing until you move it to a validator

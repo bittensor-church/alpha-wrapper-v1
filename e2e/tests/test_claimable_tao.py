@@ -93,7 +93,7 @@ def test_root_sweep_tao_becomes_claimable(env):
 
         # Any caller can ask the vault to open the recovery window.
         env.sync_backing(token_id)
-        opens_from = env.frozen_until(token_id)
+        opens_from = env.write_off_deadline(token_id)
         assert opens_from > 0, "syncBacking did not start the recovery window"
         print(f"  Loss on file with nobody's permission; the record settles from {opens_from}")
 

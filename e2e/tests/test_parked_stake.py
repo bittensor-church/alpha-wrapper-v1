@@ -51,7 +51,7 @@ def test_holder_exits_after_owner_replaces_the_ownerless_name(env):
     # The record still finds the alpha where it expects it: nothing is missing and no
     # loss goes on file. What the vault refuses is allocating to a name nobody owns.
     assert env.backing_intact(token_id), "the backing check should be satisfied, not tripped"
-    assert env.frozen_until(token_id) == 0, "an intact position must not be holding anything shut"
+    assert env.write_off_deadline(token_id) == 0, "an intact position must not be holding anything shut"
     assert env.vault_total_stake(token_id) > 0, "the vault stopped counting the stranded alpha"
 
     exit_shares = shares // 2
