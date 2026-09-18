@@ -30,7 +30,6 @@ abstract contract RegistryTestHelper is Test {
 
     function _evenWeights(uint256 count) internal pure returns (uint16[] memory weights) {
         weights = new uint16[](count);
-        // forge-lint: disable-next-line(unsafe-typecast)
         uint16 slots = uint16(count);
         uint16 share = VaultMath.BPS_BASE / slots;
         for (uint16 i; i + 1 < slots; ++i) {

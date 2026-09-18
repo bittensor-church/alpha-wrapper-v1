@@ -396,12 +396,10 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     }
 
     function _setAlphaPrice(uint256 netuid, uint256 alphaPriceE18) internal {
-        // forge-lint: disable-next-line(unsafe-typecast)
         MockAlpha(ALPHA_PRECOMPILE).setAlphaPrice(uint16(netuid), alphaPriceE18);
     }
 
     function _alphaPriceRead(uint256 netuid) internal view returns (uint256) {
-        // forge-lint: disable-next-line(unsafe-typecast)
         return MockAlpha(ALPHA_PRECOMPILE).getAlphaPrice(uint16(netuid));
     }
 
