@@ -121,15 +121,15 @@ library VaultAllocation {
         actives = new bytes32[](currentSet.length);
         for (uint256 i; i < currentSet.length;) {
             bytes32 name = currentSet[i]; bytes32 owner = owners[i];
-            uint256 at = VaultMath.indexOf(logicals, name);
+            uint256 ownSlot = VaultMath.indexOf(logicals, name);
             bytes32 key; bool live;
-            if (at != VaultMath.INDEX_NOT_FOUND && balances[at] != 0) {
-                key = keys[at]; live = VaultReads.ownedBy(key, owner);
-            } else if (_keyHeldElsewhere(keys, logicals, currentSet, name, at)) {
-                if (at == VaultMath.INDEX_NOT_FOUND) revert IAlphaVaultAbi.SwappedHotkeyStillAttested();
-                key = keys[at]; live = VaultReads.ownedBy(key, owner);
+            if (ownSlot != VaultMath.INDEX_NOT_FOUND && balances[ownSlot] != 0) {
+                key = keys[ownSlot]; live = VaultReads.ownedBy(key, owner);
+            } else if (_keyHeldElsewhere(keys, logicals, currentSet, name, ownSlot)) {
+                if (ownSlot == VaultMath.INDEX_NOT_FOUND) revert IAlphaVaultAbi.SwappedHotkeyStillAttested();
+                key = keys[ownSlot]; live = VaultReads.ownedBy(key, owner);
             } else {
-                (key, live) = _receivingKey(keys, logicals, currentSet, name, owner, at, netuid);
+                (key, live) = _receivingKey(keys, logicals, currentSet, name, owner, ownSlot, netuid);
                 if (key != name && VaultMath.contains(actives, key)) { revert IAlphaVaultAbi.SwappedHotkeyStillAttested(); }
             }
             actives[i] = key;

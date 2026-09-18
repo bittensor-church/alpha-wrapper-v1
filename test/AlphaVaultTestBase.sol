@@ -277,14 +277,14 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         if (lens.isBackingIntact(tokenId)) return;
 
         VaultReads.Slot[] memory slots = vault.recordedSlots(tokenId);
-        uint256[] memory layout = new uint256[](slots.length);
+        uint256[] memory slotStakes = new uint256[](slots.length);
         for (uint256 i; i < slots.length; ++i) {
-            layout[i] = mock.getStake(slots[i].active, cloneColdkey, netuid);
+            slotStakes[i] = mock.getStake(slots[i].active, cloneColdkey, netuid);
             mock.setStake(slots[i].active, cloneColdkey, netuid, 0);
         }
         _catchRecordUpFor(tokenId);
         for (uint256 i; i < slots.length; ++i) {
-            mock.setStake(slots[i].active, cloneColdkey, netuid, layout[i]);
+            mock.setStake(slots[i].active, cloneColdkey, netuid, slotStakes[i]);
         }
     }
 

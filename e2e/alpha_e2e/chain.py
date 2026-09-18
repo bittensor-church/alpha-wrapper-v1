@@ -254,10 +254,10 @@ def create2_clone_address(deployer: str, implementation: str, salt: str) -> str:
         "0x3d602d80600a3d3981f3363d3d373d3d3d363d73" + implementation[2:].lower()
         + "5af43d82803e903d91602b57fd5bf3"
     )
-    return run(
+    return _first_token(run(
         ["cast", "create2", "--deployer", deployer, "--salt", salt, "--init-code", init_code],
         timeout=_READ_TIMEOUT,
-    ).stdout.strip()
+    ).stdout)
 
 
 def cast_block_number(rpc: str = config.RPC_URL) -> int:
