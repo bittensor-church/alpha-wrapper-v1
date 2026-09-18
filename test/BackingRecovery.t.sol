@@ -668,10 +668,10 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
         uint256 deadline = lens.writeOffDeadline(TOKEN1);
 
-        uint256 at = bound(offset, deadline - vault.recoveryWindow(), deadline + vault.recoveryWindow());
-        vm.warp(at);
+        uint256 warpTo = bound(offset, deadline - vault.recoveryWindow(), deadline + vault.recoveryWindow());
+        vm.warp(warpTo);
 
-        if (at < deadline) {
+        if (warpTo < deadline) {
             vm.expectRevert(BackingUnchanged.selector);
             vault.syncBacking(TOKEN1);
             vm.expectRevert(ShortfallOnFile.selector);
