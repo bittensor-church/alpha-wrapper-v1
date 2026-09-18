@@ -13,6 +13,17 @@ def test_cast_call_returns_the_integer_without_the_scientific_suffix(monkeypatch
     assert chain.cast_call("0x123", "totalSupply()(uint256)") == "1000000000000000000"
 
 
+ADDRESS = "0xD4CA592CdD0e594d4F85f9887CB5cF35bde7Fc66"
+SALT = "0x981431e1cda361a721a0db40d7a2d2cb8470fec5e093cd4cedff65743415fae6"
+
+
+@pytest.mark.parametrize("output", [f"{ADDRESS}\n", f"{ADDRESS}\t{SALT}\n"])
+def test_create2_clone_address_takes_the_address_whichever_columns_cast_prints(monkeypatch, output):
+    # Foundry <1.8 printed the address alone; 1.8 appends the salt on the same line.
+    monkeypatch.setattr(chain, "run", lambda cmd, **kwargs: CompletedProcess(cmd, 0, output, ""))
+    assert chain.create2_clone_address("0xfactory", "0x" + "ab" * 20, SALT) == ADDRESS
+
+
 def test_cast_call_lines_preserves_the_order_of_multiple_return_values(monkeypatch):
     raw = "123 [1.2e2]\n456 [4.5e2]\n"
     monkeypatch.setattr(chain, "run", lambda cmd, **kwargs: CompletedProcess(cmd, 0, raw, ""))
