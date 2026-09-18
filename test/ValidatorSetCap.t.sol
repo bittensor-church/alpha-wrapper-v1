@@ -6,52 +6,83 @@ import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 import { ValidatorSetTooLarge } from "src/VaultErrors.sol";
 
 contract ValidatorSetCapTest is AlphaVaultTestBase {
-    function _publishOversizedSet(uint256 netuid, uint256 count) private returns (bytes32[] memory hks) {
-        hks = _hotkeysFrom("oversized", count);
+    uint256 private constant DEPOSIT = 10 ether;
+    uint256 private constant OVER_CAP = MAX_VALIDATORS + 1;
+
+    function _publishSet(uint256 hotkeyCount, uint256 weightCount) private returns (bytes32[] memory hks) {
+        hks = _hotkeysFrom("oversized", hotkeyCount);
         _recordHotkeyOwners(hks);
-        registry.setRaw(netuid, hks, _evenWeights(count));
+        registry.setRaw(NETUID1, hks, _evenWeights(weightCount));
     }
 
-    function _fundedPositionThenOversizedSet(uint256 deposit, uint256 count) private returns (uint256 shares) {
-        shares = _depositAndWrap(alice, NETUID1, deposit);
-        _publishOversizedSet(NETUID1, count);
+    function _publishOversizedSet() private returns (bytes32[] memory hks) {
+        return _publishSet(OVER_CAP, OVER_CAP);
+    }
+
+    function _fundedPositionThenOversizedSet() private returns (uint256 shares) {
+        shares = _depositAndWrap(alice, NETUID1, DEPOSIT);
+        _publishOversizedSet();
+    }
+
+    function _expectTooLarge(uint256 count) private {
+        vm.expectRevert(abi.encodeWithSelector(ValidatorSetTooLarge.selector, count));
     }
 
     function test_WrapAcceptsExactlyMaxValidators() public {
         bytes32[] memory hks = _setValidatorCount(NETUID1, MAX_VALIDATORS);
-        _depositAndWrap(alice, NETUID1, 10 ether);
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
 
-        assertEq(lens.totalStake(TOKEN1), 10 ether, "the cap itself is a valid set");
+        assertEq(lens.totalStake(TOKEN1), DEPOSIT, "the cap itself is a valid set");
         assertEq(_lastSeen(TOKEN1).length, MAX_VALIDATORS, "every attested name is recorded");
-        _assertEvenSpread(hks, NETUID1, 10 ether);
+        _assertEvenSpread(hks, NETUID1, DEPOSIT);
+    }
+
+    function test_AlphaUnwrapAcceptsExactlyMaxValidators() public {
+        _setValidatorCount(NETUID1, MAX_VALIDATORS);
+        uint256 shares = _depositAndWrap(alice, NETUID1, DEPOSIT);
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
+
+        assertEq(vault.balanceOf(alice, TOKEN1), 0, "the cap exits through the alpha path too");
+        assertEq(lens.totalStake(TOKEN1), 0);
     }
 
     function test_RevertWhen_WrapWithValidatorSetOverCap() public {
-        bytes32[] memory hks = _publishOversizedSet(NETUID1, MAX_VALIDATORS + 1);
-        _simulateAlphaDeposit(alice, NETUID1, 10 ether);
+        bytes32[] memory hks = _publishOversizedSet();
+        _simulateAlphaDeposit(alice, NETUID1, DEPOSIT);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ValidatorSetTooLarge.selector, MAX_VALIDATORS + 1));
+        _expectTooLarge(OVER_CAP);
         vault.wrap(NETUID1, hks[0], 0);
     }
 
     function test_RevertWhen_RebalanceWithValidatorSetOverCap() public {
-        _fundedPositionThenOversizedSet(10 ether, MAX_VALIDATORS + 1);
+        _fundedPositionThenOversizedSet();
 
-        vm.expectRevert(abi.encodeWithSelector(ValidatorSetTooLarge.selector, MAX_VALIDATORS + 1));
+        _expectTooLarge(OVER_CAP);
         vault.rebalance(NETUID1);
     }
 
     function test_RevertWhen_AlphaUnwrapWithValidatorSetOverCap() public {
-        uint256 shares = _fundedPositionThenOversizedSet(10 ether, MAX_VALIDATORS + 1);
+        uint256 shares = _fundedPositionThenOversizedSet();
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ValidatorSetTooLarge.selector, MAX_VALIDATORS + 1));
+        _expectTooLarge(OVER_CAP);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
     }
 
+    function test_OversizeIsReportedAheadOfMismatchedLengths() public {
+        bytes32[] memory hks = _publishSet(OVER_CAP, MAX_VALIDATORS);
+        _simulateAlphaDeposit(alice, NETUID1, DEPOSIT);
+
+        vm.prank(alice);
+        _expectTooLarge(OVER_CAP);
+        vault.wrap(NETUID1, hks[0], 0);
+    }
+
     function test_TaoUnwrapStillExitsWhenValidatorSetOverCap() public {
-        uint256 shares = _fundedPositionThenOversizedSet(10 ether, MAX_VALIDATORS + 1);
+        uint256 shares = _fundedPositionThenOversizedSet();
         uint256 balanceBefore = alice.balance;
 
         vm.prank(alice);
@@ -62,35 +93,25 @@ contract ValidatorSetCapTest is AlphaVaultTestBase {
     }
 
     function test_RebalanceRecoversAfterSetShrinksBackUnderCap() public {
-        _fundedPositionThenOversizedSet(10 ether, MAX_VALIDATORS + 1);
+        _fundedPositionThenOversizedSet();
 
-        vm.expectRevert(abi.encodeWithSelector(ValidatorSetTooLarge.selector, MAX_VALIDATORS + 1));
+        _expectTooLarge(OVER_CAP);
         vault.rebalance(NETUID1);
 
         bytes32[] memory hks = _setValidatorCount(NETUID1, MAX_VALIDATORS);
         vault.rebalance(NETUID1);
 
-        assertEq(lens.totalStake(TOKEN1), 10 ether, "backing survived the excursion");
-        _assertEvenSpread(hks, NETUID1, 10 ether);
+        assertEq(lens.totalStake(TOKEN1), DEPOSIT, "backing survived the excursion");
+        _assertEvenSpread(hks, NETUID1, DEPOSIT);
     }
 
     function testFuzz_RevertWhen_WrapWithValidatorSetOverCap(uint256 rawCount) public {
-        uint256 count = bound(rawCount, MAX_VALIDATORS + 1, MAX_VALIDATORS + 24);
-        bytes32[] memory hks = _publishOversizedSet(NETUID1, count);
-        _simulateAlphaDeposit(alice, NETUID1, 10 ether);
+        uint256 count = bound(rawCount, OVER_CAP, MAX_VALIDATORS + 24);
+        bytes32[] memory hks = _publishSet(count, count);
+        _simulateAlphaDeposit(alice, NETUID1, DEPOSIT);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ValidatorSetTooLarge.selector, count));
+        _expectTooLarge(count);
         vault.wrap(NETUID1, hks[0], 0);
-    }
-
-    function testFuzz_WrapAcceptsAnySetWithinCap(uint256 rawCount) public {
-        uint256 count = bound(rawCount, 1, MAX_VALIDATORS);
-        bytes32[] memory hks = _setValidatorCount(NETUID1, count);
-        _depositAndWrap(alice, NETUID1, 10 ether);
-
-        assertEq(lens.totalStake(TOKEN1), 10 ether, "no set at or under the cap is rejected");
-        assertEq(_lastSeen(TOKEN1).length, count);
-        _assertEvenSpread(hks, NETUID1, 10 ether);
     }
 }
