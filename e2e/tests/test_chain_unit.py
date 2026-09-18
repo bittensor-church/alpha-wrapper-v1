@@ -19,7 +19,6 @@ SALT = "0x981431e1cda361a721a0db40d7a2d2cb8470fec5e093cd4cedff65743415fae6"
 
 @pytest.mark.parametrize("output", [f"{ADDRESS}\n", f"{ADDRESS}\t{SALT}\n"])
 def test_create2_clone_address_takes_the_address_whichever_columns_cast_prints(monkeypatch, output):
-    # Foundry <1.8 printed the address alone; 1.8 appends the salt on the same line.
     monkeypatch.setattr(chain, "run", lambda cmd, **kwargs: CompletedProcess(cmd, 0, output, ""))
     assert chain.create2_clone_address("0xfactory", "0x" + "ab" * 20, SALT) == ADDRESS
 
