@@ -74,7 +74,7 @@ contract AlphaVaultLens {
     /// @return deadline Recorded deadline, max uint256 for an undeclared shortfall, or zero if intact.
     /// @dev Expiry alone does not clear the loss.
     function writeOffDeadline(uint256 tokenId) external view returns (uint256 deadline) {
-        uint64 shortSince = _shortSince(tokenId);
+        uint256 shortSince = _shortSince(tokenId);
         if (shortSince != 0) return shortSince + vault.recoveryWindow();
         if (VaultReads.firstShortOf(_readBacking(tokenId).backing.short) != VaultReads.NO_SHORT_SLOT) {
             deadline = VaultReads.UNDECLARED_SHORTFALL;
@@ -171,7 +171,7 @@ contract AlphaVaultLens {
         return VaultMath.toNativeQuantum(VaultMath.backedEntitlement(entitlement, backing));
     }
 
-    function _shortSince(uint256 tokenId) private view returns (uint64 shortSince) { (shortSince,) = vault.recovery(tokenId); }
+    function _shortSince(uint256 tokenId) private view returns (uint256 shortSince) { (shortSince,) = vault.recovery(tokenId); }
 
     function _requireCurrentRegistration(uint256 tokenId) private view {
         if (VaultReads.isDissolved(tokenId)) revert SubnetDissolved();

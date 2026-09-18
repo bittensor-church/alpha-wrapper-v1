@@ -36,7 +36,7 @@ import {
 contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @dev One shortfall clock per token. A parked position rests on `parkingHotkey` until the
     ///      registry nonce moves past `parkedAtNonce`; zero means the position is not parked.
-    struct Recovery { uint64 shortSince; uint256 parkedAtNonce; }
+    struct Recovery { uint256 shortSince; uint256 parkedAtNonce; }
 
     CloneFactory public immutable cloneFactory;
     IValidatorRegistry public immutable validatorRegistry;
@@ -478,8 +478,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
             unchecked { ++i; }
         }
         while (slots.length > count) slots.pop();
-        // forge-lint: disable-next-line(block-timestamp)
-        recovery[tokenId] = Recovery({ shortSince: uint64(block.timestamp), parkedAtNonce: 0 });
+        recovery[tokenId] = Recovery({ shortSince: block.timestamp, parkedAtNonce: 0 });
         emit BackingShortfallDeclared(tokenId, expected, parked);
     }
 
@@ -545,12 +544,13 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         uint256 before = IStaking(STAKING_PRECOMPILE).getStake(parkingHotkey, coldkey, netuid);
         uint256 parked = _secureBacking(tokenId, clone, coldkey, keys);
         uint256 expected = _totalTracked(slots);
-        // forge-lint: disable-next-line(block-timestamp)
-        uint256 timestamp = block.timestamp;
         if (VaultReads.coversTracked(parked, expected)) {
             emit BackingShortfallCleared(tokenId);
             _finishRecovery(tokenId, parked);
-        } else if (timestamp >= state.shortSince + recoveryWindow) {
+            // Validator timestamp drift is seconds against a window of days, and an expired window
+            // only permits a write-off, which destroys holder value rather than extracting it.
+            // forge-lint: disable-next-line(block-timestamp)
+        } else if (block.timestamp >= state.shortSince + recoveryWindow) {
             emit BackingWrittenOff(tokenId, expected, parked);
             _finishRecovery(tokenId, parked);
         } else {

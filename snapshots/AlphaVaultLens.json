@@ -1,8 +1,8 @@
 {
-  "batchClaimableTaoOf (20 distinct positions)": "715463",
-  "batchClaimableTaoOf (20 repeated ids)": "287963",
-  "claimableTaoOf": "40476",
-  "previewUnwrap": "80380",
-  "previewUnwrap (64 validators)": "811777",
-  "previewWrap": "84530"
+  "batchClaimableTaoOf (20 distinct positions)": "711763",
+  "batchClaimableTaoOf (20 repeated ids)": "284263",
+  "claimableTaoOf": "40294",
+  "previewUnwrap": "79903",
+  "previewUnwrap (64 validators)": "809836",
+  "previewWrap": "83943"
 }
