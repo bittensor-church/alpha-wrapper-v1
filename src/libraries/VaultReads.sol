@@ -2,13 +2,13 @@
 pragma solidity 0.8.36;
 
 import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
-import { IValidatorRegistry } from "../interfaces/IValidatorRegistry.sol";
+import { IValidatorRegistry, MAX_VALIDATORS } from "../interfaces/IValidatorRegistry.sol";
 import { IAddressMapping, ADDRESS_MAPPING_PRECOMPILE } from "../interfaces/IAddressMapping.sol";
 import { ISubnet, SUBNET_PRECOMPILE } from "../interfaces/ISubnet.sol";
 import { VaultMath } from "./VaultMath.sol";
 import {
     BackingShortfall, NoValidatorFound, AlphaTransfersDisabled,
-    SubnetInDissolutionBlackoutPeriod, ValidatorSetMalformed
+    SubnetInDissolutionBlackoutPeriod, ValidatorSetMalformed, ValidatorSetTooLarge
 } from "../VaultErrors.sol";
 
 library VaultReads {
@@ -36,6 +36,7 @@ library VaultReads {
     function resolveValidators(IValidatorRegistry registry, uint16 netuid) internal view returns (ValidatorSet memory set) {
         (bytes32[] memory hotkeys, uint16[] memory weights, bytes32[] memory owners) = registry.getValidators(netuid);
         if (hotkeys.length == 0) revert NoValidatorFound();
+        if (hotkeys.length > MAX_VALIDATORS) revert ValidatorSetTooLarge(hotkeys.length);
         if (hotkeys.length != weights.length || hotkeys.length != owners.length) revert ValidatorSetMalformed();
         set = ValidatorSet({ hotkeys: hotkeys, weights: weights, owners: owners });
     }
