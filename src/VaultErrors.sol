@@ -8,6 +8,7 @@ error ZeroColdkey();
 error InsufficientShares();
 error NoValidatorFound();
 error ValidatorSetMalformed();
+error ValidatorSetTooLarge(uint256 count);
 error SubnetNotRegistered();
 error SubnetInDissolutionBlackoutPeriod();
 error SubnetDissolved();
