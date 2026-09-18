@@ -125,7 +125,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(true);
         vm.expectRevert(bytes("MockStaking: moveStake reverted"));
         vault.syncBacking(TOKEN1);
-        (uint64 since,) = vault.recovery(TOKEN1);
+        (uint256 since,) = vault.recovery(TOKEN1);
         assertEq(since, 0);
         assertEq(vault.recordedSlots(TOKEN1)[0].tracked, expectedFirst);
         assertEq(_parkedStake(NETUID1), 0);
@@ -328,7 +328,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         staking.setMoveStakeResidual(BACKING_SLACK_RAO + 1);
         vm.expectRevert(BackingNotSecured.selector);
         vault.syncBacking(TOKEN1);
-        (uint64 since,) = vault.recovery(TOKEN1);
+        (uint256 since,) = vault.recovery(TOKEN1);
         assertEq(since, 0);
         assertEq(keccak256(abi.encode(vault.recordedSlots(TOKEN1))), record);
         assertEq(_parkedStake(NETUID1), 0);

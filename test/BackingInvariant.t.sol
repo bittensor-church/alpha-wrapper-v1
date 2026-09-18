@@ -108,7 +108,7 @@ contract BackingHandler is Test {
         uint256 owedBefore = harness.trackedBacking();
         uint256 supplyBefore = vault.totalSupply(tokenId);
         try vault.recoverStray(tokenId, source) {
-            (uint64 since,) = vault.recovery(tokenId);
+            (uint256 since,) = vault.recovery(tokenId);
             if (since == 0) {
                 bool[] memory covered = harness.coveredSlots();
                 for (uint256 i; i < covered.length; ++i) {

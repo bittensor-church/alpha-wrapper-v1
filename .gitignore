@@ -7,3 +7,4 @@ node_modules/
 broadcast/
 e2e/.wallets/
 docs/superpowers/
+.claude/

@@ -62,7 +62,6 @@ contract MockStaking {
 
     // Chain minimums use full-precision prices even when the EVM reader rounds to zero.
     function _belowTaoValue(uint256 amount, uint256 netuid, uint256 thresholdTao) private view returns (bool) {
-        // forge-lint: disable-next-line(unsafe-typecast)
         uint256 alphaPriceE18 = MockAlpha(ALPHA_PRECOMPILE).chainAlphaPrice(uint16(netuid));
         return (amount * alphaPriceE18) / VaultMath.ALPHA_PRICE_SCALE < thresholdTao;
     }
