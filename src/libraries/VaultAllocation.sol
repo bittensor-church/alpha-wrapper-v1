@@ -252,7 +252,6 @@ library VaultAllocation {
     /// @dev Move all dropped-key backing onto tracked destinations before rewriting the record.
     ///      Recovery may leave a below-floor pile in place; other callers refuse it.
     /// @return leftBelowFloor True only when the richest source/destination is below the conservative floor.
-    ///         `RevertBelowFloor` reverts on that case instead, so callers passing it may discard the return.
     function consolidateRotatedStake(Context memory context, bytes32[] memory sourceKeys, bytes32[] memory currentSet,
         CollectionPolicy policy) external returns (bool leftBelowFloor) {
         if (!_anyRotatedOut(sourceKeys, currentSet)) return false;

@@ -547,8 +547,6 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (VaultReads.coversTracked(parked, expected)) {
             emit BackingShortfallCleared(tokenId);
             _finishRecovery(tokenId, parked);
-            // Validator timestamp drift is seconds against a window of days, and an expired window
-            // only permits a write-off, which destroys holder value rather than extracting it.
             // forge-lint: disable-next-line(block-timestamp)
         } else if (block.timestamp >= state.shortSince + recoveryWindow) {
             emit BackingWrittenOff(tokenId, expected, parked);
