@@ -21,6 +21,7 @@ seed = "0x1"
 
 
 [fmt]
+ignore = ["src/**"]
 line_length = 120
 tab_width = 4
 bracket_spacing = true

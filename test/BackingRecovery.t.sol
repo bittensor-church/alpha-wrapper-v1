@@ -46,7 +46,9 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         _buildSwapTrail(NETUID1, hotkey1, 2);
 
         assertEq(
-            lens.writeOffDeadline(TOKEN1), VaultReads.UNDECLARED_SHORTFALL, "short, but nothing is on file before the sync"
+            lens.writeOffDeadline(TOKEN1),
+            VaultReads.UNDECLARED_SHORTFALL,
+            "short, but nothing is on file before the sync"
         );
         vm.expectEmit(true, false, false, true, address(vault));
         emit BackingShortfallDeclared(TOKEN1, 30 ether, 30 ether - lost);
@@ -154,7 +156,9 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         _buildSwapTrail(NETUID1, hotkey1, 2);
         vault.syncBacking(TOKEN1);
 
-        assertEq(lens.writeOffDeadline(TOKEN1), block.timestamp + vault.recoveryWindow(), "the new loss gets a full window");
+        assertEq(
+            lens.writeOffDeadline(TOKEN1), block.timestamp + vault.recoveryWindow(), "the new loss gets a full window"
+        );
         vm.expectRevert(BackingUnchanged.selector);
         vault.syncBacking(TOKEN1);
     }
@@ -721,7 +725,9 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey4, coldkey, NETUID1, lump);
         hourVault.syncBacking(tokenId);
 
-        assertEq(hourLens.writeOffDeadline(tokenId), block.timestamp + 1 hours, "the deadline runs on the deployed window");
+        assertEq(
+            hourLens.writeOffDeadline(tokenId), block.timestamp + 1 hours, "the deadline runs on the deployed window"
+        );
         vm.warp(block.timestamp + 1 hours);
         hourVault.syncBacking(tokenId);
         assertTrue(hourVault.awaitingAttestation(tokenId), "and the write-off falls due on it too");
