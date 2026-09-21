@@ -235,7 +235,9 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         _setTransfersEnabled(NETUID1, true);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), expectedAlpha);
-        assertEq(stakeBefore - _totalVaultStakeAcrossHotkeys(NETUID1), expectedAlpha, "the enabled exit honors the quote");
+        assertEq(
+            stakeBefore - _totalVaultStakeAcrossHotkeys(NETUID1), expectedAlpha, "the enabled exit honors the quote"
+        );
         assertEq(vault.balanceOf(alice, TOKEN1), shares - shares / 2, "the enabled exit burns the quoted shares");
     }
 

@@ -1,7 +1,12 @@
 # Deployment
 
-1. Deploy `BasicValidatorRegistry` with its initial owner.
-2. The owner calls `setValidator(netuid, hotkey)` for every subnet in scope.
+Church of Rao does not plan to deploy or operate these contracts. Each integrator
+must choose its validator-selection strategy, registry governance and operational
+controls before deploying a vault.
+
+1. Choose or implement an `IValidatorRegistry`. The included
+   `BasicValidatorRegistry` is the simplest example.
+2. Deploy and configure the registry for every subnet in scope.
 3. Deploy the vault set with `script/DeployAlpha.s.sol`, pointed at that registry.
 4. Run the verification checks below, then record the addresses and code hashes.
 

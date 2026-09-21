@@ -38,6 +38,9 @@ jobs:
           key: forge-${{ runner.os }}-ci-${{ hashFiles('foundry.toml', 'src/**/*.sol', 'test/**/*.sol', 'lib/**') }}
           restore-keys: forge-${{ runner.os }}-ci-
 
+      - name: Run Forge fmt
+        run: forge fmt --check
+
       - name: Run Forge build
         # pipefail so an over-EIP-170 contract fails the step here; without it `tee` returns 0
         # and the oversize only surfaces later as a failed deployment.

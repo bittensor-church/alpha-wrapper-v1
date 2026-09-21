@@ -1,9 +1,10 @@
 # alpha-wrapper
 
 `alpha-wrapper` is an open-source suite of EVM smart contracts from Church of Rao
-for projects building on Bittensor. It wraps staked alpha in transferable ERC-1155 shares, so
-an application can offer its users exposure to staked alpha without giving up a
-clear route back to either staked alpha or native TAO.
+for projects building with Bittensor-native subnet alpha tokens. It wraps staked
+alpha in transferable ERC-1155 shares, so an application can offer its users
+exposure to staked alpha without giving up a clear route back to either staked
+alpha or native TAO.
 
 We believe the Bittensor EVM ecosystem deserves a robust, reusable alpha wrapper
 rather than each project rebuilding this critical infrastructure. Church of Rao is
@@ -11,13 +12,15 @@ releasing the code under the MIT license for the community to inspect, use, adap
 and improve.
 
 This repository is a source release. No contracts from this repository are
-currently deployed on a public network.
+currently deployed on a public network, and Church of Rao does not plan to deploy
+or operate them. Integrators can deploy their own instance or use an existing
+deployment whose validator registry and staking policy suit their needs.
 
 ## Security review
 
 The contracts have undergone internal review, including AI-assisted analysis with
 Anthropic's Claude Fable 5.1, OpenAI's GPT-5.6 Sol, and Moonshot AI's Kimi K3
-at max reasoning effort. A community review is planned, and an independent
+at max reasoning effort. Community review is underway, and an independent
 commercial security audit is forthcoming.
 
 No independent audit has yet been completed; users and integrators should conduct
@@ -49,6 +52,12 @@ implement their own validator-selection strategy and security controls without
 modifying the wrapper.
 For example, a registry can use a multisig, timelock, attestations, an automated
 selection policy, or another governance model appropriate for its users.
+
+**Reallocating stake can have material economic consequences for holders and may
+create legal, regulatory and liability considerations for the people or entities
+that control it, depending on the service and jurisdiction.** Each integrator
+must consciously choose its validator strategy, governance and controls, and
+obtain its own legal advice.
 
 This repository includes `BasicValidatorRegistry` as a minimal reference
 implementation. It maintains one validator hotkey at 100% weight per subnet. Its
