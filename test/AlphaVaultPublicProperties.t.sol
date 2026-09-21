@@ -113,4 +113,71 @@ contract AlphaVaultPublicPropertiesTest is AlphaVaultTestBase {
         assertEq(vault.totalSupply(TOKEN1), 0);
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
     }
+
+    function _growSupplyToNearCap(uint256 recapitalization) private returns (uint256 supply) {
+        _setValidators(NETUID1, _hotkeys(hotkey1), _weights(VaultMath.BPS_BASE));
+        _setDustThreshold(0);
+        _depositAndWrap(alice, NETUID1, 1e9);
+        for (uint256 i; i < 2; ++i) {
+            _plantVaultStake(hotkey1, NETUID1, 0);
+            _depositAndWrap(alice, NETUID1, 1e9);
+        }
+        _plantVaultStake(hotkey1, NETUID1, 0);
+        supply = _depositAndWrap(alice, NETUID1, recapitalization);
+        assertGe(supply, 9e44);
+        assertLe(supply, 1e45);
+    }
+
+    function _dissolveWithPot(uint256 pot) private {
+        _simulateTaoAwardedOnDissolution(TOKEN1, pot);
+        _simulateDissolutionCompleted(NETUID1);
+    }
+
+    function testFuzz_NearSupplyCap_DissolvedExitPaysTheQuotedProRataShare(
+        uint256 recapitalization,
+        uint256 pot,
+        uint256 exitBps
+    ) public {
+        recapitalization = bound(recapitalization, 900_000_000, 999_999_990);
+        pot = bound(pot, 1e18, 21_000_000e18);
+        exitBps = bound(exitBps, 1, VaultMath.BPS_BASE - 1);
+        uint256 supply = _growSupplyToNearCap(recapitalization);
+        _dissolveWithPot(pot);
+
+        uint256 exitShares = supply * exitBps / VaultMath.BPS_BASE;
+        vm.assume(exitShares > 0);
+        (, uint256 quote) = lens.previewUnwrap(TOKEN1, exitShares);
+        vm.assume(quote > 0);
+
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, exitShares, bytes32(0), 0);
+        uint256 paid = alice.balance - before;
+
+        assertEq(paid, quote, "the quote matches delivery");
+        assertEq(paid % VaultMath.TAO_NATIVE_QUANTUM, 0, "native delivery is in whole RAO");
+        assertLe(paid, pot * exitBps / VaultMath.BPS_BASE, "no holder outgrows its fraction of the pot");
+        assertEq(vault.subnetClone(TOKEN1).balance, pot - paid, "the residue stays for the remaining holders");
+        assertEq(vault.totalSupply(TOKEN1), supply - exitShares);
+    }
+
+    function testFuzz_NearSupplyCap_DissolvedExitSurvivesAPotBeyondTaoSupply(uint256 recapitalization, uint256 pot)
+        public
+    {
+        recapitalization = bound(recapitalization, 900_000_000, 999_999_990);
+        pot = bound(pot, 1e33, 1e40);
+        uint256 supply = _growSupplyToNearCap(recapitalization);
+        _dissolveWithPot(pot);
+
+        (, uint256 quote) = lens.previewUnwrap(TOKEN1, supply);
+
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, supply, bytes32(0), 0);
+        uint256 paid = alice.balance - before;
+
+        assertEq(paid, quote);
+        assertEq(paid, pot - pot % VaultMath.TAO_NATIVE_QUANTUM, "the sole holder takes the whole pot");
+        assertEq(vault.totalSupply(TOKEN1), 0);
+    }
 }

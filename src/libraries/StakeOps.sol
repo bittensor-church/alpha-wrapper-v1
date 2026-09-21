@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { INeuron, NEURON_PRECOMPILE } from "../interfaces/INeuron.sol";
 import { CloneBase } from "../CloneBase.sol";
@@ -11,7 +12,7 @@ import { VaultMath } from "./VaultMath.sol";
 ///      chain would refuse from burning the gas forwarded to it. Compiled into each caller.
 library StakeOps {
     function taoValue(uint256 alphaAmount, uint256 alphaPriceE18) internal pure returns (uint256) {
-        return (alphaAmount * alphaPriceE18) / VaultMath.ALPHA_PRICE_SCALE;
+        return Math.mulDiv(alphaAmount, alphaPriceE18, VaultMath.ALPHA_PRICE_SCALE);
     }
 
     /// @dev The only exposed minimum is for unstakes; using it for transfers/moves is conservative.
