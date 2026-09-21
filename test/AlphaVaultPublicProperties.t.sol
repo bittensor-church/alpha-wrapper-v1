@@ -19,20 +19,7 @@ contract AlphaVaultPublicPropertiesTest is AlphaVaultTestBase {
         stakePerValidator = bound(stakePerValidator, 1e9, type(uint64).max);
         gift = bound(gift, 2e9, 1e30);
         exitBps = bound(exitBps, 2500, 7500);
-        _setValidators(NETUID1, _hotkeys(hotkey1), _weights(VaultMath.BPS_BASE));
-        _setDustThreshold(0);
-        _depositAndWrap(alice, NETUID1, 1e9);
-
-        // Finalized losses followed by recapitalization grow supply through public calls.
-        // Each individual deposit and precompile stake balance stays within uint64.
-        for (uint256 i; i < 2; ++i) {
-            _plantVaultStake(hotkey1, NETUID1, 0);
-            _depositAndWrap(alice, NETUID1, 1e9);
-        }
-        _plantVaultStake(hotkey1, NETUID1, 0);
-        uint256 supply = _depositAndWrap(alice, NETUID1, recapitalization);
-        assertGe(supply, 9e44);
-        assertLe(supply, 1e45);
+        uint256 supply = _growSupplyToNearCap(recapitalization);
 
         bytes32[] memory hotkeys = _setValidatorCount(NETUID1, MAX_VALIDATORS);
         vault.rebalance(NETUID1);
@@ -114,6 +101,8 @@ contract AlphaVaultPublicPropertiesTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
     }
 
+    // Finalized losses followed by recapitalization grow supply through public calls.
+    // Each individual deposit and precompile stake balance stays within uint64.
     function _growSupplyToNearCap(uint256 recapitalization) private returns (uint256 supply) {
         _setValidators(NETUID1, _hotkeys(hotkey1), _weights(VaultMath.BPS_BASE));
         _setDustThreshold(0);
@@ -145,18 +134,18 @@ contract AlphaVaultPublicPropertiesTest is AlphaVaultTestBase {
         _dissolveWithPot(pot);
 
         uint256 exitShares = supply * exitBps / VaultMath.BPS_BASE;
-        vm.assume(exitShares > 0);
-        (, uint256 quote) = lens.previewUnwrap(TOKEN1, exitShares);
-        vm.assume(quote > 0);
+        uint256 entitlement = pot * exitShares / supply;
+        uint256 expected = entitlement - entitlement % VaultMath.TAO_NATIVE_QUANTUM;
+        assertGt(expected, 0, "the bounds guarantee a payable entitlement");
 
+        (, uint256 quote) = lens.previewUnwrap(TOKEN1, exitShares);
         uint256 before = alice.balance;
         vm.prank(alice);
         vault.unwrap(TOKEN1, exitShares, bytes32(0), 0);
         uint256 paid = alice.balance - before;
 
-        assertEq(paid, quote, "the quote matches delivery");
-        assertEq(paid % VaultMath.TAO_NATIVE_QUANTUM, 0, "native delivery is in whole RAO");
-        assertLe(paid, pot * exitBps / VaultMath.BPS_BASE, "no holder outgrows its fraction of the pot");
+        assertEq(paid, expected, "delivery is the pot's pro-rata share in whole RAO");
+        assertEq(quote, expected, "the quote matches the independently computed share");
         assertEq(vault.subnetClone(TOKEN1).balance, pot - paid, "the residue stays for the remaining holders");
         assertEq(vault.totalSupply(TOKEN1), supply - exitShares);
     }
@@ -169,6 +158,7 @@ contract AlphaVaultPublicPropertiesTest is AlphaVaultTestBase {
         uint256 supply = _growSupplyToNearCap(recapitalization);
         _dissolveWithPot(pot);
 
+        uint256 expected = pot - pot % VaultMath.TAO_NATIVE_QUANTUM;
         (, uint256 quote) = lens.previewUnwrap(TOKEN1, supply);
 
         uint256 before = alice.balance;
@@ -176,8 +166,8 @@ contract AlphaVaultPublicPropertiesTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, supply, bytes32(0), 0);
         uint256 paid = alice.balance - before;
 
-        assertEq(paid, quote);
-        assertEq(paid, pot - pot % VaultMath.TAO_NATIVE_QUANTUM, "the sole holder takes the whole pot");
+        assertEq(paid, expected, "the sole holder takes the whole pot");
+        assertEq(quote, expected, "the quote matches the independently computed share");
         assertEq(vault.totalSupply(TOKEN1), 0);
     }
 }

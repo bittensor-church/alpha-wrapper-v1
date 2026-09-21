@@ -5,6 +5,18 @@ test-only shims or use production arithmetic for expected values: those checks
 can repeat the same bug on both sides. Public reads such as `recordedSlots()`
 are valid observations.
 
+`VaultMathWideProduct.t.sol` is the one exception, for two products whose
+intermediate overflow no public interface can reach. `VaultMath.assetsFor`
+would need a stake above `1.16e32` RAO, while slot balances stay inside
+`uint64` and the validator set is capped at 64. `StakeOps.taoValue` would need
+an alpha price so large that `MockStaking._belowTaoValue` overflows first: it
+multiplies a same-magnitude alpha amount by the same price, so it fails before
+the vault is reached. `VaultMath.proRata` is reachable and is covered through
+the vault in `AlphaVaultPublicProperties.t.sol` instead. The file's
+differential fuzz cases pin `mulDiv` to the 256-bit expressions it replaced,
+which is a claim about the arithmetic itself rather than about a caller. Do not
+widen this exception.
+
 The invariant suites prove different things:
 
 - **Alpha accounting:** exact conservation under healthy conditions. Every holder
