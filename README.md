@@ -53,11 +53,11 @@ modifying the wrapper.
 For example, a registry can use a multisig, timelock, attestations, an automated
 selection policy, or another governance model appropriate for its users.
 
-Reallocating stake can have material economic consequences for holders and may
+**Reallocating stake can have material economic consequences for holders and may
 create legal, regulatory and liability considerations for the people or entities
-that control it, depending on the service and jurisdiction. Each integrator must
-consciously choose its validator strategy, governance and controls, and obtain
-its own legal advice.
+that control it, depending on the service and jurisdiction.** Each integrator
+must consciously choose its validator strategy, governance and controls, and
+obtain its own legal advice.
 
 This repository includes `BasicValidatorRegistry` as a minimal reference
 implementation. It maintains one validator hotkey at 100% weight per subnet. Its
