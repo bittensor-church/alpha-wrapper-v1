@@ -24,6 +24,10 @@ ignores registry weights, but cannot bypass source ownership, missing backing,
 dissolution, chain minimums or pool constraints. A hostile set is not harmless
 merely because that exit exists.
 
+Each integrator is responsible for choosing and governing its validator policy
+and for assessing the resulting economic, legal, regulatory and liability risks
+for its service and jurisdiction.
+
 Holders rely on:
 
 - Subtensor and its precompiles for stake ownership, moves, accounting and refunds.
