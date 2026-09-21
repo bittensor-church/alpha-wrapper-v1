@@ -22,7 +22,7 @@ library VaultMath {
     }
 
     function assetsFor(uint256 stake, uint256 supply, uint256 shares) internal pure returns (uint256) {
-        return (shares * (stake + VIRTUAL_ASSETS)) / (supply + VIRTUAL_SHARES);
+        return Math.mulDiv(shares, stake + VIRTUAL_ASSETS, supply + VIRTUAL_SHARES);
     }
 
     function sumBalances(uint256[] memory balances) internal pure returns (uint256 total) {
@@ -72,7 +72,7 @@ library VaultMath {
 
     /// @dev A fixed dissolution refund needs no virtual offsets: deposits can no longer inflate it.
     function proRata(uint256 total, uint256 shares, uint256 supply) internal pure returns (uint256) {
-        return (total * shares) / supply;
+        return Math.mulDiv(total, shares, supply);
     }
 
     /// @dev Cap rounding residue at recorded liability so claims cannot consume dissolution backing.
