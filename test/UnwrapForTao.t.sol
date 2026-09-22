@@ -514,8 +514,6 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         assertEq(vault.balanceOf(address(receiver), TOKEN1), 0);
     }
 
-    // --- Callbacks observe settled state ------------------------------------------------------
-
     function _exitThroughProbe(uint256 burnBps, uint256 excludedSlots)
         internal
         returns (QuoteProbeReceiver probe, uint256 kept)
