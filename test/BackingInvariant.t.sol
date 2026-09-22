@@ -5,6 +5,7 @@ import { Test } from "forge-std/Test.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { AlphaVaultLens } from "src/AlphaVaultLens.sol";
+import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
 
 contract BackingHandler is Test {
@@ -18,6 +19,7 @@ contract BackingHandler is Test {
     bytes32[] public touchedHotkeys;
     mapping(bytes32 => bool) public touched;
 
+    uint256 public wraps;
     uint256 public alphaExits;
     uint256 public taoExits;
     uint256 public strayAnnexations;
@@ -63,7 +65,7 @@ contract BackingHandler is Test {
 
     function wrap(uint256 actorSeed, uint256 amount, uint256 hotkeySeed) external {
         // Alpha in RAO: a TAO exit narrows slot balances to the chain's 64-bit stake amounts.
-        harness.wrapFor(_actor(actorSeed), bound(amount, 1e9, 200e9), _attested(hotkeySeed));
+        if (harness.wrapFor(_actor(actorSeed), bound(amount, 1e9, 200e9), _attested(hotkeySeed))) ++wraps;
     }
 
     function unwrap(uint256 actorSeed, uint256 shareSeed) external {
@@ -114,11 +116,24 @@ contract BackingHandler is Test {
         harness.simulateSilentMove(from, to);
     }
 
+    function sourceFor(uint256 sourceSeed) public view returns (bytes32) {
+        return
+            touchedHotkeys[bound(uint256(keccak256(abi.encode(sourceSeed, uint256(0)))), 0, touchedHotkeys.length - 1)];
+    }
+
     function recoverStray(uint256 sourceSeed) external {
+        _recover(sourceFor(sourceSeed));
+    }
+
+    function recoverHeldStray(uint256 sourceSeed) external {
+        bytes32[] memory held = harness.touchedKeysHoldingStake(touchedHotkeys);
+        if (held.length == 0) return;
+        _recover(held[bound(sourceSeed, 0, held.length - 1)]);
+    }
+
+    function _recover(bytes32 source) private {
         uint256 slotsBefore = vault.recordedSlots(tokenId).length;
         if (slotsBefore == 0) return;
-        bytes32 source =
-            touchedHotkeys[bound(uint256(keccak256(abi.encode(sourceSeed, uint256(0)))), 0, touchedHotkeys.length - 1)];
         uint256 owedBefore = harness.trackedBacking();
         uint256 supplyBefore = vault.totalSupply(tokenId);
         try vault.recoverStray(tokenId, source) {
@@ -209,10 +224,23 @@ contract BackingInvariantTest is AlphaVaultTestBase {
         }
     }
 
-    function wrapFor(address user, uint256 amount, bytes32 hotkey) external {
+    function wrapFor(address user, uint256 amount, bytes32 hotkey) external returns (bool wrapped) {
         _simulateAlphaDepositHotkey(user, NETUID1, amount, hotkey);
         vm.prank(user);
-        try vault.wrap(NETUID1, hotkey, 0) { } catch { }
+        try vault.wrap(NETUID1, hotkey, 0) {
+            wrapped = true;
+        } catch { }
+    }
+
+    function touchedKeysHoldingStake(bytes32[] memory keys) external view returns (bytes32[] memory held) {
+        uint256 count;
+        held = new bytes32[](keys.length);
+        for (uint256 i; i < keys.length; ++i) {
+            if (_getVaultStake(keys[i], NETUID1) != 0) held[count++] = keys[i];
+        }
+        assembly {
+            mstore(held, count)
+        }
     }
 
     function simulateSwap(bytes32 from, bytes32 to) external {
@@ -267,39 +295,51 @@ contract BackingInvariantTest is AlphaVaultTestBase {
 
     function test_HandlerReachesEverySuccessPath() public {
         handler.wrap(1, 100e9, 0);
+        assertEq(handler.wraps(), 1, "the deposit wraps into shares");
         handler.unwrap(0, 1e18);
         handler.unwrapForTao(0, 1e18);
         assertEq(handler.alphaExits(), 1, "the alpha exit succeeds from a healthy position");
         assertEq(handler.taoExits(), 1, "the TAO exit succeeds from a healthy position");
+        uint256 owed = trackedBacking();
 
         handler.swapWithoutAnEdge(0, 1);
         handler.syncBacking();
-        handler.passTime(RECOVERY_WINDOW);
+        vm.warp(lens.writeOffDeadline(TOKEN1));
+        vm.expectEmit(true, false, false, false);
+        emit IAlphaVaultAbi.BackingWrittenOff(TOKEN1, 0, 0);
         handler.syncBacking();
         assertEq(handler.recoveriesClosed(), 1, "an expired shortfall is written off");
-        handler.recoverStray(_seedSelecting(handler.knownHotkeys().length - 1));
+        assertLt(trackedBacking(), owed, "the write-off shrank the obligation");
+        handler.recoverStray(_seedSelectingLastTouched());
         assertEq(handler.strayAnnexations(), 1, "a stray found after write-off is annexed");
-        assertTrue(lens.isBackingIntact(TOKEN1), "annexation leaves the position whole");
+        assertEq(trackedBacking(), owed, "annexation restores the written-off obligation");
 
-        this.attest(currentSet);
+        _advanceRegistryNonce();
         handler.rebalance();
-        assertGt(_getVaultStake(hotkey1, NETUID1), 0, "the rebalance spreads the parked backing again");
+        assertEq(_parkedStake(NETUID1), 0, "the rebalance spreads the parked backing again");
 
         handler.swapWithoutAnEdge(0, 1);
         handler.syncBacking();
-        handler.recoverStray(_seedSelecting(handler.knownHotkeys().length - 1));
+        handler.recoverHeldStray(0);
         assertEq(handler.strayCollections(), 1, "a stray under an open shortfall is collected");
+        vm.expectEmit(true, false, false, true);
+        emit IAlphaVaultAbi.BackingShortfallCleared(TOKEN1);
         handler.syncBacking();
         assertEq(handler.recoveriesClosed(), 2, "full collection closes the recovery");
-        assertTrue(lens.isBackingIntact(TOKEN1), "the position is whole again");
+        assertEq(trackedBacking(), owed, "the position is whole again");
         _assertAllInvariants();
     }
 
-    function _seedSelecting(uint256 index) private view returns (uint256 seed) {
-        uint256 count = handler.knownHotkeys().length;
-        while (bound(uint256(keccak256(abi.encode(seed, uint256(0)))), 0, count - 1) != index) {
+    function _seedSelectingLastTouched() private view returns (uint256 seed) {
+        bytes32[] memory keys = handler.knownHotkeys();
+        while (handler.sourceFor(seed) != keys[keys.length - 1]) {
             ++seed;
         }
+    }
+
+    /// @dev A parked position rests until an attestation newer than the parking one arrives.
+    function _advanceRegistryNonce() private {
+        this.attest(currentSet);
     }
 
     function _assertAllInvariants() private view {
