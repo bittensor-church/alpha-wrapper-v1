@@ -16,6 +16,7 @@ import { CHAIN_MIN_STAKE, MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import {
+    QuoteProbeReceiver,
     RefundRejectingReceiver,
     RevertingReceiver,
     UnwrapForTaoReentrantReceiver
@@ -511,6 +512,47 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         assertEq(receiver.reentryError(), abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector));
         assertFalse(receiver.reentrySucceeded());
         assertEq(vault.balanceOf(address(receiver), TOKEN1), 0);
+    }
+
+    // --- Callbacks observe settled state ------------------------------------------------------
+
+    function _exitThroughProbe(uint256 burnBps, uint256 excludedSlots) internal returns (QuoteProbeReceiver probe) {
+        _setRemoveStakeRate(1, 1);
+        probe = new QuoteProbeReceiver(vault, lens);
+        uint256 probeShares = _depositAndWrap(address(probe), NETUID1, 90 * ALPHA);
+        uint256 bobShares = _depositAndWrap(bob, NETUID1, 10 * ALPHA);
+        _plantVaultStakes(NETUID1, 5 * ALPHA, 50 * ALPHA, 45 * ALPHA);
+        _donateToClone(vault.subnetClone(TOKEN1), 4 ether);
+        probe.watch(TOKEN1, bob, bobShares);
+
+        vm.prank(address(probe));
+        vault.unwrapForTao(TOKEN1, probeShares * burnBps / BPS_BASE, 0, excludedSlots);
+    }
+
+    function _assertProbeSawSettledState(QuoteProbeReceiver probe) internal view {
+        (uint256 bobQuote,) = lens.previewUnwrap(TOKEN1, vault.balanceOf(bob, TOKEN1));
+        uint256 bobClaim = lens.claimableTaoOf(bob, TOKEN1);
+        assertEq(probe.payoutQuote(), bobQuote, "the payout callback quotes the co-holder at the settled value");
+        assertEq(probe.payoutClaim(), bobClaim, "and sees the settled TAO claim");
+        assertEq(probe.payoutSupply(), vault.totalSupply(TOKEN1), "over the settled supply");
+        if (probe.refundSeen()) {
+            assertEq(probe.refundQuote(), bobQuote, "the refund hook quotes the co-holder at the settled value");
+            assertEq(probe.refundClaim(), bobClaim, "and sees the settled TAO claim");
+        }
+    }
+
+    function test_PayoutCallback_SeesSettledQuotes() public {
+        QuoteProbeReceiver probe = _exitThroughProbe(8889, (1 << 1) | (1 << 2));
+
+        assertTrue(probe.refundSeen(), "the excluded slots came back as a refund");
+        _assertProbeSawSettledState(probe);
+    }
+
+    function testFuzz_PayoutCallback_SeesSettledQuotes(uint256 burnBps, uint256 excludedSlots) public {
+        burnBps = bound(burnBps, 1000, BPS_BASE);
+        excludedSlots = bound(excludedSlots, 0, (1 << 3) - 2);
+
+        _assertProbeSawSettledState(_exitThroughProbe(burnBps, excludedSlots));
     }
 
     function test_MultipleUsers_ProRataConsistentAcrossSequentialUnwraps() public {

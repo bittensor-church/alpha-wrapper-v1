@@ -2,6 +2,7 @@
 pragma solidity 0.8.36;
 
 import { AlphaVault } from "src/AlphaVault.sol";
+import { AlphaVaultLens } from "src/AlphaVaultLens.sol";
 
 contract RevertingReceiver {
     function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
@@ -119,5 +120,47 @@ contract ClaimReentrantReceiver {
         } catch (bytes memory reason) {
             reentryError = reason;
         }
+    }
+}
+
+/// @dev Records what an exit's callbacks observe so tests can compare it with the settled state.
+contract QuoteProbeReceiver {
+    AlphaVault private immutable vault;
+    AlphaVaultLens private immutable lens;
+    uint256 private tokenId;
+    address private holder;
+    uint256 private holderShares;
+
+    uint256 public payoutQuote;
+    uint256 public payoutClaim;
+    uint256 public payoutSupply;
+    bool public refundSeen;
+    uint256 public refundQuote;
+    uint256 public refundClaim;
+
+    constructor(AlphaVault _vault, AlphaVaultLens _lens) {
+        vault = _vault;
+        lens = _lens;
+    }
+
+    function watch(uint256 _tokenId, address _holder, uint256 _holderShares) external {
+        tokenId = _tokenId;
+        holder = _holder;
+        holderShares = _holderShares;
+    }
+
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external returns (bytes4) {
+        if (holder != address(0)) {
+            refundSeen = true;
+            (refundQuote,) = lens.previewUnwrap(tokenId, holderShares);
+            refundClaim = lens.claimableTaoOf(holder, tokenId);
+        }
+        return this.onERC1155Received.selector;
+    }
+
+    receive() external payable {
+        (payoutQuote,) = lens.previewUnwrap(tokenId, holderShares);
+        payoutClaim = lens.claimableTaoOf(holder, tokenId);
+        payoutSupply = vault.totalSupply(tokenId);
     }
 }

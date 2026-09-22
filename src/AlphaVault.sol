@@ -237,13 +237,16 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
             if (StakeOps.isBelowFloorAtReadPrice(unsold, alphaPriceE18)) unsold = 0;
         }
 
-        SubnetClone(payable(clone)).unwrapTao(payable(msg.sender), taoOut);
-
-        // Pay before minting: proceeds still on the clone would otherwise enter the claim index.
         uint256 refundShares = VaultMath.sharesFor(total - assets, supply - shares, unsold);
-        if (refundShares != 0) _mint(msg.sender, tokenId, refundShares, "");
+        if (refundShares != 0) {
+            taoLiability[tokenId] += taoOut;
+            _mint(msg.sender, tokenId, refundShares, "");
+            taoLiability[tokenId] -= taoOut;
+        }
         // With no shares left there is nothing to keep parked.
         if (totalSupply(tokenId) == 0) delete recovery[tokenId];
+
+        SubnetClone(payable(clone)).unwrapTao(payable(msg.sender), taoOut);
 
         emit UnwrappedForTao(msg.sender, tokenId, shares, refundShares, sold, taoOut);
     }

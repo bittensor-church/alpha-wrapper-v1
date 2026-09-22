@@ -11,7 +11,7 @@ import {
 } from "./VaultErrors.sol";
 
 /// @notice Quotes and backing reads for AlphaVault.
-/// @dev Use a trusted build. Quotes do not guarantee execution; callback reads may see incomplete state.
+/// @dev Use a trusted build. Quotes do not guarantee execution.
 contract AlphaVaultLens {
     /// @dev Cached backing data. Without a clone, `slots` and `backing` are empty.
     struct BackingRead {
