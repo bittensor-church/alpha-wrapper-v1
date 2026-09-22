@@ -41,7 +41,7 @@ Holders rely on:
   (the Basic owner here). Watcher calls are permissionless; publishing
   requires that registry's authorization. Neither has an on-chain completion guarantee.
 - Trusted vault/lens builds and addresses. The lens's `vault()` checks pairing,
-  not authenticity; mid-operation callback quotes may observe unfinished state.
+  not authenticity.
 
 ## Safeguards
 

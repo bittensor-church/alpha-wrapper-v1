@@ -2,6 +2,7 @@
 pragma solidity 0.8.36;
 
 import { AlphaVault } from "src/AlphaVault.sol";
+import { AlphaVaultLens } from "src/AlphaVaultLens.sol";
 
 contract RevertingReceiver {
     function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
@@ -119,5 +120,62 @@ contract ClaimReentrantReceiver {
         } catch (bytes memory reason) {
             reentryError = reason;
         }
+    }
+}
+
+contract QuoteProbeReceiver {
+    AlphaVault private immutable VAULT;
+    AlphaVaultLens private immutable LENS;
+    uint256 private _tokenId;
+    address private _holder;
+    uint256 private _holderShares;
+    address private _sink;
+
+    uint256 public payoutQuote;
+    uint256 public payoutClaim;
+    uint256 public payoutSupply;
+    uint256 public payoutHeadroom;
+    bool public refundSeen;
+    uint256 public refundQuote;
+    uint256 public refundClaim;
+    uint256 public refundHeadroom;
+
+    constructor(AlphaVault vault, AlphaVaultLens lens) {
+        VAULT = vault;
+        LENS = lens;
+    }
+
+    function watch(uint256 tokenId, address holder, uint256 holderShares) external {
+        _tokenId = tokenId;
+        _holder = holder;
+        _holderShares = holderShares;
+    }
+
+    function forwardRefundsTo(address sink) external {
+        _sink = sink;
+    }
+
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external returns (bytes4) {
+        if (_holder != address(0)) {
+            refundSeen = true;
+            (refundQuote,) = LENS.previewUnwrap(_tokenId, _holderShares);
+            refundClaim = LENS.claimableTaoOf(_holder, _tokenId);
+            refundHeadroom = _headroom();
+            if (_sink != address(0)) {
+                VAULT.safeTransferFrom(address(this), _sink, _tokenId, VAULT.balanceOf(address(this), _tokenId), "");
+            }
+        }
+        return this.onERC1155Received.selector;
+    }
+
+    receive() external payable {
+        (payoutQuote,) = LENS.previewUnwrap(_tokenId, _holderShares);
+        payoutClaim = LENS.claimableTaoOf(_holder, _tokenId);
+        payoutSupply = VAULT.totalSupply(_tokenId);
+        payoutHeadroom = _headroom();
+    }
+
+    function _headroom() private view returns (uint256) {
+        return VAULT.subnetClone(_tokenId).balance - VAULT.taoLiability(_tokenId);
     }
 }

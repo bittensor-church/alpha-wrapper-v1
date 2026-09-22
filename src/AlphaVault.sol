@@ -237,15 +237,18 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
             if (StakeOps.isBelowFloorAtReadPrice(unsold, alphaPriceE18)) unsold = 0;
         }
 
-        SubnetClone(payable(clone)).unwrapTao(payable(msg.sender), taoOut);
-
-        // Pay before minting: proceeds still on the clone would otherwise enter the claim index.
         uint256 refundShares = VaultMath.sharesFor(total - assets, supply - shares, unsold);
-        if (refundShares != 0) _mint(msg.sender, tokenId, refundShares, "");
+        if (refundShares != 0) {
+            // Reserve the payout so the refund mint's TAO sync does not index the sale proceeds.
+            taoLiability[tokenId] += taoOut;
+            _mint(msg.sender, tokenId, refundShares, "");
+            taoLiability[tokenId] -= taoOut;
+        }
         // With no shares left there is nothing to keep parked.
         if (totalSupply(tokenId) == 0) delete recovery[tokenId];
-
         emit UnwrappedForTao(msg.sender, tokenId, shares, refundShares, sold, taoOut);
+
+        SubnetClone(payable(clone)).unwrapTao(payable(msg.sender), taoOut);
     }
 
     /// @dev Claims survive transfers and full exits, including dissolution. Sub-RAO residue stays reserved.
@@ -260,8 +263,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         amount = VaultMath.toNativeQuantum(amount);
         if (amount == 0) revert ClaimBelowNativePrecision();
         claimableTao[tokenId][msg.sender] = entitlement - amount; taoLiability[tokenId] = liability - amount;
-        SubnetClone(payable(subnetClone[tokenId])).unwrapTao(recipient, amount);
         emit TaoClaimed(msg.sender, tokenId, recipient, amount);
+        SubnetClone(payable(subnetClone[tokenId])).unwrapTao(recipient, amount);
     }
 
     function _unwrapFromLiveSubnet(uint256 tokenId, uint256 shares, bytes32 userSubstrateColdkey,
@@ -325,8 +328,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         uint256 userTao = VaultMath.toNativeQuantum(VaultMath.proRata(backing, shares, totalSupply(tokenId)));
         if (userTao == 0) revert ClaimBelowNativePrecision();
         _burn(msg.sender, tokenId, shares);
-        SubnetClone(payable(clone)).unwrapTao(payable(msg.sender), userTao);
         emit DissolvedSubnetUnwrapped(msg.sender, tokenId, shares, userTao);
+        SubnetClone(payable(clone)).unwrapTao(payable(msg.sender), userTao);
     }
 
     /// @dev Consolidates dropped validators first; weight-alignment moves below the floor or at zero price skip.
@@ -395,8 +398,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
 
         uint256 taoOut = mailbox.balance - balanceBefore;
         if (taoOut < minTaoOut) revert SlippageExceeded(taoOut);
-        DepositMailbox(payable(mailbox)).unwrapTao(payable(msg.sender), taoOut);
         emit MailboxAlphaSoldForTao(msg.sender, netuid, hotkey, amount, taoOut);
+        DepositMailbox(payable(mailbox)).unwrapTao(payable(msg.sender), taoOut);
     }
 
     /// @dev One price read covers every floor test the allocation library runs for this call.
