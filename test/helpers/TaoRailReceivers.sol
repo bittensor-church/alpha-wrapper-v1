@@ -123,44 +123,51 @@ contract ClaimReentrantReceiver {
     }
 }
 
-/// @dev Records what an exit's callbacks observe so tests can compare it with the settled state.
 contract QuoteProbeReceiver {
-    AlphaVault private immutable vault;
-    AlphaVaultLens private immutable lens;
-    uint256 private tokenId;
-    address private holder;
-    uint256 private holderShares;
+    AlphaVault private immutable VAULT;
+    AlphaVaultLens private immutable LENS;
+    uint256 private _tokenId;
+    address private _holder;
+    uint256 private _holderShares;
 
     uint256 public payoutQuote;
     uint256 public payoutClaim;
     uint256 public payoutSupply;
+    uint256 public payoutHeadroom;
     bool public refundSeen;
     uint256 public refundQuote;
     uint256 public refundClaim;
+    uint256 public refundHeadroom;
 
-    constructor(AlphaVault _vault, AlphaVaultLens _lens) {
-        vault = _vault;
-        lens = _lens;
+    constructor(AlphaVault vault, AlphaVaultLens lens) {
+        VAULT = vault;
+        LENS = lens;
     }
 
-    function watch(uint256 _tokenId, address _holder, uint256 _holderShares) external {
-        tokenId = _tokenId;
-        holder = _holder;
-        holderShares = _holderShares;
+    function watch(uint256 tokenId, address holder, uint256 holderShares) external {
+        _tokenId = tokenId;
+        _holder = holder;
+        _holderShares = holderShares;
     }
 
     function onERC1155Received(address, address, uint256, uint256, bytes calldata) external returns (bytes4) {
-        if (holder != address(0)) {
+        if (_holder != address(0)) {
             refundSeen = true;
-            (refundQuote,) = lens.previewUnwrap(tokenId, holderShares);
-            refundClaim = lens.claimableTaoOf(holder, tokenId);
+            (refundQuote,) = LENS.previewUnwrap(_tokenId, _holderShares);
+            refundClaim = LENS.claimableTaoOf(_holder, _tokenId);
+            refundHeadroom = _headroom();
         }
         return this.onERC1155Received.selector;
     }
 
     receive() external payable {
-        (payoutQuote,) = lens.previewUnwrap(tokenId, holderShares);
-        payoutClaim = lens.claimableTaoOf(holder, tokenId);
-        payoutSupply = vault.totalSupply(tokenId);
+        (payoutQuote,) = LENS.previewUnwrap(_tokenId, _holderShares);
+        payoutClaim = LENS.claimableTaoOf(_holder, _tokenId);
+        payoutSupply = VAULT.totalSupply(_tokenId);
+        payoutHeadroom = _headroom();
+    }
+
+    function _headroom() private view returns (uint256) {
+        return VAULT.subnetClone(_tokenId).balance - VAULT.taoLiability(_tokenId);
     }
 }

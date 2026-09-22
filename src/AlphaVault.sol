@@ -245,10 +245,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         }
         // With no shares left there is nothing to keep parked.
         if (totalSupply(tokenId) == 0) delete recovery[tokenId];
+        emit UnwrappedForTao(msg.sender, tokenId, shares, refundShares, sold, taoOut);
 
         SubnetClone(payable(clone)).unwrapTao(payable(msg.sender), taoOut);
-
-        emit UnwrappedForTao(msg.sender, tokenId, shares, refundShares, sold, taoOut);
     }
 
     /// @dev Claims survive transfers and full exits, including dissolution. Sub-RAO residue stays reserved.

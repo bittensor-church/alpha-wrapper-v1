@@ -516,7 +516,10 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
 
     // --- Callbacks observe settled state ------------------------------------------------------
 
-    function _exitThroughProbe(uint256 burnBps, uint256 excludedSlots) internal returns (QuoteProbeReceiver probe) {
+    function _exitThroughProbe(uint256 burnBps, uint256 excludedSlots)
+        internal
+        returns (QuoteProbeReceiver probe, uint256 kept)
+    {
         _setRemoveStakeRate(1, 1);
         probe = new QuoteProbeReceiver(vault, lens);
         uint256 probeShares = _depositAndWrap(address(probe), NETUID1, 90 * ALPHA);
@@ -524,35 +527,43 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         _plantVaultStakes(NETUID1, 5 * ALPHA, 50 * ALPHA, 45 * ALPHA);
         _donateToClone(vault.subnetClone(TOKEN1), 4 ether);
         probe.watch(TOKEN1, bob, bobShares);
+        uint256 burn = probeShares * burnBps / BPS_BASE;
+        kept = probeShares - burn;
 
         vm.prank(address(probe));
-        vault.unwrapForTao(TOKEN1, probeShares * burnBps / BPS_BASE, 0, excludedSlots);
+        vault.unwrapForTao(TOKEN1, burn, 0, excludedSlots);
     }
 
-    function _assertProbeSawSettledState(QuoteProbeReceiver probe) internal view {
+    function _assertProbeSawSettledState(QuoteProbeReceiver probe, uint256 kept) internal view {
         (uint256 bobQuote,) = lens.previewUnwrap(TOKEN1, vault.balanceOf(bob, TOKEN1));
         uint256 bobClaim = lens.claimableTaoOf(bob, TOKEN1);
+        uint256 headroom = vault.subnetClone(TOKEN1).balance - vault.taoLiability(TOKEN1);
         assertEq(probe.payoutQuote(), bobQuote, "the payout callback quotes the co-holder at the settled value");
         assertEq(probe.payoutClaim(), bobClaim, "and sees the settled TAO claim");
         assertEq(probe.payoutSupply(), vault.totalSupply(TOKEN1), "over the settled supply");
-        if (probe.refundSeen()) {
+        assertEq(probe.payoutHeadroom(), headroom, "with the settled unreserved TAO");
+        bool refunded = vault.balanceOf(address(probe), TOKEN1) > kept;
+        assertEq(probe.refundSeen(), refunded, "the refund hook fires exactly when shares come back");
+        if (refunded) {
             assertEq(probe.refundQuote(), bobQuote, "the refund hook quotes the co-holder at the settled value");
             assertEq(probe.refundClaim(), bobClaim, "and sees the settled TAO claim");
+            assertEq(probe.refundHeadroom(), headroom, "with the settled unreserved TAO");
         }
     }
 
     function test_PayoutCallback_SeesSettledQuotes() public {
-        QuoteProbeReceiver probe = _exitThroughProbe(8889, (1 << 1) | (1 << 2));
+        (QuoteProbeReceiver probe, uint256 kept) = _exitThroughProbe(8889, (1 << 1) | (1 << 2));
 
         assertTrue(probe.refundSeen(), "the excluded slots came back as a refund");
-        _assertProbeSawSettledState(probe);
+        _assertProbeSawSettledState(probe, kept);
     }
 
     function testFuzz_PayoutCallback_SeesSettledQuotes(uint256 burnBps, uint256 excludedSlots) public {
         burnBps = bound(burnBps, 1000, BPS_BASE);
         excludedSlots = bound(excludedSlots, 0, (1 << 3) - 2);
 
-        _assertProbeSawSettledState(_exitThroughProbe(burnBps, excludedSlots));
+        (QuoteProbeReceiver probe, uint256 kept) = _exitThroughProbe(burnBps, excludedSlots);
+        _assertProbeSawSettledState(probe, kept);
     }
 
     function test_MultipleUsers_ProRataConsistentAcrossSequentialUnwraps() public {
