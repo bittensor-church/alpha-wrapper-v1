@@ -129,6 +129,7 @@ contract QuoteProbeReceiver {
     uint256 private _tokenId;
     address private _holder;
     uint256 private _holderShares;
+    address private _sink;
 
     uint256 public payoutQuote;
     uint256 public payoutClaim;
@@ -150,12 +151,19 @@ contract QuoteProbeReceiver {
         _holderShares = holderShares;
     }
 
+    function forwardRefundsTo(address sink) external {
+        _sink = sink;
+    }
+
     function onERC1155Received(address, address, uint256, uint256, bytes calldata) external returns (bytes4) {
         if (_holder != address(0)) {
             refundSeen = true;
             (refundQuote,) = LENS.previewUnwrap(_tokenId, _holderShares);
             refundClaim = LENS.claimableTaoOf(_holder, _tokenId);
             refundHeadroom = _headroom();
+            if (_sink != address(0)) {
+                VAULT.safeTransferFrom(address(this), _sink, _tokenId, VAULT.balanceOf(address(this), _tokenId), "");
+            }
         }
         return this.onERC1155Received.selector;
     }

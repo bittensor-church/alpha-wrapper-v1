@@ -556,6 +556,35 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         _assertProbeSawSettledState(probe, kept);
     }
 
+    function test_TransferInsideRefundHook_KeepsProceedsOutOfTheClaimIndex() public {
+        _setRemoveStakeRate(1, 1);
+        QuoteProbeReceiver probe = new QuoteProbeReceiver(vault, lens);
+        uint256 probeShares = _depositAndWrap(address(probe), NETUID1, 90 * ALPHA);
+        _donateToClone(vault.subnetClone(TOKEN1), 4 ether);
+        uint256 bobShares = _depositAndWrap(bob, NETUID1, 10 * ALPHA);
+        _plantVaultStakes(NETUID1, 5 * ALPHA, 50 * ALPHA, 45 * ALPHA);
+        uint256 indexBefore = vault.cumulativeTaoPerShare(TOKEN1);
+        uint256 liabilityBefore = vault.taoLiability(TOKEN1);
+        uint256 probeClaim = lens.claimableTaoOf(address(probe), TOKEN1);
+        assertGt(probeClaim, 0, "the donation accrued to the sole holder");
+        uint256 burn = probeShares * 8889 / BPS_BASE;
+        probe.watch(TOKEN1, bob, bobShares);
+        probe.forwardRefundsTo(alice);
+
+        vm.prank(address(probe));
+        vault.unwrapForTao(TOKEN1, burn, 0, (1 << 1) | (1 << 2));
+
+        assertTrue(probe.refundSeen(), "the excluded slots came back as a refund");
+        assertEq(vault.balanceOf(address(probe), TOKEN1), 0, "the hook forwarded every share");
+        assertGt(vault.balanceOf(alice, TOKEN1), probeShares - burn, "including the refund");
+        assertEq(vault.cumulativeTaoPerShare(TOKEN1), indexBefore, "the sale proceeds never entered the index");
+        assertEq(vault.taoLiability(TOKEN1), liabilityBefore, "and the reserve was released in full");
+        assertEq(lens.claimableTaoOf(address(probe), TOKEN1), probeClaim, "the historical claim stays with its owner");
+        assertEq(lens.claimableTaoOf(alice, TOKEN1), 0, "the forwarded shares carry no claim");
+        assertEq(lens.claimableTaoOf(bob, TOKEN1), 0, "and the co-holder earned nothing from the exit");
+        assertGe(vault.subnetClone(TOKEN1).balance, vault.taoLiability(TOKEN1), "the clone still covers every claim");
+    }
+
     function testFuzz_PayoutCallback_SeesSettledQuotes(uint256 burnBps, uint256 excludedSlots) public {
         burnBps = bound(burnBps, 1000, BPS_BASE);
         excludedSlots = bound(excludedSlots, 0, (1 << 3) - 2);
