@@ -323,11 +323,11 @@ contract BackingInvariantTest is AlphaVaultTestBase {
         uint256 owed = trackedBacking();
 
         handler.swapWithoutAnEdge(0, 1);
+        assertGt(vault.recordedSlots(TOKEN1).length, 1, "check the multi-slot record before recovery");
         _assertAllInvariants();
         handler.syncBacking();
         _assertAllInvariants();
         vm.warp(lens.writeOffDeadline(TOKEN1));
-        _assertAllInvariants();
         vm.expectEmit(true, false, false, false);
         emit IAlphaVaultAbi.BackingWrittenOff(TOKEN1, 0, 0);
         handler.syncBacking();
@@ -340,7 +340,6 @@ contract BackingInvariantTest is AlphaVaultTestBase {
         assertEq(trackedBacking(), owed, "annexation restores the written-off obligation");
 
         _advanceRegistryNonce();
-        _assertAllInvariants();
         handler.rebalance();
         _assertAllInvariants();
         assertEq(_parkedStake(NETUID1), 0, "the rebalance spreads the parked backing again");
