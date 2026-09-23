@@ -216,7 +216,7 @@ BackingRecordTest:test_ReorderedSet_KeepsWeightsWithTheirValidators() (gas: 2570
 BackingRecordTest:test_RepeatedSwaps_AdvanceOneHopPerCall() (gas: 2707004)
 BackingRecordTest:test_RetiredNameWithARetiredSuccessor_RefusesTheRebalance() (gas: 2296499)
 BackingRecordTest:test_RetiredNameWithNoSuccessor_RefusesEveryAlphaRail() (gas: 2862910)
-BackingRecordTest:test_ReusedAttestedNameAndRetiredRecordedKey_WaitsForReattestation() (gas: 5431429)
+BackingRecordTest:test_ReusedAttestedNameAndRetiredRecordedKey_WaitsForReattestation() (gas: 5535513)
 BackingRecordTest:test_SetNamingADrainedSwapAndItsSuccessor_StillRefuses() (gas: 2800978)
 BackingRecordTest:test_SetNamingADrainedSwapBesideItsLiveName_StillRefuses() (gas: 3275808)
 BackingRecordTest:test_SetNamingASwappedKeyAndItsSuccessor_RefusesCheaply() (gas: 3408636)

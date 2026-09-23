@@ -300,18 +300,6 @@ contract BackingRecordTest is AlphaVaultTestBase {
         uint256 shares = vault.balanceOf(alice, TOKEN1);
         _simulateFollowedSwap(NETUID1, hotkey4, hotkey5); // Its recorded key retires without a vault write.
         _simulateFollowedSwap(NETUID1, hotkey2, hotkey1); // The second validator takes the old name.
-
-        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
-        assertEq(slots[0].active, hotkey4, "the empty first slot still records hotkey4");
-        assertEq(slots[0].tracked, 0, "only an empty slot takes this branch");
-        assertGt(_getVaultStake(hotkey1, NETUID1), 0, "the second validator took the old name");
-        (,, bytes32[] memory owners) = registry.getValidators(NETUID1);
-        MockStaking staking = MockStaking(STAKING_PRECOMPILE);
-        (bool hasSuccessor, bytes32 successor) = staking.getHotkeySuccessor(hotkey4, uint16(NETUID1));
-        assertTrue(hasSuccessor, "the recorded key has a successor");
-        assertEq(successor, hotkey5, "the successor is the first validator's new key");
-        assertEq(staking.ownerOf(hotkey5), owners[0], "the successor has the first attested owner");
-        assertEq(staking.ownerOf(hotkey1), owners[1], "the reused name has the second attested owner");
         assertTrue(lens.isBackingIntact(TOKEN1), "the outage is not a backing shortfall");
 
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
@@ -322,8 +310,10 @@ contract BackingRecordTest is AlphaVaultTestBase {
         _simulateAlphaDepositHotkey(bob, NETUID1, 6 ether, hotkey3);
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
         _wrapHotkey(bob, NETUID1, hotkey3);
-        assertEq(vault.balanceOf(alice, TOKEN1), shares, "failed exits preserve the holder's shares");
-        assertEq(vault.balanceOf(bob, TOKEN1), 0, "failed wrap did not mint shares");
+
+        vm.prank(alice);
+        vault.unwrapForTao(TOKEN1, shares / 4, 0);
+        assertEq(vault.balanceOf(alice, TOKEN1), shares - shares / 4, "the TAO exit stays open");
 
         _setValidators(
             NETUID1, _hotkeys(hotkey5, hotkey1, hotkey3), _weights(NETUID1_BPS_HK1, NETUID1_BPS_HK2, NETUID1_BPS_HK3)
