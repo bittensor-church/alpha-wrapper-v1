@@ -25,8 +25,9 @@ cast send <registry> 'setValidator(uint256,bytes32)' <netuid> <hotkey> \
   --rpc-url <url> --private-key <owner-key>
 ```
 
-The hotkey must have an owner record. Other `IValidatorRegistry`
-implementations can be supplied by downstream projects.
+The hotkey must have an owner record. Downstream `IValidatorRegistry`
+implementations must reject duplicate hotkeys before publishing a set; the
+vault does not check them.
 
 ## Vault set
 
