@@ -295,6 +295,174 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1), "with the record accounting for what is left");
     }
 
+    function test_RebalanceAfterAReusedName_StakesTheShareAtTheSuccessor() public {
+        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+        uint256 backing = _realBacking();
+
+        vault.rebalance(NETUID1);
+
+        _assertSlotMovedToTheSuccessor();
+        assertEq(_realBacking(), backing, "moving the share created and lost nothing");
+    }
+
+    function test_UnwrapAfterAReusedName_StakesTheShareAtTheSuccessor() public {
+        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+        uint256 backing = _realBacking();
+        uint256 shares = vault.balanceOf(alice, TOKEN1);
+        uint256 aliceBefore = _stakeAcrossAllHotkeys(_toSubstrate(alice));
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
+
+        uint256 paid = _stakeAcrossAllHotkeys(_toSubstrate(alice)) - aliceBefore;
+        assertApproxEqRel(paid, backing / 4, 0.01e18, "a quarter of the shares buys a quarter of the backing");
+        assertApproxEqAbs(_realBacking(), backing - paid, 1e12, "and the rest stays staked");
+        _assertSlotMovedToTheSuccessor();
+    }
+
+    function test_WrapAfterAReusedName_StakesTheShareAtTheSuccessor() public {
+        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+
+        _simulateAlphaDepositHotkey(bob, NETUID1, 6 ether, hotkey3);
+        _wrapAndExpectProportionalShares(bob, hotkey3, 6 ether);
+
+        _assertSlotMovedToTheSuccessor();
+    }
+
+    function test_WrapUnderAReusedName_StakesTheShareAtTheSuccessor() public {
+        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+
+        _simulateAlphaDepositHotkey(bob, NETUID1, 6 ether, hotkey1);
+        _wrapAndExpectProportionalShares(bob, hotkey1, 6 ether);
+
+        _assertSlotMovedToTheSuccessor();
+    }
+
+    function test_ReusedAttestedNameUnderOneColdkey_StakesTheShareAtTheSuccessor() public {
+        _attestUnderOneColdkey(_hotkeys(hotkey1, hotkey2));
+        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+        uint256 backing = _realBacking();
+
+        vault.rebalance(NETUID1);
+
+        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
+        assertEq(slots[0].active, hotkey5, "the emptied slot answers under the successor");
+        assertEq(slots[1].active, hotkey1, "the reused name stays with the slot that holds it");
+        assertEq(_realBacking(), backing, "moving the share created and lost nothing");
+        assertTrue(lens.isBackingIntact(TOKEN1), "and the backing is counted once");
+    }
+
+    function test_RevertWhen_ReusedNameUnderOneColdkeyHasNoLiveKey() public {
+        _attestUnderOneColdkey(_hotkeys(hotkey1, hotkey2));
+        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+        MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey5, true);
+
+        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
+        vault.rebalance(NETUID1);
+    }
+
+    function test_RevertWhen_AReusedNamesSuccessorBelongsToAStranger() public {
+        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+        _simulateSquatter(hotkey5);
+
+        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
+        vault.rebalance(NETUID1);
+    }
+
+    function test_ReusedNamesSuccessorHeldByAThirdSlot_RefusesAlphaRailsAndKeepsTheTaoExit() public {
+        _attestUnderOneColdkey(_hotkeys(hotkey1, hotkey2, hotkey3));
+        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+        _simulateFollowedSwap(NETUID1, hotkey3, hotkey5);
+        uint256 shares = vault.balanceOf(alice, TOKEN1);
+
+        vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
+        vault.rebalance(NETUID1);
+        vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
+
+        vm.prank(alice);
+        vault.unwrapForTao(TOKEN1, shares / 4, 0);
+        assertEq(vault.balanceOf(alice, TOKEN1), shares - shares / 4, "the TAO exit stays open");
+    }
+
+    function test_DrainedKeySwappedBackOntoItsReusedName_RefusesAndPaysOnlyRealBacking() public {
+        _attestUnderOneColdkey(_hotkeys(hotkey1, hotkey2));
+        _positionWithADrainedSwap();
+        uint256 shares = vault.balanceOf(alice, TOKEN1);
+        _simulateFollowedSwap(NETUID1, hotkey4, hotkey1);
+        _simulateFollowedSwap(NETUID1, hotkey2, hotkey1);
+
+        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
+        vault.rebalance(NETUID1);
+        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
+        _simulateAlphaDepositHotkey(bob, NETUID1, 6 ether, hotkey3);
+        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
+        _wrapHotkey(bob, NETUID1, hotkey3);
+
+        uint256 realBacking = _realBacking();
+        uint256 aliceBefore = _stakeAcrossAllHotkeys(_toSubstrate(alice));
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
+        assertApproxEqAbs(
+            _stakeAcrossAllHotkeys(_toSubstrate(alice)) - aliceBefore,
+            realBacking,
+            1e12,
+            "the full exit pays what is really staked"
+        );
+        assertEq(_realBacking(), 0, "and nothing more");
+    }
+
+    function _attestUnderOneColdkey(bytes32[] memory sharing) private {
+        MockStaking staking = MockStaking(STAKING_PRECOMPILE);
+        for (uint256 i = 1; i < sharing.length; ++i) {
+            staking.setHotkeyOwner(sharing[i], staking.ownerOf(sharing[0]));
+        }
+        _setValidators(
+            NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(NETUID1_BPS_HK1, NETUID1_BPS_HK2, NETUID1_BPS_HK3)
+        );
+    }
+
+    function _reuseTheDrainedNameAfterItsRecordedKeyRetires() private {
+        _positionWithADrainedSwap();
+        _simulateFollowedSwap(NETUID1, hotkey4, hotkey5);
+        _simulateFollowedSwap(NETUID1, hotkey2, hotkey1);
+    }
+
+    function _wrapAndExpectProportionalShares(address user, bytes32 chosenHotkey, uint256 deposit) private {
+        uint256 backing = _realBacking();
+        uint256 supply = vault.totalSupply(TOKEN1);
+
+        _wrapHotkey(user, NETUID1, chosenHotkey);
+
+        assertApproxEqRel(
+            vault.balanceOf(user, TOKEN1),
+            deposit * supply / backing,
+            0.01e18,
+            "shares price the deposit against real backing"
+        );
+        assertApproxEqAbs(_realBacking(), backing + deposit, 1e12, "and the whole deposit is staked");
+    }
+
+    function _assertSlotMovedToTheSuccessor() private view {
+        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey5, "the slot answers under the successor");
+        assertGt(_getVaultStake(hotkey5, NETUID1), 0, "which is where its share went");
+        assertEq(_getVaultStake(hotkey4, NETUID1), 0, "and nothing was aimed at the retired key");
+        assertTrue(lens.isBackingIntact(TOKEN1), "with the record accounting for the backing once");
+    }
+
+    function _stakeAcrossAllHotkeys(bytes32 coldkey) private view returns (uint256 total) {
+        total = _getStakeForColdkey(hotkey1, coldkey, NETUID1) + _getStakeForColdkey(hotkey2, coldkey, NETUID1)
+            + _getStakeForColdkey(hotkey3, coldkey, NETUID1) + _getStakeForColdkey(hotkey4, coldkey, NETUID1)
+            + _getStakeForColdkey(hotkey5, coldkey, NETUID1);
+    }
+
+    function _realBacking() private view returns (uint256) {
+        return _stakeAcrossAllHotkeys(_subnetColdkey(NETUID1));
+    }
+
     function test_FullUnwrapBesideARetiredEntry_PaysFromTheHeldKeys() public {
         _setValidators(NETUID1, _hotkeys(hotkey2), _weights(VaultMath.BPS_BASE));
         uint256 shares = _depositAndWrap(alice, NETUID1, 30 ether);
