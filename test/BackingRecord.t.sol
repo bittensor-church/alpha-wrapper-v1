@@ -324,13 +324,42 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1), "and the backing is counted once");
     }
 
-    function test_ReusedAttestedNameUnderOneColdkey_NeverCountsTheNameTwice() public {
+    function test_RevertWhen_ReusedNameUnderOneColdkeyHasNoLiveKey() public {
         _attestBothValidatorsUnderOneColdkey();
         _reuseTheDrainedNameAfterItsRecordedKeyRetires();
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey5, true);
 
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
         vault.rebalance(NETUID1);
+    }
+
+    function test_DrainedKeySwappedBackOntoItsReusedName_RefusesAndPaysOnlyRealBacking() public {
+        _attestBothValidatorsUnderOneColdkey();
+        _positionWithADrainedSwap();
+        uint256 shares = vault.balanceOf(alice, TOKEN1);
+        _simulateFollowedSwap(NETUID1, hotkey4, hotkey1);
+        _simulateFollowedSwap(NETUID1, hotkey2, hotkey1);
+
+        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
+        vault.rebalance(NETUID1);
+        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
+        _simulateAlphaDepositHotkey(bob, NETUID1, 6 ether, hotkey3);
+        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
+        _wrapHotkey(bob, NETUID1, hotkey3);
+
+        uint256 realBacking = _getVaultStake(hotkey1, NETUID1) + _getVaultStake(hotkey3, NETUID1);
+        uint256 aliceBefore = _userStakeAcrossHotkeys(alice, NETUID1);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
+        assertApproxEqAbs(
+            _userStakeAcrossHotkeys(alice, NETUID1) - aliceBefore,
+            realBacking,
+            1e12,
+            "the full exit pays what is really staked"
+        );
+        assertEq(_getVaultStake(hotkey1, NETUID1) + _getVaultStake(hotkey3, NETUID1), 0, "and nothing more");
     }
 
     function _attestBothValidatorsUnderOneColdkey() private {

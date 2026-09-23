@@ -125,9 +125,7 @@ library VaultAllocation {
             if (ownSlot != VaultMath.INDEX_NOT_FOUND && balances[ownSlot] != 0) {
                 key = keys[ownSlot]; live = VaultReads.ownedBy(key, owner);
             } else {
-                bool nameReserved = _keyHeldElsewhere(keys, logicals, currentSet, name, ownSlot);
-                if (nameReserved && ownSlot == VaultMath.INDEX_NOT_FOUND) revert IAlphaVaultAbi.SwappedHotkeyStillAttested();
-                (key, live) = _receivingKey(keys, logicals, currentSet, name, owner, ownSlot, netuid, nameReserved);
+                (key, live) = _receivingKey(keys, logicals, currentSet, name, owner, ownSlot, netuid);
                 if (key != name && VaultMath.contains(actives, key)) { revert IAlphaVaultAbi.SwappedHotkeyStillAttested(); }
             }
             actives[i] = key;
@@ -175,19 +173,21 @@ library VaultAllocation {
     }
 
     /// @dev Prefer the attested name, then the recorded active key, then its one-hop successor, each
-    ///      only under the attested owner. A name another attested slot resolves to is skipped, so one
-    ///      key is never counted for two slots. Resume from the record: the name's edge may predate
-    ///      swaps already followed.
+    ///      only under the attested owner. The name is taken only directly, never by a hop, and never
+    ///      while another attested slot's record holds it, so one key is never counted for two slots.
+    ///      Resume from the record: the name's edge may predate swaps already followed.
     function _receivingKey(bytes32[] memory keys, bytes32[] memory logicals, bytes32[] memory currentSet,
-        bytes32 name, bytes32 owner, uint256 ownSlot, uint16 netuid,
-        bool nameReserved) private view returns (bytes32 key, bool live) {
+        bytes32 name, bytes32 owner, uint256 ownSlot,
+        uint16 netuid) private view returns (bytes32 key, bool live) {
+        bool nameReserved = _keyHeldElsewhere(keys, logicals, currentSet, name, ownSlot);
+        if (nameReserved && ownSlot == VaultMath.INDEX_NOT_FOUND) revert IAlphaVaultAbi.SwappedHotkeyStillAttested();
         if (!nameReserved && VaultReads.ownedBy(name, owner)) return (name, true);
 
         key = ownSlot == VaultMath.INDEX_NOT_FOUND ? name : keys[ownSlot];
         live = key != name && VaultReads.ownedBy(key, owner);
         if (!live) {
             bytes32 successor = VaultReads.hotkeySuccessor(key, netuid);
-            if (successor != bytes32(0) && VaultReads.ownedBy(successor, owner)) { key = successor; live = true; }
+            if (successor != bytes32(0) && successor != name && VaultReads.ownedBy(successor, owner)) { key = successor; live = true; }
         }
         if (
             key != name
