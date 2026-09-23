@@ -34,7 +34,8 @@ Holders rely on:
   `getColdkeyLock`, `getRejectLockedAlpha` and
   `tryAssociateHotkey`. The lineage and ownership readers must reflect current
   runtime storage; an unsupported runtime cannot prepare clones.
-- Registry governance and validator performance.
+- Registry governance, validator performance and distinct hotkeys in each set.
+  The vault does not reject duplicates; one key counted twice can overpay an exit.
 - A funded, responsive watcher to repair unresolved swaps and park backing, and
   an authorized registry update to release a parked position. Watcher calls are
   permissionless; registry updates require authorization. Neither is guaranteed on-chain.
