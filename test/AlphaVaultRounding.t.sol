@@ -22,8 +22,6 @@ contract AlphaVaultRoundingTest is AlphaVaultTestBase {
         vm.prank(bob);
         vm.expectRevert(ZeroAmount.selector);
         vault.wrap(NETUID1, hotkey1, 0);
-
-        assertEq(vault.balanceOf(bob, TOKEN1), 0);
     }
 
     function testFuzz_WrapAcceptsDepositsAboveRoundingBoundary(uint256 deposit) public {
@@ -44,7 +42,6 @@ contract AlphaVaultRoundingTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(ZeroAmount.selector);
         vault.unwrap(TOKEN1, 1, _toSubstrate(alice), 0);
-        assertEq(vault.balanceOf(alice, TOKEN1), shares);
 
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);

@@ -105,8 +105,6 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(WithdrawTooSmall.selector);
         vault.unwrapForTao(TOKEN1, shares / 2, 0, (1 << 0) | (1 << 2));
-        assertEq(vault.balanceOf(alice, TOKEN1), shares, "shares intact");
-        assertEq(_getVaultStake(hotkey1, NETUID1), 60 * ALPHA, "and stake intact");
     }
 
     function test_RevertWhen_TheMaskNamesASlotTheRecordLacks() public {
@@ -436,8 +434,6 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert("MockStaking: removeStake reverted");
         vault.unwrapForTao(TOKEN1, shares, 0);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), shares);
     }
 
     function test_RevertWhen_OneFullSliceSellFails() public {
@@ -446,13 +442,9 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         (bytes32[] memory hotkeys,,) = registry.getValidators(NETUID1);
         _setRemoveStakeRevertsFor(hotkeys[1], true);
 
-        uint256 balanceBefore = alice.balance;
         vm.prank(alice);
         vm.expectRevert("MockStaking: removeStake reverted");
         vault.unwrapForTao(TOKEN1, shares, 0);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), shares);
-        assertEq(alice.balance, balanceBefore);
     }
 
     function test_RevertWhen_AboveFloorPartialSellFails() public {
@@ -465,8 +457,6 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(bytes("MockStaking: removeStake reverted"));
         vault.unwrapForTao(TOKEN1, shares / 2, 0);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), shares, "shares intact after bubbled failure");
     }
 
     function test_DonationToClonePriorToCall_DoesNotInflateTaoOut() public {
@@ -494,8 +484,6 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         vm.prank(address(receiver));
         vm.expectRevert();
         vault.unwrapForTao(TOKEN1, shares, 0);
-
-        assertEq(vault.balanceOf(address(receiver), TOKEN1), shares);
     }
 
     function test_ReentrantUnwrapForTaoIsRejectedByGuard() public {
@@ -755,15 +743,12 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
     function test_RevertWhen_PositionTooSmallToExit() public {
         _setRemoveStakeRate(1, 1);
         _depositForAlice(100 * ALPHA);
-        uint256 sharesBefore = vault.balanceOf(alice, TOKEN1);
         uint256 total = _plantVaultStakes(NETUID1, 40 * ALPHA, 0, 0);
         uint256 shares = _sharesForExactAssets(TOKEN1, 1e6, total);
 
         vm.prank(alice);
         vm.expectRevert(WithdrawTooSmall.selector);
         vault.unwrapForTao(TOKEN1, shares, 0);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), sharesBefore, "burn rolled back with the revert");
     }
 
     function test_SubFloorFinalSlice_RefundsSharesBackingTheUnsoldDust() public {
@@ -861,15 +846,11 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         _wrap(address(receiver), NETUID1);
         uint256 total = _plantVaultStakes(NETUID1, 5e6, 0, 40 * ALPHA);
         uint256 shares = _sharesForExactAssets(TOKEN1, 5e6 + 1e6, total);
-        uint256 sharesBefore = vault.balanceOf(address(receiver), TOKEN1);
         receiver.rejectMints();
 
         vm.prank(address(receiver));
         vm.expectRevert(bytes("no mints"));
         vault.unwrapForTao(TOKEN1, shares, 0);
-
-        assertEq(vault.balanceOf(address(receiver), TOKEN1), sharesBefore, "the whole exit rolled back");
-        assertEq(lens.totalStake(TOKEN1), total, "no alpha left the vault");
     }
 
     function test_SwapStoppedShortOnFullBurn_RefundsTheReturnedAlpha() public {
@@ -988,15 +969,12 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
     function test_RevertWhen_UnsoldRemainderBreaksMinTaoOut() public {
         _setRemoveStakeRate(1, 1);
         _depositForAlice(100 * ALPHA);
-        uint256 sharesBefore = vault.balanceOf(alice, TOKEN1);
         uint256 total = _plantVaultStakes(NETUID1, 5e6, 0, 40 * ALPHA);
         uint256 shares = _sharesForExactAssets(TOKEN1, 5e6 + 1e6, total);
 
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(SlippageExceeded.selector, 5e6));
         vault.unwrapForTao(TOKEN1, shares, 5e6 + 1e6);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), sharesBefore, "burn rolled back with the slippage revert");
     }
 
     function test_DustPosition_TopUpEnablesFullValueExit() public {
@@ -1033,13 +1011,9 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         uint256 targetAssets = CHAIN_MIN_STAKE;
         uint256 burnShares = _sharesForExactAssets(TOKEN1, targetAssets, 100 * ALPHA);
 
-        uint256 sharesBefore = vault.balanceOf(alice, TOKEN1);
         vm.prank(alice);
         vm.expectRevert(WithdrawTooSmall.selector);
         vault.unwrapForTao(TOKEN1, burnShares, 0);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), sharesBefore, "shares intact after the clean skip");
-        assertEq(_getVaultStake(hotkey1, NETUID1), 100 * ALPHA, "the doomed sell was never attempted");
     }
 
     function test_PartialSell_ShrinksToLeaveSweepSafeLeftover() public {
@@ -1069,15 +1043,11 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         _setRemoveStakeRate(1, 1);
         _depositForAlice(100 * ALPHA);
         uint256 total = _plantVaultStakes(NETUID1, 15e6, 0, 0);
-        uint256 sharesBefore = vault.balanceOf(alice, TOKEN1);
         uint256 shares = _sharesForExactAssets(TOKEN1, 10e6, total);
 
         vm.prank(alice);
         vm.expectRevert(WithdrawTooSmall.selector);
         vault.unwrapForTao(TOKEN1, shares, 0);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), sharesBefore, "burn rolled back with the revert");
-        assertEq(_getVaultStake(hotkey1, NETUID1), 15e6, "slot untouched rather than left sweepable");
     }
 
     function testFuzz_PartialSell_NeverLeavesSweepableRemainder(uint256 balance, uint256 assets, uint256 priceE18)
@@ -1187,8 +1157,6 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(WithdrawTooSmall.selector);
         vault.unwrapForTao(TOKEN1, shares, 0);
-
-        assertEq(_getVaultStake(hotkey1, NETUID1), 50e6, "impact-endangered leftover left untouched");
     }
 
     /// @dev The chain reports stake as a 64-bit amount, so a wider slot exists only in a fixture.

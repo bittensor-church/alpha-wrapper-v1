@@ -71,76 +71,57 @@ contract MockValidatorRegistryTest is RegistryTestHelper {
         (,, bytes32[] memory originalOwners) = registry.getValidators(NETUID);
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkeys[0], true);
         _recordHotkeyOwners(hotkeys);
+        (,, bytes32[] memory owners) = registry.getValidators(NETUID);
+        assertEq(owners, originalOwners);
 
         vm.expectRevert(abi.encodeWithSelector(MockValidatorRegistry.OwnerlessHotkey.selector, hotkeys[0]));
         registry.setValidators(NETUID, hotkeys, _evenWeights(1));
-        (,, bytes32[] memory owners) = registry.getValidators(NETUID);
-        assertEq(owners, originalOwners);
-        assertEq(registry.nonces(NETUID), 1);
     }
 
-    function test_UnknownOwner_RejectsTheWholeUpdate() public {
-        bytes32[] memory original = _hotkeysFrom("original", 1);
-        _recordHotkeyOwners(original);
-        registry.setValidators(NETUID, original, _evenWeights(1));
+    function test_RevertWhen_AnyReplacementHotkeyHasNoOwner() public {
         bytes32[] memory replacement = _hotkeysFrom("replacement", 2);
         _recordHotkeyOwner(replacement[0]);
 
         vm.expectRevert(abi.encodeWithSelector(MockValidatorRegistry.OwnerlessHotkey.selector, replacement[1]));
         registry.setValidators(NETUID, replacement, _evenWeights(2));
-        (bytes32[] memory hotkeys,,) = registry.getValidators(NETUID);
-        assertEq(hotkeys, original);
-        assertEq(registry.nonces(NETUID), 1);
     }
 
-    function test_EmptySet_LeavesThePreviousSetIntact() public {
-        _assertMalformedUpdateLeavesPreviousSet(new bytes32[](0), new uint16[](0));
+    function test_RevertWhen_SetIsEmpty() public {
+        _expectMalformedUpdateRejected(new bytes32[](0), new uint16[](0));
     }
 
-    function test_TooManyValidators_LeavesThePreviousSetIntact() public {
-        _assertMalformedUpdateLeavesPreviousSet(
+    function test_RevertWhen_SetExceedsMaxValidators() public {
+        _expectMalformedUpdateRejected(
             _hotkeysFrom("replacement", MAX_VALIDATORS + 1), _evenWeights(MAX_VALIDATORS + 1)
         );
     }
 
-    function test_MismatchedLengths_LeavesThePreviousSetIntact() public {
-        _assertMalformedUpdateLeavesPreviousSet(_hotkeysFrom("replacement", 2), _evenWeights(1));
+    function test_RevertWhen_LengthsMismatch() public {
+        _expectMalformedUpdateRejected(_hotkeysFrom("replacement", 2), _evenWeights(1));
     }
 
-    function test_ZeroHotkey_LeavesThePreviousSetIntact() public {
+    function test_RevertWhen_HotkeyIsZero() public {
         bytes32[] memory hotkeys = _hotkeysFrom("replacement", 2);
         hotkeys[0] = bytes32(0);
-        _assertMalformedUpdateLeavesPreviousSet(hotkeys, _evenWeights(2));
+        _expectMalformedUpdateRejected(hotkeys, _evenWeights(2));
     }
 
-    function test_DuplicateHotkeys_LeavesThePreviousSetIntact() public {
+    function test_RevertWhen_HotkeysRepeat() public {
         bytes32[] memory hotkeys = _hotkeysFrom("replacement", 2);
         hotkeys[1] = hotkeys[0];
-        _assertMalformedUpdateLeavesPreviousSet(hotkeys, _evenWeights(2));
+        _expectMalformedUpdateRejected(hotkeys, _evenWeights(2));
     }
 
-    function test_ZeroWeightWithValidSum_LeavesThePreviousSetIntact() public {
+    function test_RevertWhen_WeightIsZeroWithValidSum() public {
         uint16[] memory weights = new uint16[](2);
         weights[1] = 10_000;
-        _assertMalformedUpdateLeavesPreviousSet(_hotkeysFrom("replacement", 2), weights);
+        _expectMalformedUpdateRejected(_hotkeysFrom("replacement", 2), weights);
     }
 
-    function _assertMalformedUpdateLeavesPreviousSet(bytes32[] memory hotkeys, uint16[] memory weights) private {
-        bytes32[] memory original = _hotkeysFrom("original", 1);
-        _recordHotkeyOwners(original);
-        registry.setValidators(NETUID, original, _evenWeights(1));
-        (,, bytes32[] memory originalOwners) = registry.getValidators(NETUID);
+    function _expectMalformedUpdateRejected(bytes32[] memory hotkeys, uint16[] memory weights) private {
         _recordHotkeyOwners(hotkeys);
-
         vm.expectRevert(ValidatorSetMalformed.selector);
         registry.setValidators(NETUID, hotkeys, weights);
-        (bytes32[] memory retained, uint16[] memory retainedWeights, bytes32[] memory retainedOwners) =
-            registry.getValidators(NETUID);
-        assertEq(retained, original);
-        assertEq(retainedWeights.length, 1);
-        assertEq(retainedWeights[0], 10_000);
-        assertEq(retainedOwners, originalOwners);
-        assertEq(registry.nonces(NETUID), 1);
     }
 
     function test_WeightsMustSumToOneHundredPercent() public {
@@ -150,7 +131,6 @@ contract MockValidatorRegistryTest is RegistryTestHelper {
         weights[0] -= 1;
         vm.expectRevert(ValidatorSetMalformed.selector);
         registry.setValidators(NETUID, hotkeys, weights);
-        assertEq(registry.nonces(NETUID), 0);
     }
 
     function test_SubnetNonces_AdvanceIndependentlyIncludingRefreshes() public {

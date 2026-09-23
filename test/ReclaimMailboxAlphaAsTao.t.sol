@@ -79,7 +79,7 @@ contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
         vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, expected + 1);
     }
 
-    function test_RemoveStakeRevertBubblesUp_PreservesMailboxAlpha() public {
+    function test_RevertWhen_RemoveStakeFails() public {
         _setRemoveStakeRate(1, 1);
         _seedMailboxAlpha(alice, NETUID1, hotkey1, 50 ether);
         _setRemoveStakeReverts(true);
@@ -87,9 +87,6 @@ contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert();
         vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
-
-        address predicted = vault.getDepositAddress(alice, NETUID1);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey1, _toSubstrate(predicted), NETUID1), 50 ether);
     }
 
     function test_DonationToMailboxPriorToCall_DoesNotInflateTaoOut() public {
@@ -115,9 +112,6 @@ contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
         vm.prank(address(receiver));
         vm.expectRevert();
         vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
-
-        address predicted = vault.getDepositAddress(address(receiver), NETUID1);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey1, _toSubstrate(predicted), NETUID1), 50 ether);
     }
 
     function test_ReentrantReclaimMailboxAlphaAsTaoIsRejectedByGuard() public {

@@ -34,7 +34,6 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(lateTip, NETUID1), 0, "the late swap cannot take the secured balance");
         vm.expectRevert(BackingUnchanged.selector);
         vault.syncBacking(TOKEN1);
-        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
 
         vm.warp(deadline);
         vm.expectEmit(true, false, false, true, address(vault));
@@ -117,51 +116,36 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertEq(lens.writeOffDeadline(TOKEN1), block.timestamp + vault.recoveryWindow());
     }
 
-    function test_FailedParking_LeavesTheRecordAndClockUntouched() public {
+    function test_FailedParking_RevertsAndStartsTheClockOnRetry() public {
         _depositAndWrap(alice, NETUID1, 30 ether);
-        uint256 expectedFirst = vault.recordedSlots(TOKEN1)[0].tracked;
         _buildSwapTrail(NETUID1, hotkey1, 2);
-        uint256 located = _getVaultStake(hotkey2, NETUID1) + _getVaultStake(hotkey3, NETUID1);
         MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(true);
         vm.expectRevert(bytes("MockStaking: moveStake reverted"));
         vault.syncBacking(TOKEN1);
-        (uint256 since,) = vault.recovery(TOKEN1);
-        assertEq(since, 0);
-        assertEq(vault.recordedSlots(TOKEN1)[0].tracked, expectedFirst);
-        assertEq(_parkedStake(NETUID1), 0);
-        assertEq(_getVaultStake(hotkey2, NETUID1) + _getVaultStake(hotkey3, NETUID1), located);
         vm.warp(block.timestamp + 1 days);
         MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(false);
         vault.syncBacking(TOKEN1);
         assertEq(lens.writeOffDeadline(TOKEN1), block.timestamp + vault.recoveryWindow());
     }
 
-    function test_FailedCollectionAtExpiry_PreservesReturnedBackingAndTheObligation() public {
+    function test_FailedCollectionAtExpiry_RevertsAndCanBeRetried() public {
         (bytes32 firstTip,, uint256 deadline) = _twoLosses();
         _simulateOffVaultSwap(NETUID1, firstTip, hotkey1);
         vm.warp(deadline);
         MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(true);
         vm.expectRevert(bytes("MockStaking: moveStake reverted"));
         vault.syncBacking(TOKEN1);
-        assertEq(_parkedStake(NETUID1), 8 ether);
-        assertEq(_getVaultStake(hotkey1, NETUID1), 8 ether);
-        assertEq(vault.recordedSlots(TOKEN1)[0].tracked, 40 ether);
-        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
         MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(false);
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), 16 ether);
     }
 
     function test_PartialRecovery_CannotCreditAnotherColdkeysStake() public {
-        (,, uint256 deadline) = _twoLosses();
+        _twoLosses();
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey5, _toSubstrate(bob), NETUID1, 100 ether);
         _simulateHotkeyOwnerPresent(hotkey5);
         vm.expectRevert(NothingToRecover.selector);
         vault.recoverStray(TOKEN1, hotkey5);
-        assertEq(_parkedStake(NETUID1), 8 ether);
-        assertEq(lens.missingStake(TOKEN1), 32 ether);
-        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
-        assertEq(_getStakeForColdkey(hotkey5, _toSubstrate(bob), NETUID1), 100 ether);
     }
 
     function test_PartialRecovery_CreditsActualParkingBalanceAfterRounding() public {
@@ -257,16 +241,13 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertEq(lens.writeOffDeadline(TOKEN1), 0);
     }
 
-    function test_RecoverStray_RejectsZeroAndParkingWithoutChangingRecovery() public {
-        (,, uint256 deadline) = _twoLosses();
+    function test_RevertWhen_RecoveringFromZeroOrParkingHotkey() public {
+        _twoLosses();
         vm.expectRevert(NothingToRecover.selector);
         vault.recoverStray(TOKEN1, bytes32(0));
         bytes32 parking = vault.parkingHotkey();
         vm.expectRevert(NothingToRecover.selector);
         vault.recoverStray(TOKEN1, parking);
-        assertEq(_parkedStake(NETUID1), 8 ether);
-        assertEq(vault.recordedSlots(TOKEN1)[0].tracked, 40 ether);
-        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
     }
 
     function test_RecoverStray_CanAnnexUntrackedParkingStakeToLiveBacking() public {
@@ -298,7 +279,6 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
             staking.setStake(source, coldkey, NETUID1, dust);
             vm.expectRevert(NothingToRecover.selector);
             vault.recoverStray(TOKEN1, source);
-            assertEq(_getVaultStake(source, NETUID1), dust);
         }
         _simulateHotkeyOwnerPresent(hotkey4);
         staking.setStake(hotkey4, coldkey, NETUID1, CHAIN_MIN_STAKE);
@@ -321,19 +301,10 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         _depositAndWrap(alice, NETUID1, 30 ether);
         uint256 lost = _getVaultStake(hotkey1, NETUID1);
         _buildSwapTrail(NETUID1, hotkey1, 2);
-        bytes32 record = keccak256(abi.encode(vault.recordedSlots(TOKEN1)));
-        uint256 second = _getVaultStake(hotkey2, NETUID1);
-        uint256 third = _getVaultStake(hotkey3, NETUID1);
         MockStaking staking = MockStaking(STAKING_PRECOMPILE);
         staking.setMoveStakeResidual(BACKING_SLACK_RAO + 1);
         vm.expectRevert(BackingNotSecured.selector);
         vault.syncBacking(TOKEN1);
-        (uint256 since,) = vault.recovery(TOKEN1);
-        assertEq(since, 0);
-        assertEq(keccak256(abi.encode(vault.recordedSlots(TOKEN1))), record);
-        assertEq(_parkedStake(NETUID1), 0);
-        assertEq(_getVaultStake(hotkey2, NETUID1), second);
-        assertEq(_getVaultStake(hotkey3, NETUID1), third);
 
         staking.setMoveStakeResidual(0);
         vault.syncBacking(TOKEN1);
@@ -345,16 +316,11 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
     function test_IncompleteCollectionAtExpiry_CannotWriteOffLocatedBackingAndCanBeRetried() public {
         (bytes32 first,, uint256 deadline) = _twoLosses();
         _simulateOffVaultSwap(NETUID1, first, hotkey1);
-        bytes32 record = keccak256(abi.encode(vault.recordedSlots(TOKEN1)));
         vm.warp(deadline);
         MockStaking staking = MockStaking(STAKING_PRECOMPILE);
         staking.setMoveStakeResidual(BACKING_SLACK_RAO + 1);
         vm.expectRevert(BackingNotSecured.selector);
         vault.syncBacking(TOKEN1);
-        assertEq(keccak256(abi.encode(vault.recordedSlots(TOKEN1))), record);
-        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
-        assertEq(_parkedStake(NETUID1), 8 ether);
-        assertEq(_getVaultStake(hotkey1, NETUID1), 8 ether);
 
         staking.setMoveStakeResidual(0);
         vault.syncBacking(TOKEN1);

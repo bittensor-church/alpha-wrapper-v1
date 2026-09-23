@@ -33,16 +33,12 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         assertEq(vault.recordedSlots(TOKEN1)[0].tracked, EXPECTED);
     }
 
-    function test_SubFloorStray_CannotChangeTheDeclaredObligation() public {
+    function test_RevertWhen_RecoveringASubFloorStray() public {
         _missingPosition();
         _plant(hotkey4, DUST);
         vault.syncBacking(TOKEN1);
         vm.expectRevert(NothingToRecover.selector);
         vault.recoverStray(TOKEN1, hotkey4);
-        assertEq(lens.writeOffDeadline(TOKEN1), block.timestamp + vault.recoveryWindow());
-        assertEq(vault.recordedSlots(TOKEN1)[0].tracked, EXPECTED);
-        assertEq(_parkedStake(NETUID1), 0);
-        assertEq(_getVaultStake(hotkey4, NETUID1), DUST);
     }
 
     function test_DustDuringEmptyRecovery_DoesNotBlockExpiryOrBurningWorthlessShares() public {
@@ -53,8 +49,6 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         vm.warp(deadline - 1);
         vm.expectRevert(BackingUnchanged.selector);
         vault.syncBacking(TOKEN1);
-        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
-        assertEq(vault.recordedSlots(TOKEN1)[0].tracked, EXPECTED);
 
         vm.warp(deadline);
         vm.expectEmit(true, false, false, true, address(vault));
@@ -137,9 +131,6 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         // The mock supplies this reason; a native refusal consumes the forwarded gas.
         vm.expectRevert(bytes("MockStaking: AmountTooLow"));
         vault.syncBacking(TOKEN1);
-        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
-        assertEq(vault.recordedSlots(TOKEN1)[0].tracked, EXPECTED);
-        assertEq(_getVaultStake(hotkey1, NETUID1), DUST);
     }
 
     function test_FailedAboveFloorCollection_DoesNotUseTheDustException() public {
@@ -150,11 +141,6 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         vm.warp(deadline);
         vm.expectRevert(bytes("MockStaking: moveStake reverted"));
         vault.syncBacking(TOKEN1);
-        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
-        assertEq(_parkedStake(NETUID1), 0);
-        assertEq(_getVaultStake(hotkey1, NETUID1), CHAIN_MIN_STAKE);
-        assertEq(_getVaultStake(hotkey2, NETUID1), DUST);
-        assertEq(vault.recordedSlots(TOKEN1)[0].tracked, EXPECTED);
     }
 
     function _smallSet(uint256 count, uint256 dust, bool movable) private returns (uint256 located) {

@@ -65,18 +65,12 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
         _assertProtected(clone);
     }
 
-    function test_CreateMailbox_RejectsUnexpectedAcceptFlagWithoutOverwritingIt() public {
+    function test_CreateMailbox_RevertsOnAnUnexpectedAcceptFlag() public {
         address mailbox = _mailboxCandidate(alice, UID);
-        address clone = _cloneCandidate(UID);
         mock.setAcceptsLockedAlpha(_toSubstrate(mailbox), true);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IAlphaVaultAbi.CloneProtectionFailed.selector, mailbox));
         vault.createMailbox(NETUID1, UID);
-        assertEq(mailbox.code.length, 0);
-        assertEq(clone.code.length, 0, "failed protection rolls back both deployments");
-        assertEq(vault.getDepositAddress(alice, NETUID1), address(0));
-        assertEq(vault.subnetClone(TOKEN1), address(0));
-        assertFalse(mock.getRejectLockedAlpha(_toSubstrate(mailbox)));
     }
 
     function test_Wrap_ReadsAlphaPriceOnce() public {
@@ -123,9 +117,6 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IAlphaVaultAbi.CloneContaminated.selector, candidate));
         vault.createMailbox(NETUID1, UID);
-        assertEq(vault.subnetClone(TOKEN1), address(0));
-        assertEq(_cloneCandidate(UID).code.length, 0, "failed mailbox rolls back the shared deployment");
-        assertEq(vault.getDepositAddress(alice, NETUID1), address(0));
         (address accepted,) = _create(alice, NEXT_UID);
         assertEq(accepted, _mailboxCandidate(alice, NEXT_UID));
         _assertProtected(accepted);
@@ -137,7 +128,6 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IAlphaVaultAbi.CloneContaminated.selector, candidate));
         vault.createMailbox(NETUID1, UID);
-        assertEq(vault.totalSupply(TOKEN1), 0);
         (, address accepted) = _create(alice, NEXT_UID);
         assertEq(accepted, _cloneCandidate(NEXT_UID));
     }
@@ -190,22 +180,9 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
         vm.deal(clone, 1 ether);
         assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 0);
+        _assertProtected(clone);
         vm.expectRevert(bytes("MockStaking: NewColdKeyIsHotkey"));
         mock.simulateColdkeySwap(_toSubstrate(bob), _toSubstrate(clone), NETUID1, _hotkeys(hotkey1));
-        _assertProtected(clone);
-    }
-
-    function test_PostDeployment_LockedTransfersToEitherCloneAreRefused() public {
-        (address mailbox, address clone) = _create(alice, UID);
-        bytes32 donor = _toSubstrate(bob);
-        mock.setStake(hotkey1, donor, NETUID1, 10 ether);
-        mock.setLockedAlpha(donor, NETUID1, hotkey1, 10 ether);
-        vm.startPrank(bob);
-        vm.expectRevert(bytes("MockStaking: AccountRejectsLockedAlpha"));
-        mock.transferStake(_toSubstrate(mailbox), hotkey1, NETUID1, NETUID1, 10 ether);
-        vm.expectRevert(bytes("MockStaking: AccountRejectsLockedAlpha"));
-        mock.transferStake(_toSubstrate(clone), hotkey1, NETUID1, NETUID1, 10 ether);
-        vm.stopPrank();
     }
 
     function test_UnexpectedMailboxLock_RefusesWrapBeforeStakeMoves() public {

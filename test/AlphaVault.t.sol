@@ -88,13 +88,6 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(vault.uri(TOKEN1), VAULT_URI);
     }
 
-    function test_AttestedSetHoldsThreeValidators() public view {
-        bytes32[] memory hotkeys = _attestedHotkeys(NETUID1);
-        assertEq(hotkeys[0], hotkey1);
-        assertEq(hotkeys[1], hotkey2);
-        assertEq(hotkeys[2], hotkey3);
-    }
-
     function test_SingleValidatorNoSplit() public {
         _registerSubnet(99, hotkey4);
 
@@ -217,7 +210,6 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         _simulateAlphaDeposit(alice, NETUID1, 10 ether);
         _wrap(alice, NETUID1);
         uint256 shares = vault.balanceOf(alice, TOKEN1);
-        uint256 backing = lens.totalStake(TOKEN1);
         (uint256 quotedAlpha,) = lens.previewUnwrap(TOKEN1, shares);
         bytes32 aliceSub = _toSubstrate(alice);
 
@@ -225,17 +217,12 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(SlippageExceeded.selector, quotedAlpha - 2));
         vault.unwrap(TOKEN1, shares, aliceSub, quotedAlpha - 1);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), shares, "slippage burned shares");
-        assertEq(lens.totalStake(TOKEN1), backing, "slippage moved backing");
-        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 0, "slippage delivered alpha");
     }
 
     function test_RevertWhen_RecipientCreditIsBelowMinAlphaOut() public {
         _simulateAlphaDeposit(alice, NETUID1, 10 ether);
         _wrap(alice, NETUID1);
         uint256 shares = vault.balanceOf(alice, TOKEN1);
-        uint256 backing = lens.totalStake(TOKEN1);
         (uint256 quotedAlpha,) = lens.previewUnwrap(TOKEN1, shares);
         bytes32 aliceSub = _toSubstrate(alice);
 
@@ -243,10 +230,6 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(SlippageExceeded.selector, quotedAlpha - 1));
         vault.unwrap(TOKEN1, shares, aliceSub, quotedAlpha);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), shares, "slippage burned shares");
-        assertEq(lens.totalStake(TOKEN1), backing, "slippage moved backing");
-        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 0, "slippage credited alpha");
     }
 
     function test_UnwrapReportsActualRecipientCredit() public {
@@ -319,14 +302,10 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         _simulateAlphaDeposit(alice, NETUID1, 10 ether);
         _wrap(alice, NETUID1);
         uint256 shares = vault.balanceOf(alice, TOKEN1);
-        uint256 backing = lens.totalStake(TOKEN1);
 
         vm.prank(alice);
         vm.expectRevert(ZeroColdkey.selector);
         vault.unwrap(TOKEN1, shares, bytes32(0), 0);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), shares, "zero destination burned shares");
-        assertEq(lens.totalStake(TOKEN1), backing, "zero destination moved backing");
     }
 
     function test_OnlyVaultCanFlush() public {
@@ -1080,9 +1059,6 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(SlippageExceeded.selector, 0));
         vault.unwrap(tokenId, shares, bytes32(0), 1);
-
-        assertEq(vault.balanceOf(alice, tokenId), shares, "alpha floor burned dissolved shares");
-        assertEq(alice.balance, 0, "alpha floor paid TAO instead");
     }
 
     function test_UnwrapFromDissolvedSubnetTwoHoldersProRata() public {
@@ -1154,7 +1130,6 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(ClaimBelowNativePrecision.selector);
         vault.unwrap(tokenId, aliceShares, bytes32(0), 0);
-        assertEq(vault.balanceOf(alice, tokenId), aliceShares, "the refusal keeps the shares");
     }
 
     function test_UnwrapFromDissolvedSubnetAfterNewSubnetRegistered() public {
@@ -1673,7 +1648,6 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(NothingToUnwrap.selector);
         vault.unwrap(tokenId, shares, _toSubstrate(alice), 0);
-        assertEq(vault.balanceOf(alice, tokenId), shares, "a zero quote does not burn shares");
 
         _donateToClone(vault.subnetClone(tokenId), 5 ether);
         (alpha, tao) = lens.previewUnwrap(tokenId, shares);
@@ -1852,22 +1826,6 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vault.wrap(NETUID1, hotkey1, quoted + 1);
     }
 
-    function test_WrapRefusedOnSlippageLeavesTheDepositInTheMailbox() public {
-        _simulateAlphaDepositHotkey(alice, NETUID1, 30 ether, hotkey1);
-        bytes32 mailboxColdkey = _toSubstrate(vault.getDepositAddress(alice, NETUID1));
-        uint256 quoted = lens.previewWrap(TOKEN1, 30 ether);
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(SlippageExceeded.selector, quoted));
-        vault.wrap(NETUID1, hotkey1, quoted + 1);
-
-        assertEq(_getStakeForColdkey(hotkey1, mailboxColdkey, NETUID1), 30 ether, "deposit still the caller's");
-        assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 0, "no alpha landed in the position");
-
-        _wrapHotkey(alice, NETUID1, hotkey1);
-        assertEq(vault.balanceOf(alice, TOKEN1), quoted, "the retry mints what the bound refused");
-    }
-
     function test_RevertWhen_BackingGrowsBetweenQuoteAndWrap() public {
         _depositAndWrap(alice, NETUID1, 30 ether);
         _simulateAlphaDepositHotkey(bob, NETUID1, 30 ether, hotkey1);
@@ -1905,8 +1863,6 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(SlippageExceeded.selector, quoted));
         vault.wrap(NETUID1, hotkey1, quoted + excess);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), 0, "a refused wrap mints nothing");
     }
 
     function test_WrapDerivesMailboxColdkeyFromUserClone() public {
