@@ -113,3 +113,7 @@ Third-party alpha under tracked keys increases backing; stake elsewhere is not
 automatically counted. Mailbox wraps credit only the caller's chosen key.
 Untracked vault alpha joins the position through `recoverStray` under the
 [recovery rules](hotkey-swaps.md), including their late-recovery ownership policy.
+
+A full-supply `unwrapForTao` attempts to sell all located alpha, including any
+left when supply was zero; the last holder receives the proceeds. An alpha
+`unwrap` still uses virtual-offset pricing.
