@@ -30,7 +30,9 @@ Suppose the registry names A and the vault holds 100 alpha there:
 
 For an empty slot the vault prefers the attested name, then the recorded key,
 then that key's one-hop successor, each only while the attested owner holds it,
-subject to collision checks. Funded slots stay at their resolved location.
+subject to collision checks. If another attested slot holds the name, a retired
+recorded key is not followed; attestors must publish the current keys. Funded
+slots stay at their resolved location.
 
 ## Automatic handling has limits
 
@@ -48,11 +50,10 @@ different operation and does not re-register the key.
 ## Who a name answers to
 
 The registry records the coldkey that owned each hotkey when it was attested. A
-receiving key is usable only under that coldkey: the attested name itself, the
-recorded active key, or its one-hop successor, whichever the attested owner
-holds. A validator's own rename keeps its coldkey, so its successor qualifies. A
-vacated name claimed by anyone else reports `AttestedHotkeyRetired` and receives
-nothing; the registry owner retires it by replacing the target.
+receiving key must have that owner. A validator's own rename can supply a valid
+successor, except in the reused-name case above. A vacated name claimed by
+another owner cannot itself receive the original slot's stake; the registry
+authority replaces a retired target.
 
 The chain refuses to move stake through a hotkey with no owner record. When the
 vault has to move stake off such a key, it claims the key for its own coldkey

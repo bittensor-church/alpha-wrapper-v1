@@ -109,9 +109,9 @@ library VaultAllocation {
         return chunk;
     }
 
-    /// @dev Keep funded slots on resolved keys; empty slots need a usable receiving key. A key is usable
-    ///      only under the coldkey that owned the attested name, so a vacated name claimed by anyone
-    ///      else reports as retired. Keys remain exclusive even for empty slots.
+    /// @dev Keep funded slots on resolved keys; empty slots need a receiving key owned by the coldkey
+    ///      that held the attested name. Keys remain exclusive even for empty slots. A reused attested
+    ///      name requires a new attestation if its empty slot's recorded key has also retired.
     ///      Flat arrays cross this boundary: each struct argument would add its own ABI encoder to the
     ///      vault, which has no bytecode to spare. `logicals`, `keys` and `balances` are one record per
     ///      slot; `currentSet` and `owners` are one entry per attested name.
@@ -126,6 +126,8 @@ library VaultAllocation {
             if (ownSlot != VaultMath.INDEX_NOT_FOUND && balances[ownSlot] != 0) {
                 key = keys[ownSlot]; live = VaultReads.ownedBy(key, owner);
             } else if (_keyHeldElsewhere(keys, logicals, currentSet, name, ownSlot)) {
+                // Another attested slot holds this name. Use only the recorded key; a further
+                // successor needs a fresh attestation before it can receive this slot's stake.
                 if (ownSlot == VaultMath.INDEX_NOT_FOUND) revert IAlphaVaultAbi.SwappedHotkeyStillAttested();
                 key = keys[ownSlot]; live = VaultReads.ownedBy(key, owner);
             } else {
