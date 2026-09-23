@@ -172,15 +172,21 @@ contract HotkeySwapInvariantTest is BackingCampaignHarness {
 
     function test_ReusedNameAfterARetiredKey_ResolvesWithoutARepublish() public {
         handler.swapToFreshKey(0, 1, true);
+        _assertSharedInvariants();
         handler.rebalance();
+        _assertSharedInvariants();
         handler.drainSlot(0, 0);
+        _assertSharedInvariants();
         assertEq(handler.drains(), 1, "the first slot is emptied on its followed key");
         handler.swapToFreshKey(0, 2, true);
+        _assertSharedInvariants();
         handler.swapOntoVacatedKey(1, 0, true);
+        _assertSharedInvariants();
         assertEq(handler.reuseSwaps(), 1, "the second validator takes the vacated first name");
         assertEq(handler.liveKeys(1), hotkey1, "which is the first validator's attested name");
 
         handler.rebalance();
+        _assertSharedInvariants();
 
         assertEq(handler.rebalances(), 2, "the rebalance succeeds without a new attestation");
         assertEq(vault.recordedSlots(TOKEN1)[0].active, handler.liveKeys(0), "the emptied slot follows to the live key");
@@ -189,16 +195,21 @@ contract HotkeySwapInvariantTest is BackingCampaignHarness {
 
     function test_ParkedPartialExit_IsMeasuredOnTheParkingHotkey() public {
         handler.swapToFreshKey(0, 1, true);
+        _assertSharedInvariants();
         handler.swapToFreshKey(0, 2, true);
+        _assertSharedInvariants();
         handler.syncBacking();
+        _assertSharedInvariants();
         vm.warp(lens.writeOffDeadline(TOKEN1));
         handler.syncBacking();
+        _assertSharedInvariants();
         assertTrue(vault.awaitingAttestation(TOKEN1), "two unobserved renames park the position");
         assertGt(_parkedStake(NETUID1), 0, "with the located backing on the parking hotkey");
         bytes32 recipient = keccak256(abi.encode(alice));
         uint256 before = _getStakeForColdkey(vault.parkingHotkey(), recipient, NETUID1);
 
         handler.unwrap(0, vault.balanceOf(alice, TOKEN1) / 4);
+        _assertSharedInvariants();
 
         assertEq(handler.alphaExits(), 1, "the parked position pays the alpha exit");
         assertGt(handler.lastAlphaPaid(), 0, "and the payout is measured");
@@ -211,16 +222,27 @@ contract HotkeySwapInvariantTest is BackingCampaignHarness {
 
     function test_HandlerReachesEverySuccessPath() public {
         handler.wrap(1, 100e9, 0);
+        _assertSharedInvariants();
         handler.unwrap(0, 1e18);
+        _assertSharedInvariants();
         handler.unwrapForTao(0, 1e18);
+        _assertSharedInvariants();
         handler.drainSlot(1, 2);
+        _assertSharedInvariants();
         handler.swapToFreshKey(2, 7, false);
+        _assertSharedInvariants();
         handler.swapToFreshKey(2, 8, true);
+        _assertSharedInvariants();
         handler.swapOntoVacatedKey(0, 0, true);
+        _assertSharedInvariants();
         handler.syncBacking();
+        _assertSharedInvariants();
         handler.swapColdkey(0, 5);
+        _assertSharedInvariants();
         handler.republish(3);
+        _assertSharedInvariants();
         handler.rebalance();
+        _assertSharedInvariants();
 
         assertEq(handler.wraps(), 1, "a deposit wraps");
         assertEq(handler.alphaExits(), 1, "an alpha exit pays");
