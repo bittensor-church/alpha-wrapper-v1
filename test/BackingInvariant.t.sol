@@ -1,30 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Test } from "forge-std/Test.sol";
-import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
+import { BackingCampaignHandler, BackingCampaignHarness } from "./helpers/BackingCampaign.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
-import { AlphaVaultLens } from "src/AlphaVaultLens.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
 
-contract BackingHandler is Test {
-    AlphaVault public immutable vault;
-    BackingInvariantTest public immutable harness;
-    uint256 public immutable tokenId;
-    uint256 public immutable netuid;
-    address[] public actors;
-
-    /// @dev Independent chain-total oracle, including keys no longer tracked by the vault.
-    bytes32[] public touchedHotkeys;
-    mapping(bytes32 => bool) public touched;
-
-    uint256 public wraps;
-    uint256 public alphaExits;
-    uint256 public taoExits;
+contract BackingHandler is BackingCampaignHandler {
     uint256 public strayAnnexations;
     uint256 public strayCollections;
-    uint256 public recoveriesClosed;
 
     constructor(
         AlphaVault _vault,
@@ -33,79 +17,14 @@ contract BackingHandler is Test {
         uint256 _netuid,
         address[] memory _actors,
         bytes32[] memory _seedHotkeys
-    ) {
-        vault = _vault;
-        harness = _harness;
-        tokenId = _tokenId;
-        netuid = _netuid;
-        actors = _actors;
-        for (uint256 i; i < _seedHotkeys.length; ++i) {
-            _remember(_seedHotkeys[i]);
-        }
-    }
-
-    function _remember(bytes32 hotkey) internal {
-        if (touched[hotkey]) return;
-        touched[hotkey] = true;
-        touchedHotkeys.push(hotkey);
-    }
-
-    function knownHotkeys() external view returns (bytes32[] memory) {
-        return touchedHotkeys;
-    }
-
-    function _actor(uint256 seed) private view returns (address) {
-        return actors[bound(seed, 0, actors.length - 1)];
-    }
-
-    function _attested(uint256 seed) private view returns (bytes32) {
-        bytes32[] memory set = harness.attestedSet();
-        return set[bound(seed, 0, set.length - 1)];
-    }
-
-    function wrap(uint256 actorSeed, uint256 amount, uint256 hotkeySeed) external {
-        // Alpha in RAO: a TAO exit narrows slot balances to the chain's 64-bit stake amounts.
-        if (harness.wrapFor(_actor(actorSeed), bound(amount, 1e9, 200e9), _attested(hotkeySeed))) ++wraps;
-    }
-
-    function unwrap(uint256 actorSeed, uint256 shareSeed) external {
-        address actor = _actor(actorSeed);
-        uint256 balance = vault.balanceOf(actor, tokenId);
-        if (balance == 0) return;
-        vm.prank(actor);
-        try vault.unwrap(tokenId, bound(shareSeed, 1, balance), keccak256(abi.encode(actor)), 0) {
-            ++alphaExits;
-        } catch { }
-    }
-
-    function unwrapForTao(uint256 actorSeed, uint256 shareSeed) external {
-        address actor = _actor(actorSeed);
-        uint256 balance = vault.balanceOf(actor, tokenId);
-        if (balance == 0) return;
-        vm.prank(actor);
-        try vault.unwrapForTao(tokenId, bound(shareSeed, 1, balance), 0) {
-            ++taoExits;
-        } catch { }
-    }
-
-    function rebalance() external {
-        try vault.rebalance(netuid) { } catch { }
-    }
-
-    function syncBacking() external {
-        (uint256 shortSinceBefore,) = vault.recovery(tokenId);
-        try vault.syncBacking(tokenId) {
-            (uint256 shortSinceAfter,) = vault.recovery(tokenId);
-            if (shortSinceBefore != 0 && shortSinceAfter == 0) ++recoveriesClosed;
-        } catch { }
-    }
+    ) BackingCampaignHandler(_vault, _harness, _tokenId, _netuid, _actors, _seedHotkeys) { }
 
     function swapHotkey(uint256 fromSeed, uint256 toSeed) external {
         bytes32 from = touchedHotkeys[bound(fromSeed, 0, touchedHotkeys.length - 1)];
         bytes32 to = keccak256(abi.encode("swapped", toSeed));
         if (from == to) return;
         _remember(to);
-        harness.simulateSwap(from, to);
+        _backing().simulateSwap(from, to);
     }
 
     function swapWithoutAnEdge(uint256 fromSeed, uint256 toSeed) external {
@@ -113,7 +32,7 @@ contract BackingHandler is Test {
         bytes32 to = keccak256(abi.encode("stray", toSeed));
         if (from == to) return;
         _remember(to);
-        harness.simulateSilentMove(from, to);
+        _backing().simulateSilentMove(from, to);
     }
 
     function sourceFor(uint256 sourceSeed) public view returns (bytes32) {
@@ -126,7 +45,7 @@ contract BackingHandler is Test {
     }
 
     function recoverHeldStray(uint256 sourceSeed) external {
-        bytes32[] memory held = harness.touchedKeysHoldingStake(touchedHotkeys);
+        bytes32[] memory held = _backing().touchedKeysHoldingStake(touchedHotkeys);
         if (held.length == 0) return;
         _recover(held[bound(sourceSeed, 0, held.length - 1)]);
     }
@@ -140,7 +59,7 @@ contract BackingHandler is Test {
             (uint256 since,) = vault.recovery(tokenId);
             if (since == 0) {
                 ++strayAnnexations;
-                bool[] memory covered = harness.coveredSlots();
+                bool[] memory covered = _backing().coveredSlots();
                 for (uint256 i; i < covered.length; ++i) {
                     assertTrue(covered[i], "annexation left a slot short");
                 }
@@ -151,7 +70,7 @@ contract BackingHandler is Test {
             assertEq(vault.totalSupply(tokenId), supplyBefore, "recovery changed the supply");
             // The record is rewritten from live balances; those balances must still answer for what was owed.
             assertGe(
-                harness.trackedBacking() + harness.recoverySlack(slotsBefore),
+                harness.trackedBacking() + _backing().recoverySlack(slotsBefore),
                 owedBefore,
                 "recovery discarded part of the obligation"
             );
@@ -170,16 +89,15 @@ contract BackingHandler is Test {
         harness.attest(set);
     }
 
-    function passTime(uint256 seconds_) external {
-        vm.warp(block.timestamp + bound(seconds_, 1 minutes, 4 hours));
+    function _backing() private view returns (BackingInvariantTest) {
+        return BackingInvariantTest(address(harness));
     }
 }
 
 /// forge-config: default.invariant.fail-on-revert = true
 /// forge-config: ci.invariant.fail-on-revert = true
-contract BackingInvariantTest is AlphaVaultTestBase {
+contract BackingInvariantTest is BackingCampaignHarness {
     BackingHandler internal handler;
-    bytes32[] internal currentSet;
 
     function setUp() public override {
         super.setUp();
@@ -194,19 +112,12 @@ contract BackingInvariantTest is AlphaVaultTestBase {
         targetContract(address(handler));
     }
 
-    function attestedSet() external view returns (bytes32[] memory) {
-        return currentSet;
+    function _campaign() internal view override returns (BackingCampaignHandler) {
+        return handler;
     }
 
     function backingIntact() external view returns (bool) {
         return lens.isBackingIntact(TOKEN1);
-    }
-
-    function trackedBacking() public view returns (uint256 owed) {
-        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
-        for (uint256 i; i < slots.length; ++i) {
-            owed += slots[i].tracked;
-        }
     }
 
     function recoverySlack(uint256 slots) external pure returns (uint256) {
@@ -222,14 +133,6 @@ contract BackingInvariantTest is AlphaVaultTestBase {
             // Check the chain ledger directly; recovery must leave each persisted slot covered.
             covered[i] = held >= slots[i].tracked || slots[i].tracked - held <= BACKING_SLACK_RAO;
         }
-    }
-
-    function wrapFor(address user, uint256 amount, bytes32 hotkey) external returns (bool wrapped) {
-        _simulateAlphaDepositHotkey(user, NETUID1, amount, hotkey);
-        vm.prank(user);
-        try vault.wrap(NETUID1, hotkey, 0) {
-            wrapped = true;
-        } catch { }
     }
 
     function touchedKeysHoldingStake(bytes32[] memory keys) external view returns (bytes32[] memory held) {
@@ -249,21 +152,6 @@ contract BackingInvariantTest is AlphaVaultTestBase {
 
     function simulateSilentMove(bytes32 from, bytes32 to) external {
         _simulateOffVaultSwap(NETUID1, from, to);
-    }
-
-    function attest(bytes32[] memory set) external {
-        uint16[] memory weights = new uint16[](set.length);
-        uint16 assigned;
-        for (uint256 i; i + 1 < set.length; ++i) {
-            weights[i] = uint16(BPS_BASE / set.length);
-            assigned += weights[i];
-        }
-        weights[set.length - 1] = BPS_BASE - assigned;
-        for (uint256 i; i < set.length; ++i) {
-            _simulateHotkeyOwnerPresent(set[i]);
-        }
-        _setValidators(NETUID1, set, weights);
-        currentSet = set;
     }
 
     function test_ReplayMergedStrayRecovery_PreservesBackingInvariants() public {
@@ -290,7 +178,7 @@ contract BackingInvariantTest is AlphaVaultTestBase {
         handler.syncBacking();
         handler.recoverStray(115792089237316195423570985008687907853269984665640564039457584007913129639935);
 
-        _assertAllInvariants();
+        _assertSharedInvariants();
     }
 
     function test_HandlerReachesEverySuccessPath() public {
@@ -327,7 +215,7 @@ contract BackingInvariantTest is AlphaVaultTestBase {
         handler.syncBacking();
         assertEq(handler.recoveriesClosed(), 2, "full collection closes the recovery");
         assertEq(trackedBacking(), owed, "the position is whole again");
-        _assertAllInvariants();
+        _assertSharedInvariants();
     }
 
     function _seedSelectingLastTouched() private view returns (uint256 seed) {
@@ -340,38 +228,5 @@ contract BackingInvariantTest is AlphaVaultTestBase {
     /// @dev A parked position rests until an attestation newer than the parking one arrives.
     function _advanceRegistryNonce() private {
         this.attest(currentSet);
-    }
-
-    function _assertAllInvariants() private view {
-        invariant_TotalTrackedBackingIsBoundedByCurrentChainHoldings();
-        invariant_NoTwoSlotsAnswerForOneKey();
-        invariant_ReportedBackingNeverExceedsWhatTheChainHolds();
-    }
-
-    function invariant_NoTwoSlotsAnswerForOneKey() public view {
-        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
-        for (uint256 i; i < slots.length; ++i) {
-            for (uint256 j = i + 1; j < slots.length; ++j) {
-                assertTrue(slots[i].active != slots[j].active, "two slots answer for one key");
-            }
-        }
-    }
-
-    function invariant_ReportedBackingNeverExceedsWhatTheChainHolds() public view {
-        assertLe(lens.locatedStake(TOKEN1), _chainHoldings(), "the position reports backing the chain does not hold");
-    }
-
-    function invariant_TotalTrackedBackingIsBoundedByCurrentChainHoldings() public view {
-        uint256 slots = vault.recordedSlots(TOKEN1).length;
-        assertLe(trackedBacking(), _chainHoldings() + BACKING_SLACK_RAO * slots, "the record expects more than exists");
-    }
-
-    /// @dev Every key the campaign touched plus the parking hotkey, where recoveries and write-offs land.
-    function _chainHoldings() private view returns (uint256 held) {
-        bytes32[] memory keys = handler.knownHotkeys();
-        for (uint256 i; i < keys.length; ++i) {
-            held += _getVaultStake(keys[i], NETUID1);
-        }
-        held += _parkedStake(NETUID1);
     }
 }
