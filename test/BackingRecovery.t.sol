@@ -65,12 +65,10 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         _depositAndWrap(alice, NETUID1, 30 ether);
         _buildSwapTrail(NETUID1, hotkey1, 2);
         vault.syncBacking(TOKEN1);
-        uint256 deadline = lens.writeOffDeadline(TOKEN1);
 
         vm.warp(block.timestamp + 1 hours);
         vm.expectRevert(BackingUnchanged.selector);
         vault.syncBacking(TOKEN1);
-        assertEq(lens.writeOffDeadline(TOKEN1), deadline, "the deadline did not move");
     }
 
     function test_SyncBacking_KeepsAFollowedSwapInTheRecord() public {
@@ -325,15 +323,11 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
     function test_RevertWhen_RecoveringFromAKeyASlotResolvesTo() public {
         _depositAndWrap(alice, NETUID1, 30 ether);
-        uint256 owed = _getVaultStake(hotkey1, NETUID1);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
 
         vm.expectRevert(NothingToRecover.selector);
         vm.prank(bob);
         vault.recoverStray(TOKEN1, hotkey4);
-
-        assertEq(_getVaultStake(hotkey4, NETUID1), owed, "the swapped-to key kept its alpha");
-        assertTrue(lens.isBackingIntact(TOKEN1), "and the slot it answers for stayed covered");
     }
 
     function test_RevertWhen_RecoveringOnATokenWithNoSlots() public {

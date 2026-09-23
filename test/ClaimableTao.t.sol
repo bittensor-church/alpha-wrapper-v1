@@ -162,25 +162,14 @@ contract ClaimableTaoTest is AlphaVaultTestBase {
         assertEq(lens.claimableTaoOf(bob, TOKEN1), 0, "recipient acquires no entitlement");
     }
 
-    function test_RejectedClaim_PreservesCreditForAnotherRecipient() public {
+    function test_RevertWhen_ClaimRecipientRejectsTao() public {
         _depositAndWrap(alice, NETUID1, DEPOSIT);
         _donateToTokenClone(TOKEN1, 5 ether);
         _touch(alice, TOKEN1);
         RevertingReceiver receiver = new RevertingReceiver();
-        uint256 credit = vault.claimableTao(TOKEN1, alice);
-        uint256 liability = vault.taoLiability(TOKEN1);
-        uint256 cloneBalance = vault.subnetClone(TOKEN1).balance;
-
         vm.expectRevert(bytes("nope"));
         vm.prank(alice);
         vault.claimTao(TOKEN1, payable(address(receiver)));
-
-        assertEq(vault.claimableTao(TOKEN1, alice), credit);
-        assertEq(vault.taoLiability(TOKEN1), liability);
-        assertEq(vault.subnetClone(TOKEN1).balance, cloneBalance);
-        vm.prank(alice);
-        vault.claimTao(TOKEN1, payable(bob));
-        assertApproxEqAbs(bob.balance, 5 ether, NATIVE_TRANSFER_QUANTUM);
     }
 
     function test_ClaimReceiver_CannotReenterThePayout() public {

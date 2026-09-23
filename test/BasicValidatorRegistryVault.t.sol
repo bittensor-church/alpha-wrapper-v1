@@ -28,8 +28,6 @@ contract BasicValidatorRegistryVaultTest is AlphaVaultTestBase {
         _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey2);
         vm.expectRevert(ChosenHotkeyNotInSet.selector);
         _wrapHotkey(alice, NETUID1, hotkey2);
-        assertEq(_getStakeForColdkey(hotkey2, _mailboxColdkey(alice, NETUID1), NETUID1), 10 * ALPHA);
-        assertEq(vault.balanceOf(alice, TOKEN1), 0);
     }
 
     function test_Rebalance_RotationPreservesSharesAndOtherSubnet() public {

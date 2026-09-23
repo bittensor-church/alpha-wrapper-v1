@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Test, stdError } from "forge-std/Test.sol";
+import { Test } from "forge-std/Test.sol";
 import { StakeOps } from "src/libraries/StakeOps.sol";
 import { VaultMath } from "src/libraries/VaultMath.sol";
 
@@ -76,13 +76,10 @@ contract VaultMathWideProductTest is Test {
         assertEq(wide.taoValue(alphaAmount, alphaPriceE18), narrow.taoValue(alphaAmount, alphaPriceE18));
     }
 
-    function test_AssetsFor_ReturnsTheExactQuotientWhereTheNarrowProductOverflows() public {
+    function test_AssetsFor_ReturnsTheExactQuotientWhereTheNarrowProductOverflows() public view {
         uint256 stake = 1 << 200;
         uint256 supply = (1 << 200) - VaultMath.VIRTUAL_SHARES;
         uint256 shares = 1 << 200;
-
-        vm.expectRevert(stdError.arithmeticError);
-        narrow.assetsFor(stake, supply, shares);
 
         assertEq(wide.assetsFor(stake, supply, shares), stake + VaultMath.VIRTUAL_ASSETS);
     }

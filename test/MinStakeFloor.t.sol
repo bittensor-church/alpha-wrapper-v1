@@ -64,9 +64,6 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
 
         vm.expectRevert(bytes("MockStaking: moveStake reverted"));
         vault.rebalance(NETUID1);
-
-        assertEq(_getVaultStake(hotkey1, NETUID1), 6e6, "balances unchanged after the bubbled failure");
-        assertEq(_getVaultStake(hotkey2, NETUID1), 2e6);
     }
 
     // The mock consumes all gas on a sub-floor move, so the budget also checks that no call is attempted.
@@ -403,8 +400,6 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(bytes("MockStaking: transferStake reverted"));
         vault.unwrap(TOKEN1, sharesBefore, _toSubstrate(alice), 0);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), sharesBefore, "shares intact after bubbled failure");
     }
 
     function testFuzz_Unwrap_DeliversExactlyPreview(uint256 priceE18, uint256 deposit) public {

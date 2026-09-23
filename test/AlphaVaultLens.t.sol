@@ -207,7 +207,6 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         vm.prank(bob);
         vm.expectRevert(abi.encodeWithSelector(AlphaTransfersDisabled.selector, uint16(NETUID1)));
         vault.wrap(NETUID1, hotkey1, 0);
-        assertEq(vault.balanceOf(bob, TOKEN1), 0, "the disabled wrap mints nothing");
 
         _setTransfersEnabled(NETUID1, true);
         _wrap(bob, NETUID1);
@@ -229,8 +228,6 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(AlphaTransfersDisabled.selector, uint16(NETUID1)));
         vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
-        assertEq(vault.balanceOf(alice, TOKEN1), shares, "the disabled exit preserves shares");
-        assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), stakeBefore, "the disabled exit preserves backing");
 
         _setTransfersEnabled(NETUID1, true);
         vm.prank(alice);

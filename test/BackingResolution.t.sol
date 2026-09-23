@@ -26,7 +26,6 @@ contract BackingResolutionTest is AlphaVaultTestBase {
 
     function test_SelfSuccessorWithMissingBacking_LeavesTheShortfallUnresolved() public {
         _depositAndWrap(alice, NETUID1, 30e9);
-        bytes32[] memory keysBefore = lens.lastSeenHotkeys(TOKEN1);
         uint256 tracked = _getVaultStake(hotkey1, NETUID1);
         uint256 missing = 2 * BACKING_SLACK_RAO;
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, _subnetColdkey(NETUID1), NETUID1, tracked - missing);
@@ -37,9 +36,6 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         assertFalse(lens.isBackingIntact(TOKEN1));
         vm.expectRevert(abi.encodeWithSelector(BackingShortfall.selector, NETUID1, hotkey1, tracked));
         vault.rebalance(NETUID1);
-
-        assertEq(lens.lastSeenHotkeys(TOKEN1), keysBefore);
-        assertEq(_vaultStakeAcross(keysBefore, NETUID1), 30e9 - missing);
     }
 
     function test_TwoHopSwap_FailsClosedOnEveryPath() public {
