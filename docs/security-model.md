@@ -12,12 +12,11 @@ sets through `IValidatorRegistry`.
 The registry owner cannot directly withdraw backing, mint/burn users' shares,
 access their mailboxes or change vault code.
 
-A Basic owner can rotate its key while it still has access, or nominate a successor
-who can later accept independently. If the owner key is lost with no accessible
-pending successor, registry updates are permanently unavailable. Any position that
-parks cannot be released: deposits and rebalance remain blocked, while parked exits
-remain available. Changing the owner alone does not advance registry nonces; the
-new owner must publish a validator update to release recovered parking.
+If the `BasicValidatorRegistry` owner loses access without an accessible pending
+successor, registry updates stop permanently. Parked positions cannot be released:
+deposits and rebalancing remain blocked, though exits remain available. An
+ownership transfer alone does not advance registry nonces; the new owner must
+publish a validator update to release parking.
 
 Registry choices affect emissions and transaction availability. The TAO exit
 ignores registry weights, but cannot bypass source ownership, missing backing,
@@ -37,9 +36,8 @@ Holders rely on:
   runtime storage; an unsupported runtime cannot prepare clones.
 - Registry governance and validator performance.
 - A funded, responsive watcher to repair unresolved swaps and park backing, and
-  a registry authority that publishes a new set to release a parked position
-  (the Basic owner here). Watcher calls are permissionless; publishing
-  requires that registry's authorization. Neither has an on-chain completion guarantee.
+  an authorized registry update to release a parked position. Watcher calls are
+  permissionless; registry updates require authorization. Neither is guaranteed on-chain.
 - Trusted vault/lens builds and addresses. The lens's `vault()` checks pairing,
   not authenticity.
 
@@ -134,8 +132,9 @@ For hidden principal `H` with no growth, the original holders' aggregate loss
 from this ordering is bounded by `H`: it reallocates the late recovery, rather
 than also extracting another `H` from located backing. Emissions or surplus on
 the hidden key can make the later windfall exceed the `BackingWrittenOff` amount.
-Deposits stay shut between the write-off and the next registry update, so the
-Basic owner decides when step 3 becomes possible.
+After write-off, deposits stay shut while shares remain until the registry is
+updated. A full exit to zero supply also clears parking and reopens deposits;
+no shares remain to dilute.
 
 This is accepted policy and a reason to park before write-off. Afterward,
 neither `recoverStray` nor a new registry update reconstructs the old holders' claims.
@@ -154,8 +153,10 @@ them; accrued TAO survives either way.
 - A mailbox deposit moved by a swap needs manual reclaim and redeposit if its
   actual key is no longer listed in the registry.
 - A parked position earns no emissions until the registry authority publishes a new set.
-  Any validator in the set can force a parking event by renaming its key and
-  cutting the trail.
+  A validator can swap and re-register its old key to cut a successor edge the
+  vault still needs. After an all-subnet swap, anyone paying the burn can register
+  that ownerless key on the affected token's subnet if registration is open; see the
+  [watcher runbook](hotkey-swaps.md#watcher-runbook).
 - Clone protection relies on the chain refusing coldkey swaps into existing
   hotkeys and rejecting locked-alpha transfers by default. A public UID can be
   front-run into a retry; a poisoned candidate never becomes backing.

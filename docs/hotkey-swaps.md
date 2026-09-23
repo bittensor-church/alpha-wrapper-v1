@@ -1,7 +1,7 @@
 # Hotkey swaps and recovery
 
-The vault supports weighted `IValidatorRegistry` implementations. Here, registry
-updates come from the Basic owner and select one target.
+The vault supports weighted `IValidatorRegistry` implementations. Here, the
+`BasicValidatorRegistry` owner updates one target.
 
 The design uses automatic one-hop swap handling plus an external watcher.
 Temporary wrap/exit failures while the watcher repairs chain state are accepted.
@@ -102,7 +102,8 @@ any shortfall or recovery clock.
 
 1. Monitor current registry entries, recorded/resolved stake keys, backing
    status and `awaitingAttestation`. Include empty entries and newly attested
-   keys with no recorded slot.
+   keys with no recorded slot. If the vault resolves a successor after a swap,
+   call `syncBacking(tokenId)` before the old key is re-registered to record it.
 2. For missing backing, call `syncBacking(tokenId)`. It secures all located
    backing on `parkingHotkey` before starting one fixed recovery window, except
    below-floor piles. Other collection failures revert without changing the clock
@@ -149,10 +150,12 @@ On a live subnet, a shortfall blocks wraps, rebalances, both exits and value
 quotes until the position parks or the loss is written off. Share transfers,
 claimable TAO and mailbox recovery do not depend on that backing check.
 
-A parked position pays exits but takes no deposits and earns nothing until the
-registry governance publishes again. Any validator in the set can force a parking event by
-renaming its key and cutting the trail; the cost to holders is emissions until
-the next attestation lands.
+A parked position pays exits but takes no deposits and earns no emissions until
+a newer registry attestation arrives. A validator can swap and re-register its
+old key to cut a successor edge the vault still needs. After an all-subnet
+swap, anyone paying the burn can register that ownerless key on the affected token's
+subnet if registration is open. If backing goes short, call `syncBacking(tokenId)`, then
+`recoverStray(tokenId, successor)`, then `syncBacking(tokenId)` before write-off.
 
 A revert preserves shares and stake, but costs gas. A finalized write-off really
 reduces holders' accounted backing; alpha recovered later belongs to holders at

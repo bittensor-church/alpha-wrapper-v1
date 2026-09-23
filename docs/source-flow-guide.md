@@ -67,8 +67,9 @@ cleanup, then old shares redeem the clone's unreserved TAO.
   remainder -> update records. Check the recipient's actual credit against the
   minimum. A parked exit uses its recorded locations and skips weight alignment.
 - **`unwrapForTao`:** check backing -> budget alpha and burn shares -> sell whole
-  slots before partials -> measure proceeds and remaining alpha -> pay TAO ->
-  refund eligible unsold alpha as shares. This path does not apply registry weights.
+  slots before partials -> measure proceeds and remaining alpha -> refund eligible
+  unsold alpha as shares with proceeds reserved -> pay TAO. This path does not
+  apply registry weights.
 - **Dissolved `unwrap`:** exclude reserved TAO claims -> calculate a proportional
   refund -> burn shares -> pay native TAO. The caller must pass zero for `minAlphaOut`.
 
