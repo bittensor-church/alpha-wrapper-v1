@@ -295,33 +295,56 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1), "with the record accounting for what is left");
     }
 
-    function test_ReusedAttestedNameAndRetiredRecordedKey_WaitsForReattestation() public {
-        _positionWithADrainedSwap(); // The first validator moved to hotkey4; its slot is now empty.
+    function test_ReusedAttestedNameWithARetiredRecordedKey_StakesTheShareAtTheSuccessor() public {
+        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
         uint256 shares = vault.balanceOf(alice, TOKEN1);
-        _simulateFollowedSwap(NETUID1, hotkey4, hotkey5); // Its recorded key retires without a vault write.
-        _simulateFollowedSwap(NETUID1, hotkey2, hotkey1); // The second validator takes the old name.
-        assertTrue(lens.isBackingIntact(TOKEN1), "the outage is not a backing shortfall");
 
-        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
         vault.rebalance(NETUID1);
-        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
+
+        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey5, "the slot answers under the successor");
+        assertGt(_getVaultStake(hotkey5, NETUID1), 0, "which is where its share went");
+        assertEq(_getVaultStake(hotkey4, NETUID1), 0, "and nothing was aimed at the retired key");
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
         _simulateAlphaDepositHotkey(bob, NETUID1, 6 ether, hotkey3);
-        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
         _wrapHotkey(bob, NETUID1, hotkey3);
+        assertGt(vault.balanceOf(bob, TOKEN1), 0, "deposits continue without a new attestation");
+        assertTrue(lens.isBackingIntact(TOKEN1), "with the record accounting for the backing once");
+    }
 
-        vm.prank(alice);
-        vault.unwrapForTao(TOKEN1, shares / 4, 0);
-        assertEq(vault.balanceOf(alice, TOKEN1), shares - shares / 4, "the TAO exit stays open");
+    function test_ReusedAttestedNameUnderOneColdkey_StakesTheShareAtTheSuccessor() public {
+        _attestBothValidatorsUnderOneColdkey();
+        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
 
-        _setValidators(
-            NETUID1, _hotkeys(hotkey5, hotkey1, hotkey3), _weights(NETUID1_BPS_HK1, NETUID1_BPS_HK2, NETUID1_BPS_HK3)
-        );
         vault.rebalance(NETUID1);
-        _wrapHotkey(bob, NETUID1, hotkey3);
-        assertGt(vault.balanceOf(bob, TOKEN1), 0, "the pending deposit succeeds after attestation");
-        assertTrue(lens.isBackingIntact(TOKEN1), "the new set accounts for the backing once");
+
+        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
+        assertEq(slots[0].active, hotkey5, "the emptied slot answers under the successor");
+        assertEq(slots[1].active, hotkey1, "the reused name stays with the slot that holds it");
+        assertTrue(lens.isBackingIntact(TOKEN1), "and the backing is counted once");
+    }
+
+    function test_ReusedAttestedNameUnderOneColdkey_NeverCountsTheNameTwice() public {
+        _attestBothValidatorsUnderOneColdkey();
+        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+        MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey5, true);
+
+        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
+        vault.rebalance(NETUID1);
+    }
+
+    function _attestBothValidatorsUnderOneColdkey() private {
+        MockStaking staking = MockStaking(STAKING_PRECOMPILE);
+        staking.setHotkeyOwner(hotkey2, staking.ownerOf(hotkey1));
+        _setValidators(
+            NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(NETUID1_BPS_HK1, NETUID1_BPS_HK2, NETUID1_BPS_HK3)
+        );
+    }
+
+    function _reuseTheDrainedNameAfterItsRecordedKeyRetires() private {
+        _positionWithADrainedSwap();
+        _simulateFollowedSwap(NETUID1, hotkey4, hotkey5);
+        _simulateFollowedSwap(NETUID1, hotkey2, hotkey1);
     }
 
     function test_FullUnwrapBesideARetiredEntry_PaysFromTheHeldKeys() public {

@@ -110,8 +110,7 @@ library VaultAllocation {
     }
 
     /// @dev Keep funded slots on resolved keys; empty slots need a receiving key owned by the coldkey
-    ///      that held the attested name. Keys remain exclusive even for empty slots. A reused attested
-    ///      name requires a new attestation if its empty slot's recorded key has also retired.
+    ///      that held the attested name. Keys remain exclusive even for empty slots.
     ///      Flat arrays cross this boundary: each struct argument would add its own ABI encoder to the
     ///      vault, which has no bytecode to spare. `logicals`, `keys` and `balances` are one record per
     ///      slot; `currentSet` and `owners` are one entry per attested name.
@@ -125,13 +124,10 @@ library VaultAllocation {
             bytes32 key; bool live;
             if (ownSlot != VaultMath.INDEX_NOT_FOUND && balances[ownSlot] != 0) {
                 key = keys[ownSlot]; live = VaultReads.ownedBy(key, owner);
-            } else if (_keyHeldElsewhere(keys, logicals, currentSet, name, ownSlot)) {
-                // Another attested slot holds this name. Use only the recorded key; a further
-                // successor needs a fresh attestation before it can receive this slot's stake.
-                if (ownSlot == VaultMath.INDEX_NOT_FOUND) revert IAlphaVaultAbi.SwappedHotkeyStillAttested();
-                key = keys[ownSlot]; live = VaultReads.ownedBy(key, owner);
             } else {
-                (key, live) = _receivingKey(keys, logicals, currentSet, name, owner, ownSlot, netuid);
+                bool nameReserved = _keyHeldElsewhere(keys, logicals, currentSet, name, ownSlot);
+                if (nameReserved && ownSlot == VaultMath.INDEX_NOT_FOUND) revert IAlphaVaultAbi.SwappedHotkeyStillAttested();
+                (key, live) = _receivingKey(keys, logicals, currentSet, name, owner, ownSlot, netuid, nameReserved);
                 if (key != name && VaultMath.contains(actives, key)) { revert IAlphaVaultAbi.SwappedHotkeyStillAttested(); }
             }
             actives[i] = key;
@@ -179,12 +175,13 @@ library VaultAllocation {
     }
 
     /// @dev Prefer the attested name, then the recorded active key, then its one-hop successor, each
-    ///      only under the attested owner. Resume from the record: the name's edge may predate swaps
-    ///      already followed.
+    ///      only under the attested owner. A name another attested slot resolves to is skipped, so one
+    ///      key is never counted for two slots. Resume from the record: the name's edge may predate
+    ///      swaps already followed.
     function _receivingKey(bytes32[] memory keys, bytes32[] memory logicals, bytes32[] memory currentSet,
-        bytes32 name, bytes32 owner, uint256 ownSlot,
-        uint16 netuid) private view returns (bytes32 key, bool live) {
-        if (VaultReads.ownedBy(name, owner)) return (name, true);
+        bytes32 name, bytes32 owner, uint256 ownSlot, uint16 netuid,
+        bool nameReserved) private view returns (bytes32 key, bool live) {
+        if (!nameReserved && VaultReads.ownedBy(name, owner)) return (name, true);
 
         key = ownSlot == VaultMath.INDEX_NOT_FOUND ? name : keys[ownSlot];
         live = key != name && VaultReads.ownedBy(key, owner);

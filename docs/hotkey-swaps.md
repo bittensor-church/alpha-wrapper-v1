@@ -1,7 +1,7 @@
 # Hotkey swaps and recovery
 
-The vault supports weighted `IValidatorRegistry` implementations. Here, the
-`BasicValidatorRegistry` owner updates one target.
+The vault supports weighted `IValidatorRegistry` implementations. Here, registry
+updates come from the Basic owner and select one target.
 
 The design uses automatic one-hop swap handling plus an external watcher.
 Temporary wrap/exit failures while the watcher repairs chain state are accepted.
@@ -30,10 +30,7 @@ Suppose the registry names A and the vault holds 100 alpha there:
 
 For an empty slot the vault prefers the attested name, then the recorded key,
 then that key's one-hop successor, each only while the attested owner holds it,
-subject to collision checks. One exception: when another attested slot already
-holds the name, the vault stops at the recorded key and does not look for its
-successor. Once that recorded key retires, the slot waits for the registry owner
-to publish the current keys. Funded slots stay at their resolved location.
+subject to collision checks. Funded slots stay at their resolved location.
 
 ## Automatic handling has limits
 
@@ -51,10 +48,11 @@ different operation and does not re-register the key.
 ## Who a name answers to
 
 The registry records the coldkey that owned each hotkey when it was attested. A
-receiving key must have that owner. A validator's own rename keeps its coldkey,
-so its successor qualifies, except in the reused-name case above. A name held by
-any other owner reports `AttestedHotkeyRetired` and receives nothing; the
-registry owner retires it by replacing the target.
+receiving key is usable only under that coldkey: the attested name itself, the
+recorded active key, or its one-hop successor, whichever the attested owner
+holds. A validator's own rename keeps its coldkey, so its successor qualifies. A
+vacated name claimed by anyone else reports `AttestedHotkeyRetired` and receives
+nothing; the registry owner retires it by replacing the target.
 
 The chain refuses to move stake through a hotkey with no owner record. When the
 vault has to move stake off such a key, it claims the key for its own coldkey
@@ -104,8 +102,7 @@ any shortfall or recovery clock.
 
 1. Monitor current registry entries, recorded/resolved stake keys, backing
    status and `awaitingAttestation`. Include empty entries and newly attested
-   keys with no recorded slot. If the vault resolves a successor after a swap,
-   call `syncBacking(tokenId)` before the old key is re-registered to record it.
+   keys with no recorded slot.
 2. For missing backing, call `syncBacking(tokenId)`. It secures all located
    backing on `parkingHotkey` before starting one fixed recovery window, except
    below-floor piles. Other collection failures revert without changing the clock
@@ -152,12 +149,10 @@ On a live subnet, a shortfall blocks wraps, rebalances, both exits and value
 quotes until the position parks or the loss is written off. Share transfers,
 claimable TAO and mailbox recovery do not depend on that backing check.
 
-A parked position pays exits but takes no deposits and earns no emissions until
-a newer registry attestation arrives. A validator can swap and re-register its
-old key to cut a successor edge the vault still needs. After an all-subnet
-swap, anyone paying the burn can register that ownerless key on the affected token's
-subnet if registration is open. If backing goes short, call `syncBacking(tokenId)`, then
-`recoverStray(tokenId, successor)`, then `syncBacking(tokenId)` before write-off.
+A parked position pays exits but takes no deposits and earns nothing until the
+registry governance publishes again. Any validator in the set can force a parking event by
+renaming its key and cutting the trail; the cost to holders is emissions until
+the next attestation lands.
 
 A revert preserves shares and stake, but costs gas. A finalized write-off really
 reduces holders' accounted backing; alpha recovered later belongs to holders at
