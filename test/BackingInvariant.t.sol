@@ -268,66 +268,95 @@ contract BackingInvariantTest is AlphaVaultTestBase {
 
     function test_ReplayMergedStrayRecovery_PreservesBackingInvariants() public {
         handler.swapWithoutAnEdge(3920, 702498195375104724870804370661893358612984996200603330987954554);
+        _assertAllInvariants();
         handler.swapWithoutAnEdge(21936, 9555);
+        _assertAllInvariants();
         handler.swapWithoutAnEdge(0, 46484125467125653278869020054723548665048815226470);
+        _assertAllInvariants();
         handler.syncBacking();
+        _assertAllInvariants();
         handler.recoverStray(361656362808158655897425226168322);
+        _assertAllInvariants();
         handler.swapHotkey(395928111782571441, 47594521996258548997527314557814977391483923631630328760470);
+        _assertAllInvariants();
         handler.swapWithoutAnEdge(115792089237316195423570985008687907853269984665640564039457584007913129639932, 2);
+        _assertAllInvariants();
         handler.syncBacking();
+        _assertAllInvariants();
         handler.recoverStray(496832458824593621465406068473474564241632359248770171723107483670860501638);
+        _assertAllInvariants();
         handler.swapHotkey(1000000000000000000, 518);
+        _assertAllInvariants();
         handler.swapHotkey(39284778829218561959962831765498513039391595077, 1);
+        _assertAllInvariants();
         handler.swapHotkey(4668825657844413095552775974875155388807116336350818157329463057335574, 863968505977431908);
+        _assertAllInvariants();
         handler.rotateValidators(25670646866713597079810818809857953515987733532491365243132352747204520724);
+        _assertAllInvariants();
         handler.wrap(4982, 2038218518, 126689249586524825498559537986693588869175255532239560737778380983908754);
+        _assertAllInvariants();
         handler.swapHotkey(
             5022836071830231965563198741131435959745735624404810078992442116285814296610,
             10708288936997174409238467093412100671917613552582
         );
+        _assertAllInvariants();
         handler.swapWithoutAnEdge(2720838758, 2641);
+        _assertAllInvariants();
         handler.swapWithoutAnEdge(2151, 2641);
+        _assertAllInvariants();
         handler.syncBacking();
+        _assertAllInvariants();
         handler.recoverStray(115792089237316195423570985008687907853269984665640564039457584007913129639935);
-
         _assertAllInvariants();
     }
 
     function test_HandlerReachesEverySuccessPath() public {
         handler.wrap(1, 100e9, 0);
+        _assertAllInvariants();
         assertEq(handler.wraps(), 1, "the deposit wraps into shares");
         handler.unwrap(0, 1e18);
+        _assertAllInvariants();
         handler.unwrapForTao(0, 1e18);
+        _assertAllInvariants();
         assertEq(handler.alphaExits(), 1, "the alpha exit succeeds from a healthy position");
         assertEq(handler.taoExits(), 1, "the TAO exit succeeds from a healthy position");
         uint256 owed = trackedBacking();
 
         handler.swapWithoutAnEdge(0, 1);
+        assertGt(vault.recordedSlots(TOKEN1).length, 1, "check the multi-slot record before recovery");
+        _assertAllInvariants();
         handler.syncBacking();
+        _assertAllInvariants();
         vm.warp(lens.writeOffDeadline(TOKEN1));
         vm.expectEmit(true, false, false, false);
         emit IAlphaVaultAbi.BackingWrittenOff(TOKEN1, 0, 0);
         handler.syncBacking();
+        _assertAllInvariants();
         assertEq(handler.recoveriesClosed(), 1, "an expired shortfall is written off");
         assertLt(trackedBacking(), owed, "the write-off shrank the obligation");
         handler.recoverStray(_seedSelectingLastTouched());
+        _assertAllInvariants();
         assertEq(handler.strayAnnexations(), 1, "a stray found after write-off is annexed");
         assertEq(trackedBacking(), owed, "annexation restores the written-off obligation");
 
         _advanceRegistryNonce();
         handler.rebalance();
+        _assertAllInvariants();
         assertEq(_parkedStake(NETUID1), 0, "the rebalance spreads the parked backing again");
 
         handler.swapWithoutAnEdge(0, 1);
+        _assertAllInvariants();
         handler.syncBacking();
+        _assertAllInvariants();
         handler.recoverHeldStray(0);
+        _assertAllInvariants();
         assertEq(handler.strayCollections(), 1, "a stray under an open shortfall is collected");
         vm.expectEmit(true, false, false, true);
         emit IAlphaVaultAbi.BackingShortfallCleared(TOKEN1);
         handler.syncBacking();
+        _assertAllInvariants();
         assertEq(handler.recoveriesClosed(), 2, "full collection closes the recovery");
         assertEq(trackedBacking(), owed, "the position is whole again");
-        _assertAllInvariants();
     }
 
     function _seedSelectingLastTouched() private view returns (uint256 seed) {
