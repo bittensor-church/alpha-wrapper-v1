@@ -133,7 +133,8 @@ from this ordering is bounded by `H`: it reallocates the late recovery, rather
 than also extracting another `H` from located backing. Emissions or surplus on
 the hidden key can make the later windfall exceed the `BackingWrittenOff` amount.
 After write-off, deposits stay shut while shares remain until the registry is
-updated. A full exit to zero supply also clears parking and reopens deposits.
+updated. A full exit to zero supply also clears parking and reopens deposits;
+no shares remain to dilute.
 
 This is accepted policy and a reason to park before write-off. Afterward,
 neither `recoverStray` nor a new registry update reconstructs the old holders' claims.
@@ -152,9 +153,10 @@ them; accrued TAO survives either way.
 - A mailbox deposit moved by a swap needs manual reclaim and redeposit if its
   actual key is no longer listed in the registry.
 - A parked position earns no emissions until the registry authority publishes a new set.
-  Anyone can register an attested name made ownerless by an all-subnet swap,
-  if registration is open and they pay the burn. This can cut a successor edge
-  the vault still follows and force parking; see the [watcher runbook](hotkey-swaps.md#watcher-runbook).
+  A validator can swap and re-register its old key to cut a successor edge the
+  vault still needs. After an all-subnet swap, anyone paying the burn can register
+  that ownerless key on the affected token's subnet if registration is open; see the
+  [watcher runbook](hotkey-swaps.md#watcher-runbook).
 - Clone protection relies on the chain refusing coldkey swaps into existing
   hotkeys and rejecting locked-alpha transfers by default. A public UID can be
   front-run into a retry; a poisoned candidate never becomes backing.
