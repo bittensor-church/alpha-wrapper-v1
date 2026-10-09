@@ -57,6 +57,19 @@ def _submit(client, call, signer_uri: str = "//Alice") -> str:
     return result.block_hash
 
 
+# A stake transfer reserves a full StakingHotkeys walk (about 1e11 ref-time), so 16 calls stay
+# well inside the 3e12 normal-class extrinsic limit.
+BATCH_SIZE = 16
+
+
+def _submit_batches(calls: list, signer_uri: str, chain_endpoint: str) -> None:
+    """Submit `calls` as all-or-nothing batches of BATCH_SIZE."""
+    with _connect(chain_endpoint) as client:
+        for start in range(0, len(calls), BATCH_SIZE):
+            batch = [client.compose(call) for call in calls[start:start + BATCH_SIZE]]
+            _submit(client, _sdk().calls.Utility.batch_all(calls=batch), signer_uri=signer_uri)
+
+
 def _sudo(client, call):
     """Encode an administrative call for submission through Sudo."""
     return _sdk().calls.Sudo.sudo(call=client.compose(call))
@@ -76,6 +89,23 @@ def transfer_stake(
         ), signer_uri=signer_uri)
 
 
+def transfer_stakes(
+    dest_ss58: str, hotkey_ss58s: list, netuid: int, alpha_amount: int,
+    *, signer_uri: str, chain_endpoint: str = config.CHAIN_ENDPOINT,
+) -> None:
+    """`transfer_stake` of `alpha_amount` under each hotkey, batched."""
+    _submit_batches([
+        _sdk().calls.SubtensorModule.transfer_stake(
+            destination_coldkey=dest_ss58,
+            hotkey=hotkey_ss58,
+            origin_netuid=netuid,
+            destination_netuid=netuid,
+            alpha_amount=alpha_amount,
+        )
+        for hotkey_ss58 in hotkey_ss58s
+    ], signer_uri, chain_endpoint)
+
+
 def add_stake(
     hotkey_ss58: str, netuid: int, amount_rao: int,
     *, signer_uri: str = "//Alice", chain_endpoint: str = config.CHAIN_ENDPOINT,
@@ -84,6 +114,24 @@ def add_stake(
         return _submit(client, _sdk().calls.SubtensorModule.add_stake(
             hotkey=hotkey_ss58, netuid=netuid, amount_staked=amount_rao,
         ), signer_uri=signer_uri)
+
+
+def add_stakes(
+    hotkey_ss58s: list, netuid: int, amount_rao: int,
+    *, signer_uri: str, chain_endpoint: str = config.CHAIN_ENDPOINT,
+) -> None:
+    """`add_stake` of `amount_rao` under each hotkey, batched."""
+    _submit_batches([
+        _sdk().calls.SubtensorModule.add_stake(hotkey=hotkey_ss58, netuid=netuid, amount_staked=amount_rao)
+        for hotkey_ss58 in hotkey_ss58s
+    ], signer_uri, chain_endpoint)
+
+
+def staking_hotkeys(coldkey_ss58: str, *, chain_endpoint: str = config.CHAIN_ENDPOINT) -> list:
+    """The hotkeys a coldkey stakes under, as the chain lists them."""
+    with _connect(chain_endpoint) as client:
+        value = client.query(_sdk().storage.SubtensorModule.StakingHotkeys, [coldkey_ss58])
+    return list(value or [])
 
 
 def remove_stake(
@@ -436,6 +484,16 @@ def associate_hotkey(
         return _submit(client, _sdk().calls.SubtensorModule.try_associate_hotkey(
             hotkey=hotkey_ss58,
         ), signer_uri=signer_uri)
+
+
+def associate_hotkeys(
+    hotkey_ss58s: list, *, signer_uri: str, chain_endpoint: str = config.CHAIN_ENDPOINT,
+) -> None:
+    """`associate_hotkey` for each hotkey, batched."""
+    _submit_batches([
+        _sdk().calls.SubtensorModule.try_associate_hotkey(hotkey=hotkey_ss58)
+        for hotkey_ss58 in hotkey_ss58s
+    ], signer_uri, chain_endpoint)
 
 
 def hotkey_is_registered(

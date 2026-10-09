@@ -65,6 +65,8 @@ VALIDATORS_PER_SUBNET = len(HOTKEY_SUFFIXES)
 TRANSFER_AMOUNT_TAO = 100
 # Per-validator transfer amount in RAO (TRANSFER_AMOUNT_TAO split across the 3 validators).
 PER_HOTKEY_TRANSFER_RAO = TRANSFER_AMOUNT_TAO * RAO_PER_TAO // VALIDATORS_PER_SUBNET
+# DefaultMinTransfer: the TAO value (RAO) a stake transfer must carry. The chain exposes no getter.
+CHAIN_MIN_TRANSFER_RAO = 100_000
 
 # --- Foundry / subprocess flags ------------------------------------------------
 # A localnet command that stops answering hangs the whole run, so every subprocess

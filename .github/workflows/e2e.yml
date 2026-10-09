@@ -41,10 +41,14 @@ jobs:
           - tests/test_parked_recovery.py
           - tests/test_parking_isolation.py
           - tests/test_subnet_generation.py
+        include:
+          # Subtensor 5c6e83e2f.
+          - scenario: tests/test_stake_transfers.py
+            image: ghcr.io/raofoundation/subtensor-localnet:main@sha256:0a33d8537448611d9efe6fa910671b37ae6ecf68587ca7192f57e892d8f5df2b
 
     services:
       subtensor:
-        image: ghcr.io/raofoundation/subtensor-localnet:main@sha256:c3bd611f395fe31f72fde964d8e0b99a2c7221c5508eec7d61bbafaba0374dc5
+        image: ${{ matrix.image || 'ghcr.io/raofoundation/subtensor-localnet:main@sha256:c3bd611f395fe31f72fde964d8e0b99a2c7221c5508eec7d61bbafaba0374dc5' }}
         ports:
           - 9944:9944
           - 9945:9945
