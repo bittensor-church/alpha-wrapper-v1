@@ -85,7 +85,8 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         vm.etch(NEURON_PRECOMPILE, address(new MockNeuron()).code);
         MockSubnetPrecompile(SUBNET_PRECOMPILE).setRegisteredAt(uint16(NETUID1), 100);
         MockSubnetPrecompile(SUBNET_PRECOMPILE).setRegisteredAt(uint16(NETUID2), 200);
-        vm.deal(STAKING_PRECOMPILE, 1_000_000 ether);
+        // Sales mint TAO on chain; the whole TAO supply covers selling any subnet at any fuzzed price.
+        vm.deal(STAKING_PRECOMPILE, 21_000_000 * TAO);
         // Etching copies code, not constructor storage; seed chain thresholds explicitly.
         MockStaking(STAKING_PRECOMPILE).setChainMinStake(CHAIN_MIN_STAKE);
         MockStaking(STAKING_PRECOMPILE).setChainMinTransfer(CHAIN_MIN_TRANSFER);
