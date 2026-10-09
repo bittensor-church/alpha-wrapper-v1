@@ -106,8 +106,9 @@ contract AlphaAccountingHandler is Test {
         harness.setPrice(bound(priceSeed, 1e6, 2e8) * 1e9);
     }
 
+    /// @dev Emissions reward holders; a position nobody holds has no one to accrue to.
     function accrueEmissions(uint256 amount) external {
-        if (harness.chainBacking() == 0) return;
+        if (vault.totalSupply(tokenId) == 0) return;
         uint256 emission = bound(amount, 1, 300) * 1e9;
         harness.accrueEmissions(emission);
         emitted += emission;
