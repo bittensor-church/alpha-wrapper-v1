@@ -5,12 +5,11 @@ Stake and conviction can sit on different hotkeys; neither may be imported into
 accepted backing through a poisoned candidate. A fresh UID selects a clean candidate.
 """
 import secrets
-import time
 from dataclasses import replace
 
 import pytest
 
-from alpha_e2e import bootstrap, chain, config, extrinsics
+from alpha_e2e import bootstrap, chain, checks, config, exits, extrinsics
 from alpha_e2e.substrate import h160_to_account_id, h160_to_ss58, h160_to_substrate_b32
 
 SWAP_DELAY_BLOCKS = 5
@@ -26,12 +25,9 @@ def _uid() -> str:
 
 
 def _swap_into(signer_uri: str, destination: str) -> None:
-    started = chain.cast_block_number()
     extrinsics.announce_coldkey_swap(h160_to_account_id(destination), signer_uri=signer_uri)
-    deadline = time.time() + 300
-    while chain.cast_block_number() < started + SWAP_DELAY_BLOCKS + 2:
-        assert time.time() < deadline, "coldkey swap announcement did not mature"
-        time.sleep(1)
+    maturity_blocks = SWAP_DELAY_BLOCKS + 2
+    chain.wait_for_blocks(maturity_blocks, timeout=maturity_blocks * config.BLOCK_TIMEOUT_SECONDS)
     extrinsics.swap_coldkey_announced(h160_to_ss58(destination), signer_uri=signer_uri)
 
 
@@ -67,12 +63,10 @@ def test_locked_deposit(env, recovery_window):
     gift_hotkey = env.hotkey_pubkeys[-1]
     gift_hotkey_ss58 = env.hotkey_ss58s[-1]
     assert gift_hotkey != hotkey, "scenario needs a gift key outside the first subnet's attested set"
-    _, _, _, contracts, _ = bootstrap._deploy_contracts(
-        [netuid], env.subnet_hotkey_pubkeys(0), recovery_window=recovery_window
-    )
+    deployment = bootstrap.deploy_contracts([netuid], env.subnet_hotkey_pubkeys(0), recovery_window=recovery_window)
     env = replace(
-        env, vault_address=contracts.vault_address, lens_address=contracts.lens_address,
-        validator_registry_address=contracts.validator_registry_address,
+        env, vault_address=deployment.vault_address, lens_address=deployment.lens_address,
+        validator_registry_address=deployment.validator_registry_address,
     )
     factory = chain.cast_call(env.vault_address, "cloneFactory()(address)")
     extrinsics.set_coldkey_swap_announcement_delay(SWAP_DELAY_BLOCKS)
@@ -94,10 +88,8 @@ def test_locked_deposit(env, recovery_window):
         "CloneContaminated(address)", 2_000_000, "contaminated subnet candidate was accepted",
         "createMailbox(uint256,bytes32)", netuid, poisoned_uid,
     )
-    assert int(env.clone_address(token_id), 16) == 0
-    assert int(env.mailbox_address(netuid), 16) == 0
 
-    # A poisoned mailbox rolls back the shared clone created earlier in the same transaction.
+    # A poisoned mailbox candidate is refused as well, though its clone candidate is clean.
     mailbox_uid = _uid()
     _, poisoned_mailbox = _candidates(factory, token_id, netuid, mailbox_uid)
     _swap_into(MAILBOX_DONOR, poisoned_mailbox)
@@ -105,8 +97,6 @@ def test_locked_deposit(env, recovery_window):
         "CloneContaminated(address)", 2_000_000, "contaminated mailbox candidate was accepted",
         "createMailbox(uint256,bytes32)", netuid, mailbox_uid,
     )
-    assert int(env.clone_address(token_id), 16) == 0
-    assert int(env.mailbox_address(netuid), 16) == 0
 
     env.vault_send(
         2_000_000, "fresh UID did not prepare protected addresses", "createMailbox(uint256,bytes32)",
@@ -141,17 +131,19 @@ def test_locked_deposit(env, recovery_window):
             )
         assert "AccountRejectsLockedAlpha" in str(refused.value), str(refused.value)
 
-    env.deposit_and_wrap(netuid, hotkey, hotkey_ss58, 10 * 10**9, 1_500_000, "honest wrap failed")
-    shares = env.vault_shares(token_id)
-    assert shares > 0
-    assert env.vault_total_stake(token_id) >= 9 * 10**9
-    before = env.total_stake_across(env.wrapper_substrate_coldkey, netuid, env.subnet_hotkey_pubkeys(0))
-    env.vault_send(
-        2_500_000, "honest exit failed", "unwrap(uint256,uint256,bytes32,uint256)",
-        token_id, shares, env.wrapper_substrate_coldkey, 1,
+    receipt = env.deposit_and_wrap(netuid, hotkey, hotkey_ss58, 10 * config.RAO_PER_ALPHA, 1_500_000, "honest wrap failed")
+    deposited = env.deposited(receipt, netuid, hotkey)
+    assert deposited >= 10 * config.RAO_PER_ALPHA - config.ROUNDING_DUST_SLOT_RAO, (
+        f"the honest wrap collected {deposited} RAO of 10 alpha"
     )
-    received = env.total_stake_across(env.wrapper_substrate_coldkey, netuid, env.subnet_hotkey_pubkeys(0)) - before
-    assert received >= 9 * 10**9
+    checks.assert_first_deposit_shares(env.vault_shares(token_id), deposited, "honest wrap on a fresh vault")
+    receipt, received = exits.unwrap(
+        env, token_id, env.vault_shares(token_id), "honest exit failed", hotkeys=env.subnet_hotkey_pubkeys(0),
+    )
+    assert received >= deposited - config.ROUNDING_DUST_TOTAL_RAO, (
+        f"the honest exit returned {received} RAO of a {deposited} RAO deposit"
+    )
     assert env.vault_shares(token_id) == 0
+    exits.assert_drained(env, token_id, env.subnet_hotkey_pubkeys(0), receipt, "honest exit")
     assert env.stake(gift_hotkey, h160_to_substrate_b32(poisoned_clone), netuid) > 0, "rejected gift never entered backing"
     _protected(env, clone)

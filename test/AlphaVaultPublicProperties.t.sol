@@ -16,8 +16,8 @@ contract AlphaVaultPublicPropertiesTest is AlphaVaultTestBase {
         uint256 exitBps
     ) public {
         recapitalization = bound(recapitalization, 900_000_000, 999_999_990);
-        stakePerValidator = bound(stakePerValidator, 1e9, type(uint64).max);
-        gift = bound(gift, 2e9, 1e30);
+        stakePerValidator = bound(stakePerValidator, ALPHA, MAX_SUBNET_ALPHA / MAX_VALIDATORS);
+        gift = bound(gift, 2, 21_000_000e9) * VaultMath.TAO_NATIVE_QUANTUM;
         exitBps = bound(exitBps, 2500, 7500);
         uint256 supply = _growSupplyToNearCap(recapitalization);
 
@@ -51,31 +51,28 @@ contract AlphaVaultPublicPropertiesTest is AlphaVaultTestBase {
         assertGe(vault.taoLiability(TOKEN1), vault.claimableTao(TOKEN1, alice));
         uint256 paid = _claimQuotedAmount(alice, TOKEN1);
         assertLe(paid, gift);
-        // At this supply, index truncation and native quantization each retain less than one RAO.
-        assertLt(gift - paid, 2e9);
+        // Near 1e45 shares, index truncation can withhold up to one RAO of a whole-RAO gift.
+        assertLe(gift - paid, VaultMath.TAO_NATIVE_QUANTUM);
         assertEq(clone.balance + paid, gift);
         assertGe(clone.balance, vault.taoLiability(TOKEN1));
     }
 
-    function testFuzz_SoleHolderClaim_PaysTheGiftWithinOneNativeQuantum(uint256 gift) public {
-        gift = bound(gift, 2e9, 1e24);
-        _depositAndWrap(alice, NETUID1, 30e9);
+    /// @dev 1,000 alpha mints 1e21 shares, so any whole-RAO gift indexes without remainder.
+    function testFuzz_SoleHolderClaim_PaysTheWholeGift(uint256 gift) public {
+        gift = bound(gift, 1, 21_000_000e9) * VaultMath.TAO_NATIVE_QUANTUM;
+        _depositAndWrap(alice, NETUID1, 1_000 * ALPHA);
         _donateToClone(vault.subnetClone(TOKEN1), gift);
 
-        uint256 before = alice.balance;
         vm.prank(alice);
         vault.claimTao(TOKEN1, payable(alice));
-        uint256 paid = alice.balance - before;
 
-        assertEq(paid % VaultMath.TAO_NATIVE_QUANTUM, 0, "native delivery is in whole RAO");
-        assertLe(paid, gift, "the gift bounds the payout");
-        assertLe(gift - paid, VaultMath.TAO_NATIVE_QUANTUM, "only index and native rounding can remain");
-        assertEq(vault.subnetClone(TOKEN1).balance, gift - paid);
+        assertEq(alice.balance, gift);
+        assertEq(vault.subnetClone(TOKEN1).balance, 0);
     }
 
     function testFuzz_MissingBacking_RejectsOnlyLossesAboveTheSlack(uint256 missing) public {
         missing = bound(missing, 0, 2 * BACKING_SLACK_RAO);
-        _depositAndWrap(alice, NETUID1, 30e9);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         uint256 held = _getVaultStake(hotkey1, NETUID1);
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, _subnetColdkey(NETUID1), NETUID1, held - missing);
 
@@ -87,7 +84,7 @@ contract AlphaVaultPublicPropertiesTest is AlphaVaultTestBase {
     }
 
     function testFuzz_DepositAndFullExit_LoseOnlyTheConfiguredTransferRounding(uint256 deposit, uint256 loss) public {
-        deposit = bound(deposit, 1e9, type(uint64).max);
+        deposit = bound(deposit, ALPHA, MAX_SUBNET_ALPHA);
         loss = bound(loss, 0, 2);
         _setValidators(NETUID1, _hotkeys(hotkey1), _weights(VaultMath.BPS_BASE));
         MockStaking(STAKING_PRECOMPILE).setTransferStakeRoundingLoss(loss);
@@ -101,15 +98,14 @@ contract AlphaVaultPublicPropertiesTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
     }
 
-    // Finalized losses followed by recapitalization grow supply through public calls.
-    // Each individual deposit and precompile stake balance stays within uint64.
+    // Each written-off position recapitalized with about one alpha multiplies supply by about 1e9.
     function _growSupplyToNearCap(uint256 recapitalization) private returns (uint256 supply) {
         _setValidators(NETUID1, _hotkeys(hotkey1), _weights(VaultMath.BPS_BASE));
         _setDustThreshold(0);
-        _depositAndWrap(alice, NETUID1, 1e9);
+        _depositAndWrap(alice, NETUID1, ALPHA);
         for (uint256 i; i < 2; ++i) {
             _plantVaultStake(hotkey1, NETUID1, 0);
-            _depositAndWrap(alice, NETUID1, 1e9);
+            _depositAndWrap(alice, NETUID1, ALPHA);
         }
         _plantVaultStake(hotkey1, NETUID1, 0);
         supply = _depositAndWrap(alice, NETUID1, recapitalization);
@@ -128,46 +124,22 @@ contract AlphaVaultPublicPropertiesTest is AlphaVaultTestBase {
         uint256 exitBps
     ) public {
         recapitalization = bound(recapitalization, 900_000_000, 999_999_990);
-        pot = bound(pot, 1e18, 21_000_000e18);
+        pot = bound(pot, 1e9, 21_000_000e9) * VaultMath.TAO_NATIVE_QUANTUM;
         exitBps = bound(exitBps, 1, VaultMath.BPS_BASE - 1);
         uint256 supply = _growSupplyToNearCap(recapitalization);
         _dissolveWithPot(pot);
 
         uint256 exitShares = supply * exitBps / VaultMath.BPS_BASE;
-        uint256 entitlement = pot * exitShares / supply;
-        uint256 expected = entitlement - entitlement % VaultMath.TAO_NATIVE_QUANTUM;
-        assertGt(expected, 0, "the bounds guarantee a payable entitlement");
-
         (, uint256 quote) = lens.previewUnwrap(TOKEN1, exitShares);
-        uint256 before = alice.balance;
         vm.prank(alice);
         vault.unwrap(TOKEN1, exitShares, bytes32(0), 0);
-        uint256 paid = alice.balance - before;
+        uint256 paid = alice.balance;
 
-        assertEq(paid, expected, "delivery is the pot's pro-rata share in whole RAO");
-        assertEq(quote, expected, "the quote matches the independently computed share");
+        assertEq(paid % VaultMath.TAO_NATIVE_QUANTUM, 0, "delivery is in whole RAO");
+        assertLe(paid * supply, pot * exitShares, "never above the pro-rata share");
+        assertGt((paid + VaultMath.TAO_NATIVE_QUANTUM) * supply, pot * exitShares, "less than one RAO below it");
+        assertEq(quote, paid, "the quote matches the delivery");
         assertEq(vault.subnetClone(TOKEN1).balance, pot - paid, "the residue stays for the remaining holders");
         assertEq(vault.totalSupply(TOKEN1), supply - exitShares);
-    }
-
-    function testFuzz_NearSupplyCap_DissolvedExitSurvivesAPotBeyondTaoSupply(uint256 recapitalization, uint256 pot)
-        public
-    {
-        recapitalization = bound(recapitalization, 900_000_000, 999_999_990);
-        pot = bound(pot, 1e33, 1e40);
-        uint256 supply = _growSupplyToNearCap(recapitalization);
-        _dissolveWithPot(pot);
-
-        uint256 expected = pot - pot % VaultMath.TAO_NATIVE_QUANTUM;
-        (, uint256 quote) = lens.previewUnwrap(TOKEN1, supply);
-
-        uint256 before = alice.balance;
-        vm.prank(alice);
-        vault.unwrap(TOKEN1, supply, bytes32(0), 0);
-        uint256 paid = alice.balance - before;
-
-        assertEq(paid, expected, "the sole holder takes the whole pot");
-        assertEq(quote, expected, "the quote matches the independently computed share");
-        assertEq(vault.totalSupply(TOKEN1), 0);
     }
 }

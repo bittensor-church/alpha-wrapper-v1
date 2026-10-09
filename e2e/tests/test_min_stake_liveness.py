@@ -2,30 +2,31 @@
 
 Two churn cycles exercise withdrawal remainders, skipped rebalances, sale
 leftovers, and balances on rotated-out validators. Each eligible call must
-succeed within its gas budget. The closing ledger provides a lower-bound
-smoke check because previously delivered alpha continues earning emissions;
-the Foundry accounting campaign separately checks exact conservation.
+succeed within its gas budget, deliver or sell exactly what the clone gave up,
+and the closing ledger must account for every deposited RAO up to the chain's
+per-move rounding.
 """
 import pytest
 
-from alpha_e2e import chain, config
-from alpha_e2e.checks import (
-    assert_gas_within, assert_payout_matches_emitted, assert_payout_near_quote, min_tao_out_for,
-)
+from alpha_e2e import chain, config, exits
+from alpha_e2e.checks import assert_gas_within, assert_value_per_share_kept, min_tao_out_for
 
 
 class ChurnLedger:
     """Deposits, withdrawals, and rotations on one subnet, tracking the closing-ledger
     totals (alpha RAO) and every hotkey a delivery can land under."""
 
-    def __init__(self, env, netuid, token_id, chain_min_stake, union_hotkey_pubkeys):
+    def __init__(self, env, netuid, token_id, chain_min_stake, hotkey_pubkeys):
         self.env = env
         self.netuid = netuid
         self.token_id = token_id
         self.chain_min_stake = chain_min_stake
-        self.union_hotkey_pubkeys = list(union_hotkey_pubkeys)
+        self.hotkey_pubkeys = list(hotkey_pubkeys)
         self.deposited_alpha_total = 0
+        self.delivered_alpha_total = 0
         self.sold_alpha_total = 0
+        # The chain may round away up to this much across the calls made so far.
+        self.rounding_allowance = 0
         self._clone_coldkey = None
 
     @property
@@ -35,10 +36,8 @@ class ChurnLedger:
             self._clone_coldkey = self.env.clone_coldkey(self.token_id)
         return self._clone_coldkey
 
-    def delivered_alpha_total(self) -> int:
-        return self.env.total_stake_across(
-            self.env.wrapper_substrate_coldkey, self.netuid, self.union_hotkey_pubkeys,
-        )
+    def backing(self, block=None) -> int:
+        return self.env.total_stake_across(self.clone_coldkey, self.netuid, self.hotkey_pubkeys, block)
 
     def floor_boundary_alpha(self) -> int:
         _, boundary = self.env.floor_boundary(self.netuid, self.chain_min_stake)
@@ -51,65 +50,42 @@ class ChurnLedger:
             1_500_000, f"{label}: wrap failed",
         )
         assert_gas_within(receipt, config.WRAP_GAS_BOUND, f"{label}: wrap")
-        self.deposited_alpha_total += amount_rao
+        self.deposited_alpha_total += self.env.deposited(receipt, self.netuid, hotkey_pubkey)
+        self.rounding_allowance += config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO
         print(f"  {label}: wrapped {amount_rao} alpha RAO")
 
-    def unwrap_for_alpha_step(self, label: str, percent: int) -> None:
-        delivered_before = self.delivered_alpha_total()
+    def unwrap_for_alpha_step(self, label: str, percent: int, tolerance: int = config.ROUNDING_DUST_TOTAL_RAO) -> None:
         burn = self.env.vault_shares(self.token_id) * percent // 100
-        quoted_alpha, _ = self.env.preview_unwrap(self.token_id, burn)
-        receipt = self.env.vault_send(
-            2_500_000, f"{label}: unwrap failed",
-            "unwrap(uint256,uint256,bytes32,uint256)",
-            self.token_id, burn, self.env.wrapper_substrate_coldkey, 1,
+        receipt, delivered = exits.unwrap(
+            self.env, self.token_id, burn, f"{label}: unwrap failed", hotkeys=self.hotkey_pubkeys,
+            tolerance=tolerance,
         )
         assert_gas_within(receipt, config.UNWRAP_GAS_BOUND, f"{label}: unwrap")
-        delivered = self.delivered_alpha_total() - delivered_before
-        # Only a floor: this reads the user's whole stake, and everything delivered earlier is
-        # still earning emissions under the same hotkeys, so any surplus is yield. Over-delivery
-        # is asserted where it is observable, in the co-holder scenario's backing check.
-        assert delivered >= quoted_alpha - config.ROUNDING_DUST_TOTAL_RAO, (
-            f"{label}: unwrap delivered {delivered} alpha RAO against a quote of {quoted_alpha}"
-        )
+        self.delivered_alpha_total += delivered
+        self.rounding_allowance += tolerance
         print(f"  {label}: unwrapped {percent}% of shares, delivered {delivered} alpha RAO")
 
     def unwrap_for_tao_step(self, label: str, percent: int) -> None:
         supply_before = self.env.vault_total_supply(self.token_id)
         shares_before = self.env.vault_shares(self.token_id)
         burn = shares_before * percent // 100
-        sold_assets = (
-            self.env.holder_assets(self.token_id, config.WRAPPER_USER_ADDRESS) * percent // 100
-        )
-        min_tao_out = min_tao_out_for(self.env.alpha_to_tao_quote(self.netuid, sold_assets))
-        balance_before = self.env.user_tao_wei()
-        receipt = self.env.vault_send(
-            2_500_000, f"{label}: TAO exit failed",
-            "unwrapForTao(uint256,uint256,uint256)", self.token_id, burn, min_tao_out,
+        min_tao_out = min_tao_out_for(self.env.alpha_to_tao_quote(self.netuid, self.backing() * percent // 100))
+        receipt, alpha_sold = exits.unwrap_for_tao(
+            self.env, self.token_id, burn, f"{label}: TAO exit", hotkeys=self.hotkey_pubkeys,
+            min_tao_out=min_tao_out,
         )
         assert_gas_within(receipt, config.UNWRAP_GAS_BOUND, f"{label}: TAO exit")
-        balance_after = self.env.user_tao_wei()
-        alpha_sold = assert_payout_near_quote(
-            balance_before, balance_after, receipt, self.netuid, None,
-            f"{label}: TAO exit payout off quote",
-        )
-        assert_payout_matches_emitted(
-            balance_before, balance_after, receipt,
-            f"{label}: TAO exit paid less than it reported",
-        )
-        # The payout is priced from the exit's own report of what it sold, so hold that
-        # report to what the shares that actually burned (net of any refund) were worth
-        # of the backing the exit found: what it left behind plus what it says it sold.
+        # The refund rounds to whole shares, worth up to one share of alpha.
         exit_block = chain.receipt_block_number(receipt, label)
-        burned = shares_before - self.env.vault_shares(self.token_id, block=exit_block)
-        backing = self.env.vault_total_stake(self.token_id, block=exit_block) + alpha_sold
-        entitled = burned * backing // supply_before
-        # The refund rounds to whole shares, so allow one share's worth of alpha on top of dust.
+        backing = self.backing(exit_block - 1)
         slack = config.ROUNDING_DUST_TOTAL_RAO + (backing + supply_before - 1) // supply_before
-        assert abs(alpha_sold - entitled) <= slack, (
-            f"{label}: TAO exit sold {alpha_sold} alpha RAO against the {entitled} that "
-            f"{burned} burned shares were worth"
+        assert_value_per_share_kept(
+            backing, supply_before, self.backing(exit_block),
+            self.env.vault_total_supply(self.token_id, block=exit_block), slack,
+            f"{label}: the TAO exit changed the remaining shares' value",
         )
         self.sold_alpha_total += alpha_sold
+        self.rounding_allowance += config.ROUNDING_DUST_TOTAL_RAO
         print(f"  {label}: sold {percent}% of shares for TAO")
 
     def churn_cycle(
@@ -128,7 +104,9 @@ class ChurnLedger:
         self.env.set_validator(self.netuid, secondary_pubkey)
         print(f"  {label}: rotated {primary_pubkey[:18]}... out for {secondary_pubkey[:18]}...")
 
-        self.unwrap_for_alpha_step(f"{label} (over the rotated-out balances)", 50)
+        self.unwrap_for_alpha_step(
+            f"{label} (over the rotated-out balances)", 50, tolerance=config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO,
+        )
         rotated_out_leftover = self.env.stake(primary_pubkey, self.clone_coldkey, self.netuid)
         assert rotated_out_leftover <= config.ROUNDING_DUST_SLOT_RAO, (
             f"{label}: rotated-out validator still holds stake ({rotated_out_leftover} RAO)"
@@ -149,12 +127,8 @@ def test_holders_can_exit_after_two_cycles_of_dust_and_validator_rotation(env):
 
     netuid = env.netuids[0]
     token_id = env.token_ids[0]
-    hotkey_a_pubkey = env.hotkey_pubkeys[0]
-    hotkey_a_ss58 = env.hotkey_ss58s[0]
-    hotkey_b_pubkey = env.hotkey_pubkeys[1]
-    hotkey_b_ss58 = env.hotkey_ss58s[1]
-    hotkey_c_pubkey = env.hotkey_pubkeys[2]
-    hotkey_c_ss58 = env.hotkey_ss58s[2]
+    hotkey_a_pubkey, hotkey_b_pubkey, hotkey_c_pubkey = env.subnet_hotkey_pubkeys(0)
+    hotkey_a_ss58, hotkey_b_ss58, hotkey_c_ss58 = env.hotkey_ss58s[:config.VALIDATORS_PER_SUBNET]
 
     ledger = ChurnLedger(
         env, netuid, token_id, chain_min_stake,
@@ -177,16 +151,18 @@ def test_holders_can_exit_after_two_cycles_of_dust_and_validator_rotation(env):
     # --- Full exit and closing ledger ------------------------------------------------
     ledger.unwrap_for_tao_step("Closing", 100)
     assert env.vault_shares(token_id) == 0, "Closing: shares not fully burned"
-    leftover_stake = env.vault_total_stake(token_id)
+    leftover_stake = ledger.backing()
     assert leftover_stake <= config.ROUNDING_DUST_TOTAL_RAO, (
         f"Closing: stake left behind after the full exit ({leftover_stake} RAO)"
     )
 
-    # Emissions only push the delivered side up, so a shortfall means stake was forfeited.
-    delivered_total = ledger.delivered_alpha_total()
-    assert delivered_total + ledger.sold_alpha_total >= ledger.deposited_alpha_total * 99 // 100, (
-        f"Closing: ledger shortfall (delivered {delivered_total} + sold "
-        f"{ledger.sold_alpha_total} < deposited {ledger.deposited_alpha_total})"
+    # Emissions only add to the clone, so everything deposited came back out, delivered or
+    # sold, less the dust left behind and what the chain rounded away.
+    paid_out = ledger.delivered_alpha_total + ledger.sold_alpha_total
+    assert paid_out >= ledger.deposited_alpha_total - leftover_stake - ledger.rounding_allowance, (
+        f"Closing: ledger shortfall (delivered {ledger.delivered_alpha_total} + sold "
+        f"{ledger.sold_alpha_total} < deposited {ledger.deposited_alpha_total} - leftover "
+        f"{leftover_stake} - rounding {ledger.rounding_allowance})"
     )
     print(f"  Ledger closed: deposited {ledger.deposited_alpha_total}, delivered "
-          f"{delivered_total}, sold {ledger.sold_alpha_total} alpha RAO")
+          f"{ledger.delivered_alpha_total}, sold {ledger.sold_alpha_total} alpha RAO")

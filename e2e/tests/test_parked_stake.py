@@ -1,4 +1,4 @@
-"""A funded hotkey loses its owner; the owner replaces the name and the vault claims the key.
+"""Hotkey renames under a live position, with and without the stake following the name.
 
 A validator moves its identity to a new hotkey while its stake stays behind. The old
 hotkey then has no owner record, so the chain would refuse to move alpha off it, and
@@ -7,10 +7,14 @@ the position quotable but refuses partial exits until the owner publishes a set 
 names the successor. The next exit then claims the abandoned key for the vault's own
 coldkey, rolls the stake onto the successor and pays the holder, with no watcher and
 no subnet re-registration involved.
+
+When the stake follows the rename instead, the chain records the edge from the old
+name to the new one; the vault follows it on the next call and keeps paying exits from
+the successor while the registry still names the old key.
 """
 import pytest
 
-from alpha_e2e import config, extrinsics, substrate
+from alpha_e2e import chain, config, exits, extrinsics, substrate
 
 
 @pytest.mark.scenario
@@ -23,7 +27,7 @@ def test_holder_exits_after_owner_replaces_the_ownerless_name(env):
 
     env.deposit_and_wrap(
         netuid, hotkey_pubkey, hotkey_ss58,
-        config.PER_HOTKEY_TRANSFER_RAO, 1_500_000, "Parked: wrap failed",
+        config.DEPOSIT_RAO, 1_500_000, "Parked: wrap failed",
     )
     shares = env.vault_shares(token_id)
     assert shares != 0, "no shares minted by the setup wrap"
@@ -66,19 +70,18 @@ def test_holder_exits_after_owner_replaces_the_ownerless_name(env):
 
     # The same exit, now paid: the vault claims the abandoned key, rolls the stake onto the
     # successor and delivers to the holder's own coldkey.
-    quoted_alpha, _ = env.preview_unwrap(token_id, exit_shares)
-    assert quoted_alpha > config.ROUNDING_DUST_TOTAL_RAO, "the retry must deliver a meaningful payout"
     delivery_keys = hotkeys + [successor_pubkey]
-    delivered_before = env.total_stake_across(env.wrapper_substrate_coldkey, netuid, delivery_keys)
-    env.vault_send(
-        4_000_000, "Parked: the exit should succeed once the owner replacesd the name",
-        "unwrap(uint256,uint256,bytes32,uint256)", token_id, exit_shares, env.wrapper_substrate_coldkey, 1,
-        label="unwrap [claims the abandoned key]",
+    receipt, delivered = exits.unwrap(
+        env, token_id, exit_shares, "Parked: the exit should succeed once the owner replaced the name",
+        hotkeys=delivery_keys, gas_limit=4_000_000, label="unwrap [claims the abandoned key]",
+        tolerance=config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO,
     )
-    delivered = env.total_stake_across(env.wrapper_substrate_coldkey, netuid, delivery_keys) - delivered_before
-
-    assert delivered >= quoted_alpha - config.ROUNDING_DUST_TOTAL_RAO, (
-        f"the retry delivered {delivered} alpha against a quote of {quoted_alpha}"
+    backing_before_exit = env.total_stake_across(
+        clone_coldkey, netuid, delivery_keys, chain.receipt_block_number(receipt, "Parked exit") - 1,
+    )
+    # The roll onto the successor rounds away a little before the half is sized.
+    assert abs(delivered - backing_before_exit // 2) <= config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO, (
+        f"Parked: the retry paid {delivered} RAO for half of a {backing_before_exit} RAO position"
     )
     assert env.vault_shares(token_id) == shares - exit_shares, "the exit burned the wrong shares"
     assert extrinsics.hotkey_owner(hotkey_ss58) == substrate.h160_to_ss58(env.vault_address), (
@@ -91,3 +94,40 @@ def test_holder_exits_after_owner_replaces_the_ownerless_name(env):
         "the stake should have left the abandoned key"
     )
     assert env.stake(successor_pubkey, clone_coldkey, netuid) > 0, "the successor should carry the position"
+
+
+@pytest.mark.scenario
+def test_exits_follow_a_renamed_validator_before_the_registry_catches_up(env):
+    netuid = env.netuids[1]
+    token_id = env.token_ids[1]
+    hotkeys = env.subnet_hotkey_pubkeys(1)
+    renamed_pubkey = hotkeys[0]
+    renamed_ss58 = env.hotkey_ss58s[config.VALIDATORS_PER_SUBNET]
+
+    env.deposit_and_wrap(
+        netuid, renamed_pubkey, renamed_ss58, config.DEPOSIT_RAO, 1_500_000, "Followed rename: wrap failed",
+    )
+    shares = env.vault_shares(token_id)
+    clone_coldkey = env.clone_coldkey(token_id)
+
+    successor_ss58 = extrinsics.keypair_ss58("//FollowedSuccessor")
+    successor_pubkey = extrinsics.keypair_pubkey("//FollowedSuccessor")
+    extrinsics.swap_hotkey(renamed_ss58, successor_ss58)
+    assert env.stake(renamed_pubkey, clone_coldkey, netuid) <= config.ROUNDING_DUST_SLOT_RAO, (
+        "the rename should carry the stake away"
+    )
+    assert env.backing_intact(token_id), "the vault should follow the chain's rename edge"
+
+    # The registry still names the old key; the vault pays from the successor its owner holds.
+    delivery_keys = hotkeys + [successor_pubkey]
+    exits.unwrap(
+        env, token_id, shares // 2, "Followed rename: a partial exit should pay from the successor",
+        hotkeys=delivery_keys,
+    )
+    assert env.stake(successor_pubkey, env.wrapper_substrate_coldkey, netuid) > 0, (
+        "the exit should have delivered under the successor"
+    )
+    receipt, _ = exits.unwrap(
+        env, token_id, env.vault_shares(token_id), "Followed rename: the full exit failed", hotkeys=delivery_keys,
+    )
+    exits.assert_drained(env, token_id, delivery_keys, receipt, "Followed rename: full exit")

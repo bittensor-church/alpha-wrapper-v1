@@ -17,30 +17,42 @@ env:
   FOUNDRY_PROFILE: ci
 
 jobs:
+  scenarios:
+    name: Compile check and scenario list
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      files: ${{ steps.list.outputs.files }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Compile-check Python scripts
+        run: python -m py_compile scripts/*.py scripts/tests/*.py e2e/*.py e2e/alpha_e2e/*.py e2e/tests/*.py
+
+      - name: List scenario modules
+        id: list
+        working-directory: e2e
+        run: echo "files=$(ls tests/test_*.py | jq -R . | jq -cs .)" >> "$GITHUB_OUTPUT"
+
   e2e:
     name: Localnet E2E (${{ matrix.scenario }})
+    needs: scenarios
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     strategy:
       fail-fast: false
       matrix:
-        # Each scenario gets its own fresh subtensor service container, so the
-        # transfers-off run (which globally disables alpha transfers) is isolated.
-        scenario:
-          - tests/test_full_flow.py
-          - tests/test_transfers_off.py
-          - tests/test_convicted_alpha.py
-          - tests/test_locked_deposit.py
-          - tests/test_subnet_dissolved.py
-          - tests/test_min_stake_floor.py
-          - tests/test_dust_dos.py
-          - tests/test_min_stake_liveness.py
-          - tests/test_claimable_tao.py
-          - tests/test_parked_stake.py
-          - tests/test_parked_recovery.py
-          - tests/test_parking_isolation.py
-          - tests/test_subnet_generation.py
+        # Each scenario gets its own fresh subtensor service container, so state a scenario
+        # changes on chain, such as the transfer toggles it switches off, cannot reach another.
+        scenario: ${{ fromJSON(needs.scenarios.outputs.files) }}
 
     services:
       subtensor:
@@ -76,9 +88,6 @@ jobs:
 
       - name: Install Python deps
         run: e2e/install-deps.sh
-
-      - name: Compile-check Python scripts
-        run: python -m py_compile scripts/*.py e2e/*.py e2e/alpha_e2e/*.py e2e/tests/*.py
 
       - name: Wait for subtensor to be ready
         run: |

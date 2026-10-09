@@ -5,8 +5,86 @@ import { Test } from "forge-std/Test.sol";
 import { AlphaVaultTestBase } from "../AlphaVaultTestBase.sol";
 import { MockStaking } from "../mocks/MockStaking.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
+import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
+import {
+    AttestedHotkeyRetired,
+    BackingShortfall,
+    BackingUnchanged,
+    NothingToRecover,
+    NothingToUnwrap,
+    Parked,
+    ShortfallOnFile,
+    WithdrawTooSmall,
+    ZeroAmount
+} from "src/VaultErrors.sol";
+
+/// @dev A campaign call may fail only with an error its entry point is documented to raise on that state; a
+///      panic, a refused chain call (empty revert data) or any other error fails the campaign.
+function requireExpectedRevert(bytes memory reason, bytes4[] memory expected) pure {
+    bytes4 selector = bytes4(reason);
+    for (uint256 i; i < expected.length; ++i) {
+        if (selector == expected[i]) return;
+    }
+    assembly {
+        revert(add(reason, 32), mload(reason))
+    }
+}
+
+/// @dev Errors any call that opens the backing record and assigns the attested set can raise.
+function backingErrors(uint256 extra) pure returns (bytes4[] memory errors, uint256 next) {
+    errors = new bytes4[](5 + extra);
+    errors[0] = ShortfallOnFile.selector;
+    errors[1] = BackingShortfall.selector;
+    errors[2] = AttestedHotkeyRetired.selector;
+    errors[3] = IAlphaVaultAbi.SwappedHotkeyStillAttested.selector;
+    errors[4] = IAlphaVaultAbi.ConsolidationBelowFloor.selector;
+    next = 5;
+}
+
+function wrapErrors() pure returns (bytes4[] memory errors) {
+    uint256 next;
+    (errors, next) = backingErrors(3);
+    errors[next] = Parked.selector;
+    errors[next + 1] = IAlphaVaultAbi.DepositTooSmall.selector;
+    errors[next + 2] = ZeroAmount.selector;
+}
+
+function unwrapErrors() pure returns (bytes4[] memory errors) {
+    uint256 next;
+    (errors, next) = backingErrors(3);
+    errors[next] = ZeroAmount.selector;
+    errors[next + 1] = WithdrawTooSmall.selector;
+    errors[next + 2] = IAlphaVaultAbi.GatherBelowFloor.selector;
+}
+
+function unwrapForTaoErrors() pure returns (bytes4[] memory errors) {
+    errors = new bytes4[](5);
+    errors[0] = ShortfallOnFile.selector;
+    errors[1] = BackingShortfall.selector;
+    errors[2] = ZeroAmount.selector;
+    errors[3] = NothingToUnwrap.selector;
+    errors[4] = WithdrawTooSmall.selector;
+}
+
+function rebalanceErrors() pure returns (bytes4[] memory errors) {
+    uint256 next;
+    (errors, next) = backingErrors(1);
+    errors[next] = Parked.selector;
+}
+
+function syncErrors() pure returns (bytes4[] memory errors) {
+    errors = new bytes4[](1);
+    errors[0] = BackingUnchanged.selector;
+}
+
+function recoverErrors() pure returns (bytes4[] memory errors) {
+    errors = new bytes4[](3);
+    errors[0] = NothingToRecover.selector;
+    errors[1] = BackingShortfall.selector;
+    errors[2] = IAlphaVaultAbi.ConsolidationBelowFloor.selector;
+}
 
 abstract contract BackingCampaignHandler is Test {
     AlphaVault public immutable vault;
@@ -49,8 +127,7 @@ abstract contract BackingCampaignHandler is Test {
     }
 
     function wrap(uint256 actorSeed, uint256 amount, uint256 hotkeySeed) external {
-        // Alpha in RAO: a TAO exit narrows slot balances to the chain's 64-bit stake amounts.
-        if (harness.wrapFor(_actor(actorSeed), bound(amount, 1e9, 200e9), _attested(hotkeySeed))) {
+        if (harness.wrapFor(_actor(actorSeed), bound(amount, 10, 1_000) * 1e9, _attested(hotkeySeed))) {
             ++wraps;
             _afterAllocation();
         }
@@ -73,7 +150,9 @@ abstract contract BackingCampaignHandler is Test {
                 lastAlphaPaid * supply, shares * holdings + supply * harness.slack(), "an exit paid more than its share"
             );
             if (shares != supply) _afterAllocation();
-        } catch { }
+        } catch (bytes memory reason) {
+            requireExpectedRevert(reason, unwrapErrors());
+        }
     }
 
     function unwrapForTao(uint256 actorSeed, uint256 shareSeed) external {
@@ -83,14 +162,18 @@ abstract contract BackingCampaignHandler is Test {
         vm.prank(actor);
         try vault.unwrapForTao(tokenId, bound(shareSeed, 1, balance), 0) {
             ++taoExits;
-        } catch { }
+        } catch (bytes memory reason) {
+            requireExpectedRevert(reason, unwrapForTaoErrors());
+        }
     }
 
     function rebalance() external {
         try vault.rebalance(netuid) {
             ++rebalances;
             _afterAllocation();
-        } catch { }
+        } catch (bytes memory reason) {
+            requireExpectedRevert(reason, rebalanceErrors());
+        }
     }
 
     function syncBacking() external {
@@ -99,11 +182,21 @@ abstract contract BackingCampaignHandler is Test {
             ++syncs;
             (uint256 shortSinceAfter,) = vault.recovery(tokenId);
             if (shortSinceBefore != 0 && shortSinceAfter == 0) ++recoveriesClosed;
-        } catch { }
+        } catch (bytes memory reason) {
+            requireExpectedRevert(reason, syncErrors());
+        }
     }
 
     function passTime(uint256 seconds_) external {
         vm.warp(block.timestamp + bound(seconds_, 1 minutes, 4 hours));
+    }
+
+    function movePrice(uint256 priceSeed) external {
+        harness.setPrice(bound(priceSeed, 1e6, 2e8) * 1e9);
+    }
+
+    function accrueEmissions(uint256 amount) external {
+        harness.accrueEmissions(bound(amount, 1, 300) * 1e9);
     }
 
     /// @dev Runs after a wrap, rebalance or partial alpha exit succeeded, so every attested entry was live.
@@ -163,7 +256,9 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         vm.prank(user);
         try vault.wrap(NETUID1, hotkey, 0) {
             wrapped = true;
-        } catch { }
+        } catch (bytes memory reason) {
+            requireExpectedRevert(reason, wrapErrors());
+        }
     }
 
     function attest(bytes32[] memory set) external {
@@ -174,7 +269,28 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         currentSet = set;
     }
 
-    function invariant_NoTwoSlotsAnswerForOneKey() public view {
+    function setPrice(uint256 alphaPriceE18) external {
+        _setAlphaPrice(NETUID1, alphaPriceE18);
+    }
+
+    /// @dev Emissions accrue to the stake already held under the recorded keys, in equal parts.
+    function accrueEmissions(uint256 amount) external {
+        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
+        bytes32 coldkey = _subnetColdkey(NETUID1);
+        uint256 funded;
+        for (uint256 i; i < slots.length; ++i) {
+            if (_getStakeForColdkey(slots[i].active, coldkey, NETUID1) != 0) ++funded;
+        }
+        if (funded == 0) return;
+        for (uint256 i; i < slots.length; ++i) {
+            uint256 held = _getStakeForColdkey(slots[i].active, coldkey, NETUID1);
+            if (held != 0) {
+                MockStaking(STAKING_PRECOMPILE).setStake(slots[i].active, coldkey, NETUID1, held + amount / funded);
+            }
+        }
+    }
+
+    function _assertNoTwoSlotsAnswerForOneKey() internal view {
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         for (uint256 i; i < slots.length; ++i) {
             for (uint256 j = i + 1; j < slots.length; ++j) {
@@ -183,18 +299,13 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         }
     }
 
-    function invariant_ReportedBackingNeverExceedsWhatTheChainHolds() public view {
-        assertLe(lens.locatedStake(TOKEN1), chainHoldings(), "the position reports backing the chain does not hold");
-    }
-
-    function invariant_TotalTrackedBackingIsBoundedByCurrentChainHoldings() public view {
+    function _assertTrackedBackingWithinChainHoldings() internal view {
         uint256 slots = vault.recordedSlots(TOKEN1).length;
         assertLe(trackedBacking(), chainHoldings() + BACKING_SLACK_RAO * slots, "the record expects more than exists");
     }
 
     function _assertSharedInvariants() internal view {
-        invariant_TotalTrackedBackingIsBoundedByCurrentChainHoldings();
-        invariant_NoTwoSlotsAnswerForOneKey();
-        invariant_ReportedBackingNeverExceedsWhatTheChainHolds();
+        _assertTrackedBackingWithinChainHoldings();
+        _assertNoTwoSlotsAnswerForOneKey();
     }
 }

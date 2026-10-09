@@ -12,7 +12,7 @@ import { VaultReads } from "src/libraries/VaultReads.sol";
 import { MockStaking, CHAIN_MIN_STAKE, CHAIN_MIN_TRANSFER, CHAIN_NOMINATOR_MIN_STAKE } from "./mocks/MockStaking.sol";
 import { MockAddressMapping } from "./mocks/MockAddressMapping.sol";
 import { MockSubnetPrecompile } from "./mocks/MockSubnetPrecompile.sol";
-import { MockAlpha } from "./mocks/MockAlpha.sol";
+import { MockAlpha, DEFAULT_ALPHA_PRICE_E18 } from "./mocks/MockAlpha.sol";
 import { MockNeuron } from "./mocks/MockNeuron.sol";
 import { RegistryTestHelper } from "./helpers/RegistryTestHelper.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
@@ -39,7 +39,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     bytes32 public hotkey5 = keccak256("hotkey5");
 
     string internal constant VAULT_URI = "https://example.com/{id}.json";
-    uint256 internal constant RECOVERY_WINDOW = 3 hours;
+    uint256 internal constant RECOVERY_WINDOW = 6 hours;
     uint256 internal constant BACKING_SLACK_RAO = VaultReads.TRACKED_SLACK_RAO;
     bytes32 internal constant PARKING_HOTKEY = keccak256("parking-hotkey");
 
@@ -57,8 +57,16 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
 
     uint256 internal constant DUST_THRESHOLD = CHAIN_NOMINATOR_MIN_STAKE;
 
-    /// @dev One alpha in RAO. Balances on the sale path must fit the chain's 64-bit stake amounts.
+    /// @dev One alpha in RAO; chain stake is u64 RAO.
     uint256 internal constant ALPHA = 1e9;
+
+    /// @dev A subnet issues at most 21M alpha, so no position can exceed it.
+    uint256 internal constant MAX_SUBNET_ALPHA = 21_000_000 * ALPHA;
+
+    uint256 internal constant ALPHA_PRICE = DEFAULT_ALPHA_PRICE_E18;
+
+    /// @dev One TAO in native wei; the chain credits 1e9 wei per TAO RAO.
+    uint256 internal constant TAO = 1 ether;
 
     uint256 public TOKEN1;
     uint256 public TOKEN2;
@@ -75,8 +83,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         MockSubnetPrecompile(SUBNET_PRECOMPILE).setRegisteredAt(uint16(NETUID1), 100);
         MockSubnetPrecompile(SUBNET_PRECOMPILE).setRegisteredAt(uint16(NETUID2), 200);
         vm.deal(STAKING_PRECOMPILE, 1_000_000 ether);
-        // Etching copies code, not constructor storage; seed rates and chain thresholds explicitly.
-        MockStaking(STAKING_PRECOMPILE).setRemoveStakeRate(1, 1);
+        // Etching copies code, not constructor storage; seed chain thresholds explicitly.
         MockStaking(STAKING_PRECOMPILE).setChainMinStake(CHAIN_MIN_STAKE);
         MockStaking(STAKING_PRECOMPILE).setChainMinTransfer(CHAIN_MIN_TRANSFER);
         MockStaking(STAKING_PRECOMPILE).setNominatorMinRequiredStake(DUST_THRESHOLD);
@@ -169,16 +176,6 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
 
     function _vaultStakeAcross(bytes32[] memory hks, uint256 netuid) internal view returns (uint256) {
         return _stakeAcross(hks, _subnetColdkey(netuid), netuid);
-    }
-
-    function _assertEvenSpread(bytes32[] memory hks, uint256 netuid, uint256 total) internal view {
-        uint16[] memory wts = _evenWeights(hks.length);
-        uint256 assigned;
-        for (uint256 i; i + 1 < hks.length; ++i) {
-            assertEq(_getVaultStake(hks[i], netuid), _weighted(total, wts[i]), "slot off its weight");
-            assigned += _weighted(total, wts[i]);
-        }
-        assertEq(_getVaultStake(hks[hks.length - 1], netuid), total - assigned, "last slot absorbs the remainder");
     }
 
     function _countRebalancedLogs(Vm.Log[] memory logs) internal pure returns (uint256 count) {
@@ -288,12 +285,6 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         }
     }
 
-    /// @dev Writes off whatever the record cannot find and releases the parked position onto the live
-    ///      set; recovery tests must manipulate the mock without this helper.
-    function _catchRecordUp(uint256 netuid) internal {
-        _catchRecordUpFor(vault.currentTokenId(netuid));
-    }
-
     function _catchRecordUpFor(uint256 tokenId) internal {
         if (lens.isBackingIntact(tokenId)) return;
         _runOutRecoveryWindow(tokenId);
@@ -306,19 +297,6 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     function _reattestCurrentSet(uint256 netuid) internal {
         (bytes32[] memory hks, uint16[] memory wts,) = registry.getValidators(netuid);
         _setValidators(netuid, hks, wts);
-    }
-
-    function _sharesForExactAssets(uint256 tokenId, uint256 targetAssets, uint256 totalAlpha)
-        internal
-        view
-        returns (uint256 shares)
-    {
-        uint256 scaledSupply = vault.totalSupply(tokenId) + VaultMath.VIRTUAL_SHARES;
-        shares = (targetAssets * scaledSupply + totalAlpha) / (totalAlpha + VaultMath.VIRTUAL_ASSETS);
-        require(
-            (shares * (totalAlpha + VaultMath.VIRTUAL_ASSETS)) / scaledSupply == targetAssets,
-            "no share count hits target assets"
-        );
     }
 
     function _totalVaultStakeAcrossHotkeys(uint256 netuid) internal view returns (uint256) {
@@ -371,12 +349,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     function _simulateTaoAwardedOnDissolution(uint256 tokenId, uint256 taoAmount) internal {
         address clone = vault.subnetClone(tokenId);
         bytes32 cloneColdkey = _toSubstrate(clone);
-        MockStaking mock = MockStaking(STAKING_PRECOMPILE);
-        uint256 netuid = tokenId & VaultMath.NETUID_MASK;
-        mock.setStake(hotkey1, cloneColdkey, netuid, 0);
-        mock.setStake(hotkey2, cloneColdkey, netuid, 0);
-        mock.setStake(hotkey3, cloneColdkey, netuid, 0);
-        mock.setStake(hotkey4, cloneColdkey, netuid, 0);
+        MockStaking(STAKING_PRECOMPILE).clearPositions(cloneColdkey, tokenId & VaultMath.NETUID_MASK);
         vm.deal(clone, clone.balance + taoAmount);
     }
 
@@ -399,6 +372,11 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         MockAlpha(ALPHA_PRECOMPILE).setAlphaPrice(uint16(netuid), alphaPriceE18);
     }
 
+    /// @dev A realistic alpha price, 0.001-0.2 TAO per alpha, in whole RAO as the precompile reports it.
+    function _wholeRaoPrice(uint256 priceRao) internal pure returns (uint256) {
+        return bound(priceRao, 1e6, 2e8) * 1e9;
+    }
+
     function _alphaPriceRead(uint256 netuid) internal view returns (uint256) {
         return MockAlpha(ALPHA_PRECOMPILE).getAlphaPrice(uint16(netuid));
     }
@@ -406,6 +384,11 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     function _setAlphaPriceReadsZero(uint256 netuid) internal {
         // The chain retains a nonzero price below the EVM reader's precision.
         _setAlphaPrice(netuid, 0.5e9);
+    }
+
+    /// @dev A refused precompile dispatch returns no data, unlike every vault error.
+    function _expectChainRefusal() internal {
+        vm.expectRevert(bytes(""));
     }
 
     function _setRemoveStakeRate(uint256 num, uint256 denom) internal {
@@ -434,37 +417,18 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         MockStaking(STAKING_PRECOMPILE).setRemoveStakeRevertsFor(hotkey, v);
     }
 
-    function _disableAlphaTransfers() internal {
-        MockStaking(STAKING_PRECOMPILE).setTransferStakeReverts(true);
-    }
-
     function _donateToClone(address clone, uint256 amount) internal {
         vm.deal(clone, clone.balance + amount);
     }
 
     function _claimQuotedAmount(address user, uint256 tokenId) internal returns (uint256 delivered) {
         uint256 quoted = lens.claimableTaoOf(user, tokenId);
-        if (quoted == 0) {
-            vm.expectRevert();
-            vm.prank(user);
-            vault.claimTao(tokenId, payable(user));
-            return 0;
-        }
+        assertGt(quoted, 0, "nothing quoted to claim");
         uint256 balanceBefore = user.balance;
         vm.prank(user);
         vault.claimTao(tokenId, payable(user));
         delivered = user.balance - balanceBefore;
         assertEq(delivered, quoted);
-    }
-
-    function _expectedTaoFor(uint256 alpha) internal view returns (uint256) {
-        uint256 num = MockStaking(STAKING_PRECOMPILE).taoPerAlpha();
-        uint256 denom = MockStaking(STAKING_PRECOMPILE).taoPerAlphaDenom();
-        return (alpha * num) / denom;
-    }
-
-    function _weighted(uint256 total, uint16 bps) internal pure returns (uint256) {
-        return (total * bps) / BPS_BASE;
     }
 
     function _lastSeen(uint256 tokenId) internal view returns (bytes32[] memory) {
@@ -490,14 +454,10 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey, false);
     }
 
-    /// @dev Moves mock stake without changing the successor precompile's response.
+    /// @dev Moves every coldkey's stake on the key without changing the successor precompile's response.
     function _simulateOffVaultSwap(uint256 netuid, bytes32 fromHotkey, bytes32 toHotkey) internal {
         require(fromHotkey != toHotkey, "swap needs distinct hotkeys");
-        bytes32 coldkey = _subnetColdkey(netuid);
-        uint256 amount = _getStakeForColdkey(fromHotkey, coldkey, netuid);
-        uint256 alreadyThere = _getStakeForColdkey(toHotkey, coldkey, netuid);
-        MockStaking(STAKING_PRECOMPILE).setStake(fromHotkey, coldkey, netuid, 0);
-        MockStaking(STAKING_PRECOMPILE).setStake(toHotkey, coldkey, netuid, alreadyThere + amount);
+        MockStaking(STAKING_PRECOMPILE).moveHotkeyPositions(fromHotkey, toHotkey, netuid);
         _simulateSameOwner(fromHotkey, toHotkey);
     }
 
@@ -524,15 +484,11 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         _simulateOffVaultSwap(netuid, fromHotkey, tip);
     }
 
-    function _wholeRao(uint256 amount) internal pure returns (uint256) {
-        return amount / VaultMath.TAO_NATIVE_QUANTUM * VaultMath.TAO_NATIVE_QUANTUM;
-    }
-
     function _drainTheFirstSlot(address holder, uint256 netuid) internal {
         uint256 tokenId = vault.currentTokenId(netuid);
         bytes32 followed = vault.recordedSlots(tokenId)[0].active;
         uint256 burn =
-            (vault.balanceOf(holder, tokenId) * (_getVaultStake(followed, netuid) + 1e15)) / lens.locatedStake(tokenId);
+            (vault.balanceOf(holder, tokenId) * (_getVaultStake(followed, netuid) + 1e6)) / lens.locatedStake(tokenId);
         vm.prank(holder);
         vault.unwrapForTao(tokenId, burn, 0);
         assertEq(_getVaultStake(followed, netuid), 0, "the slot has to be empty for this to mean anything");

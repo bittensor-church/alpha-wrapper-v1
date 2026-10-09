@@ -7,8 +7,9 @@ bracketed scientific suffix to numeric values.
 import json
 import os
 import subprocess
+import time
 from functools import lru_cache
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from . import config
 
@@ -80,23 +81,16 @@ def cast_call_raw(
     return run(_cast_call_command(to, signature, args, rpc, block), timeout=_READ_TIMEOUT).stdout
 
 
-# Frontier reports a call the EVM refused (as opposed to one that reverted) with this message.
-EVM_ERROR = "evm error"
-
-
-def quote_alpha_for_tao(netuid: int, alpha_rao: int, rpc: str = config.RPC_URL) -> Optional[int]:
-    """The pool's TAO quote for selling `alpha_rao`, or None when the chain refuses to
-    quote it. A transport failure raises instead of passing for a refusal."""
-    probe = run(
-        ["cast", "call", config.ALPHA_PRECOMPILE, "simSwapAlphaForTao(uint16,uint64)(uint256)",
-         str(netuid), str(alpha_rao), "--rpc-url", rpc],
-        check=False, timeout=_READ_TIMEOUT,
-    )
-    if probe.returncode == 0:
-        return int(_first_token(probe.stdout))
-    if EVM_ERROR in probe.stderr.lower():
-        return None
-    raise ChainError(f"quote probe failed outside the EVM: {probe.stderr.strip()}")
+def probe_call(
+    to: str, signature: str, *args, sender: Optional[str] = None,
+    rpc: str = config.RPC_URL, block: Optional[int] = None,
+) -> subprocess.CompletedProcess:
+    """A call that may revert: the completed `cast call`, its error text included, for the
+    caller to judge. A read that has to succeed goes through cast_call instead."""
+    cmd = _cast_call_command(to, signature, args, rpc, block)
+    if sender is not None:
+        cmd += ["--from", sender]
+    return run(cmd, check=False, timeout=_READ_TIMEOUT)
 
 
 def cast_call_lines(
@@ -186,10 +180,7 @@ def revert_reason(receipt: dict, to: str, signature: str, *args, rpc: str = conf
     except (TypeError, ValueError):
         return None
     try:
-        probe = run(
-            _cast_call_command(to, signature, args, rpc, parent) + ["--from", sender],
-            check=False, timeout=_READ_TIMEOUT,
-        )
+        probe = probe_call(to, signature, *args, sender=sender, rpc=rpc, block=parent)
     except ChainError:
         # A diagnostic must never replace the failure it is describing.
         return None
@@ -268,22 +259,37 @@ def cast_chain_id(rpc: str = config.RPC_URL) -> int:
     return int(run(["cast", "chain-id", "--rpc-url", rpc], timeout=_READ_TIMEOUT).stdout.strip())
 
 
-def cast_balance_ether(address: str, rpc: str = config.RPC_URL) -> float:
-    completed = run(["cast", "balance", address, "--rpc-url", rpc, "--ether"], timeout=_READ_TIMEOUT)
-    return float(completed.stdout.strip())
-
-
 def cast_balance_wei(address: str, rpc: str = config.RPC_URL) -> int:
     """Native balance in raw wei (int) -- the balance form all deltas must use."""
     return int(run(["cast", "balance", address, "--rpc-url", rpc], timeout=_READ_TIMEOUT).stdout.strip())
 
 
-def cast_code(address: str, rpc: str = config.RPC_URL) -> str:
-    return run(["cast", "code", address, "--rpc-url", rpc], timeout=_READ_TIMEOUT).stdout.strip()
+def block_timestamp(block: Union[int, str] = "latest", rpc: str = config.RPC_URL) -> int:
+    """Unix timestamp of `block`, the clock a vault deadline is measured against."""
+    completed = run(
+        ["cast", "block", str(block), "--field", "timestamp", "--rpc-url", rpc], timeout=_READ_TIMEOUT,
+    )
+    return int(completed.stdout.strip(), 0)
 
 
-def cast_wallet_address(private_key: str) -> str:
-    return run(["cast", "wallet", "address", private_key], timeout=_READ_TIMEOUT).stdout.strip()
+def wait_for_blocks(count: int, timeout: float) -> int:
+    """Block until `count` more blocks are mined and return the block reached."""
+    target = cast_block_number() + count
+    deadline = time.monotonic() + timeout
+    while (current := cast_block_number()) < target:
+        if time.monotonic() > deadline:
+            raise ChainError(f"block {target} not reached within {timeout}s (at {current})")
+        time.sleep(1)
+    return current
+
+
+def wait_for_timestamp(timestamp: int, timeout: float) -> None:
+    """Block until the latest block is stamped at or after `timestamp`."""
+    deadline = time.monotonic() + timeout
+    while block_timestamp() < timestamp:
+        if time.monotonic() > deadline:
+            raise ChainError(f"no block stamped at or after {timestamp} within {timeout}s")
+        wait_for_blocks(1, timeout=config.BLOCK_TIMEOUT_SECONDS)
 
 
 def _btcli_command(args: List[str]) -> List[str]:

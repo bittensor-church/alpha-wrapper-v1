@@ -1,62 +1,119 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Test } from "forge-std/Test.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { CloneBase } from "src/CloneBase.sol";
 import { SubnetClone } from "src/SubnetClone.sol";
-import { CHAIN_MIN_STAKE, CHAIN_MIN_TRANSFER, MockStaking } from "./mocks/MockStaking.sol";
+import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
-import { ADDRESS_MAPPING_PRECOMPILE } from "src/interfaces/IAddressMapping.sol";
-import { NEURON_PRECOMPILE } from "src/interfaces/INeuron.sol";
-import { MockAddressMapping } from "./mocks/MockAddressMapping.sol";
-import { MockNeuron } from "./mocks/MockNeuron.sol";
+import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 
-contract CloneBaseSellAlphaTest is Test {
-    SubnetClone clone;
-    bytes32 cloneColdkey;
-    bytes32 constant HOTKEY = keccak256("hk");
-    uint256 constant NETUID = 1;
+contract CloneBaseTest is AlphaVaultTestBase {
+    /// @dev Wrapped by this test, so the test can drive it the way the vault does.
+    SubnetClone internal directClone;
+    bytes32 internal directCloneColdkey;
 
-    function setUp() public {
-        vm.etch(STAKING_PRECOMPILE, address(new MockStaking()).code);
-        vm.etch(ADDRESS_MAPPING_PRECOMPILE, address(new MockAddressMapping()).code);
-        vm.etch(NEURON_PRECOMPILE, address(new MockNeuron()).code);
-        vm.deal(STAKING_PRECOMPILE, 1000 ether);
-        MockStaking(STAKING_PRECOMPILE).setRemoveStakeRate(1, 1);
-        MockStaking(STAKING_PRECOMPILE).setChainMinStake(CHAIN_MIN_STAKE);
-        MockStaking(STAKING_PRECOMPILE).setChainMinTransfer(CHAIN_MIN_TRANSFER);
-
-        SubnetClone impl = new SubnetClone();
-        clone = SubnetClone(payable(Clones.clone(address(impl))));
-        clone.initialize(address(this));
-
-        cloneColdkey = keccak256(abi.encodePacked("evm:", address(clone)));
-        // The chain sells stake only through a hotkey that has an owner record; the vault's own paths
-        // claim one before they call, and this test calls the clone directly.
-        MockStaking(STAKING_PRECOMPILE).setHotkeyOwned(HOTKEY, true);
-        MockStaking(STAKING_PRECOMPILE).setStake(HOTKEY, cloneColdkey, NETUID, 50 ether);
+    function setUp() public override {
+        super.setUp();
+        directClone = SubnetClone(payable(Clones.clone(address(subnetLogic))));
+        directClone.initialize(address(this));
+        directCloneColdkey = _toSubstrate(address(directClone));
+        MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, directCloneColdkey, NETUID1, 50 * ALPHA);
     }
 
     function test_SellAlphaForTao_CreditsCloneNativeBalance() public {
-        uint256 balanceBefore = address(clone).balance;
-        clone.sellAlphaForTao(HOTKEY, NETUID, 30 ether);
-        assertEq(address(clone).balance - balanceBefore, 30 ether);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(HOTKEY, cloneColdkey, NETUID), 20 ether);
+        directClone.sellAlphaForTao(hotkey1, NETUID1, 40 * ALPHA);
+
+        assertEq(address(directClone).balance, 2 * TAO, "40 alpha at 0.05 TAO/alpha");
+        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey1, directCloneColdkey, NETUID1), 10 * ALPHA);
     }
 
     function test_SellAlphaForTao_NoOpOnZero() public {
         // Make the precompile reject even zero, exposing any missing caller-side zero guard.
         MockStaking(STAKING_PRECOMPILE).setRemoveStakeReverts(true);
-        uint256 balanceBefore = address(clone).balance;
-        clone.sellAlphaForTao(HOTKEY, NETUID, 0);
-        assertEq(address(clone).balance, balanceBefore);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(HOTKEY, cloneColdkey, NETUID), 50 ether);
+
+        directClone.sellAlphaForTao(hotkey1, NETUID1, 0);
+
+        assertEq(address(directClone).balance, 0);
+        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey1, directCloneColdkey, NETUID1), 50 * ALPHA);
     }
 
-    function test_OnlyWrapperCanSellAlphaForTao() public {
-        vm.prank(address(0xBAD));
+    function test_MoveStake_MovesTheAmountBetweenHotkeys() public {
+        directClone.moveStake(hotkey1, hotkey2, NETUID1, 50 * ALPHA);
+
+        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey1, directCloneColdkey, NETUID1), 0);
+        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey2, directCloneColdkey, NETUID1), 50 * ALPHA);
+    }
+
+    function test_UnwrapTao_PaysTheRecipient() public {
+        vm.deal(address(directClone), 5 * TAO);
+        uint256 aliceBefore = alice.balance;
+
+        directClone.unwrapTao(payable(alice), 5 * TAO);
+
+        assertEq(address(directClone).balance, 0);
+        assertEq(alice.balance - aliceBefore, 5 * TAO);
+    }
+
+    function test_RevertWhen_NonWrapperFlushesMailboxAlpha() public {
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
+        address mailbox = vault.getDepositAddress(alice, NETUID1);
+
+        vm.prank(bob);
         vm.expectRevert(CloneBase.NotWrapper.selector);
-        clone.sellAlphaForTao(HOTKEY, NETUID, 1);
+        CloneBase(payable(mailbox)).flush(_toSubstrate(bob), hotkey1, NETUID1, 10 * ALPHA);
+    }
+
+    function test_RevertWhen_NonWrapperSellsMailboxAlpha() public {
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
+        address mailbox = vault.getDepositAddress(alice, NETUID1);
+
+        vm.prank(bob);
+        vm.expectRevert(CloneBase.NotWrapper.selector);
+        CloneBase(payable(mailbox)).sellAlphaForTao(hotkey1, NETUID1, 10 * ALPHA);
+    }
+
+    function test_RevertWhen_NonWrapperMovesSubnetCloneStake() public {
+        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+        address vaultClone = vault.subnetClone(TOKEN1);
+
+        vm.prank(bob);
+        vm.expectRevert(CloneBase.NotWrapper.selector);
+        SubnetClone(payable(vaultClone)).moveStake(hotkey1, hotkey2, NETUID1, 1 * ALPHA);
+    }
+
+    function test_RevertWhen_NonWrapperUnwrapsSubnetCloneTao() public {
+        _prepareMailbox(alice, NETUID1);
+        address vaultClone = vault.subnetClone(TOKEN1);
+        _donateToClone(vaultClone, 5 * TAO);
+
+        vm.prank(bob);
+        vm.expectRevert(CloneBase.NotWrapper.selector);
+        SubnetClone(payable(vaultClone)).unwrapTao(payable(bob), 5 * TAO);
+    }
+
+    function test_RevertWhen_MailboxIsInitializedAgain() public {
+        address mailbox = _prepareMailbox(alice, NETUID1);
+
+        vm.prank(bob);
+        vm.expectRevert(CloneBase.AlreadyInitialized.selector);
+        CloneBase(payable(mailbox)).initialize(bob);
+    }
+
+    function test_RevertWhen_CallerInitializesACloneForAnotherWrapper() public {
+        address fresh = Clones.clone(address(mailboxLogic));
+
+        vm.expectRevert(CloneBase.UnauthorizedInitializer.selector);
+        CloneBase(payable(fresh)).initialize(bob);
+    }
+
+    function test_RevertWhen_MailboxImplementationIsInitialized() public {
+        vm.expectRevert(CloneBase.AlreadyInitialized.selector);
+        mailboxLogic.initialize(address(this));
+    }
+
+    function test_RevertWhen_SubnetCloneImplementationIsInitialized() public {
+        vm.expectRevert(CloneBase.AlreadyInitialized.selector);
+        subnetLogic.initialize(address(this));
     }
 }

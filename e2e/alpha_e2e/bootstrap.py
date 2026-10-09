@@ -10,7 +10,7 @@ be deposited:
   Phase 2     create + register 3 validator hotkeys per subnet
   Phase 3     stake TAO per validator at ratio 3:2:1
   Phase 4     deploy the contracts and set one target per subnet via the Basic owner
-  Phase 5     fund the wrapper user account
+  Phase 5     fund the wrapper user account and prepare its mailbox on each subnet
 
 btcli calls go through chain.btcli() (auto-appends --network) or
 chain.btcli_json() where the outcome is read back; wallet regen/creation calls
@@ -19,20 +19,22 @@ not carry the --network flag. Keys live under config.WALLET_PATH.
 """
 import os
 import secrets
-import time
 from typing import List, NamedTuple, Tuple
 
 from . import chain, config, extrinsics, substrate, validators
 from .environment import Environment, read_stake
 
 
-
-class DeployedContracts(NamedTuple):
+class Deployment(NamedTuple):
     vault_address: str
     lens_address: str
-    mailbox_implementation_address: str
-    subnet_clone_implementation_address: str
     validator_registry_address: str
+    token_ids: List[int]
+    # Event windows the observability scripts read: everything since deployment, and the
+    # registry's initial validator updates.
+    observation_block_start: int
+    registry_block_start: int
+    registry_block_end: int
 
 
 def _log(message: str) -> None:
@@ -82,7 +84,7 @@ def register_hotkey(netuid: int, hotkey_name: str) -> Tuple[str, str]:
                 return pubkey, ss58
             refusal = error
         print(f"  Retry {attempt} for {hotkey_name} (waiting for next block)...")
-        time.sleep(6)
+        chain.wait_for_blocks(1, timeout=config.BLOCK_TIMEOUT_SECONDS)
 
     raise RuntimeError(
         f"register failed for {hotkey_name} on netuid {netuid} after 3 attempts: {refusal}"
@@ -103,11 +105,6 @@ def _check_chain_reachable() -> None:
     except chain.ChainError as error:
         raise RuntimeError(f"Cannot connect to {config.RPC_URL}") from error
     print(f"  Chain reachable (chain-id: {chain_id})")
-    try:
-        balance = chain.cast_balance_ether(config.DEPLOYER_ADDRESS)
-    except chain.ChainError:
-        balance = 0.0
-    print(f"  Deployer balance: {balance} TAO")
 
 
 def _ensure_alice_wallet() -> None:
@@ -156,17 +153,12 @@ def _ensure_alice_wallet() -> None:
 def _ensure_evm_account_funded(
     label: str, address: str, ss58: str, minimum_tao: int, transfer_tao: int,
 ) -> None:
-    balance = chain.cast_balance_ether(address)
-    if int(balance) < minimum_tao:
-        chain.btcli(
-            ["wallet", "transfer", "--wallet", config.ALICE_WALLET,
-             "--dest", ss58, "--amount-tao", str(transfer_tao), "--yes"],
-            check=True,
-        )
+    balance_wei = chain.cast_balance_wei(address)
+    if balance_wei < minimum_tao * config.RAO_PER_TAO * config.WEI_PER_RAO:
+        extrinsics.fund_account(ss58, transfer_tao * config.RAO_PER_TAO)
         print(f"  Transferred {transfer_tao} TAO -> {address} ({ss58})")
-        print(f"  New balance: {chain.cast_balance_ether(address)} TAO")
     else:
-        print(f"  {label} already funded: {balance} TAO (>{minimum_tao}, skipping transfer)")
+        print(f"  {label} already funded: {balance_wei} wei (>= {minimum_tao} TAO, skipping transfer)")
 
 
 # --- Phase 1: subnets, freeze window, emissions -----------------------------------
@@ -201,9 +193,8 @@ def _create_subnets() -> List[int]:
 
 # --- Phase 2: hotkeys + validator registration -------------------------------------
 
-def _register_validators(netuids: List[int]) -> Tuple[List[str], List[str], List[str]]:
+def _register_validators(netuids: List[int]) -> Tuple[List[str], List[str]]:
     _log("Phase 2: Hotkeys & validators (3 per subnet)")
-    hotkey_names: List[str] = []
     hotkey_pubkeys: List[str] = []
     hotkey_ss58s: List[str] = []
 
@@ -211,33 +202,31 @@ def _register_validators(netuids: List[int]) -> Tuple[List[str], List[str], List
         for suffix in config.HOTKEY_SUFFIXES:
             hotkey_name = f"hk_e2e_{subnet_index + 1}{suffix}"
             pubkey, ss58 = register_hotkey(netuid, hotkey_name)
-            hotkey_names.append(hotkey_name)
             hotkey_pubkeys.append(pubkey)
             hotkey_ss58s.append(ss58)
             print(f"  {hotkey_name} registered on netuid {netuid}: {pubkey[:18]}...")
 
-    return hotkey_names, hotkey_pubkeys, hotkey_ss58s
+    return hotkey_pubkeys, hotkey_ss58s
 
 
 # --- Phase 3: stake TAO per validator, ratio 3:2:1 ----------------------------------
 
 def _stake_validators(
-    netuids: List[int], hotkey_names: List[str],
-    hotkey_pubkeys: List[str], hotkey_ss58s: List[str],
+    netuids: List[int], hotkey_pubkeys: List[str], hotkey_ss58s: List[str],
 ) -> None:
     _log("Phase 3: Stake TAO per validator (ratio 3:2:1)")
     for subnet_index, netuid in enumerate(netuids):
         for validator_index, amount_tao in enumerate(config.VALIDATOR_STAKE_TAO):
             flat_index = subnet_index * config.VALIDATORS_PER_SUBNET + validator_index
-            hotkey_name = hotkey_names[flat_index]
+            hotkey_pubkey = hotkey_pubkeys[flat_index]
 
             extrinsics.add_stake(hotkey_ss58s[flat_index], netuid, amount_tao * config.RAO_PER_TAO)
-            stake = read_stake(hotkey_pubkeys[flat_index], config.ALICE_COLDKEY_PUBKEY, netuid)
+            stake = read_stake(hotkey_pubkey, config.ALICE_COLDKEY_PUBKEY, netuid)
             if stake == 0:
                 raise RuntimeError(
-                    f"stake add landed but {hotkey_name} reads 0 RAO on netuid {netuid}"
+                    f"stake add landed but {hotkey_pubkey[:18]}... reads 0 RAO on netuid {netuid}"
                 )
-            print(f"  netuid {netuid} {hotkey_name}: {amount_tao} TAO -> {stake} RAO")
+            print(f"  netuid {netuid} {hotkey_pubkey[:18]}...: {amount_tao} TAO -> {stake} RAO")
 
 
 # --- Phase 4: deploy contracts -------------------------------------------------------
@@ -252,13 +241,12 @@ def _deploy_registry() -> str:
     return address
 
 
-def _deploy_contracts(
+def deploy_contracts(
     netuids: List[int], hotkey_pubkeys: List[str], *, recovery_window: int,
-):
+) -> Deployment:
+    """Deploy the vault, its lens and a Basic registry naming each subnet's first hotkey."""
     _log("Phase 4: Deploy")
 
-    # Capture the deploy block so a downstream observability phase can scope its
-    # event queries.
     observation_block_start = chain.cast_block_number()
     print(f"  Observability block range start: {observation_block_start}")
 
@@ -313,26 +301,24 @@ def _deploy_contracts(
 
     registry_block_start = chain.cast_block_number()
     for subnet_index, netuid in enumerate(netuids):
-        subnet_pubkeys = hotkey_pubkeys[
-            subnet_index * config.VALIDATORS_PER_SUBNET:
-            (subnet_index + 1) * config.VALIDATORS_PER_SUBNET
-        ]
-        validators.set_basic_validator(validator_registry_address, netuid, subnet_pubkeys[0])
+        first_hotkey = hotkey_pubkeys[subnet_index * config.VALIDATORS_PER_SUBNET]
+        validators.set_basic_validator(validator_registry_address, netuid, first_hotkey)
     registry_block_end = chain.cast_block_number()
 
-    contracts = DeployedContracts(
+    return Deployment(
         vault_address=vault_address,
         lens_address=lens_address,
-        mailbox_implementation_address=mailbox_implementation_address,
-        subnet_clone_implementation_address=subnet_clone_implementation_address,
         validator_registry_address=validator_registry_address,
+        token_ids=token_ids,
+        observation_block_start=observation_block_start,
+        registry_block_start=registry_block_start,
+        registry_block_end=registry_block_end,
     )
-    return observation_block_start, registry_block_start, registry_block_end, contracts, token_ids
 
 
 # --- Composition -------------------------------------------------------------------------
 
-def build_environment(*, recovery_window: int = 3 * 60 * 60) -> Environment:
+def build_environment(*, recovery_window: int) -> Environment:
     _check_repo_root()
     _check_chain_reachable()
     _ensure_alice_wallet()
@@ -342,39 +328,28 @@ def build_environment(*, recovery_window: int = 3 * 60 * 60) -> Environment:
         minimum_tao=50, transfer_tao=10_000,
     )
     netuids = _create_subnets()
-    hotkey_names, hotkey_pubkeys, hotkey_ss58s = _register_validators(netuids)
-    _stake_validators(netuids, hotkey_names, hotkey_pubkeys, hotkey_ss58s)
-    (observation_block_start, registry_block_start, registry_block_end,
-     contracts, token_ids) = _deploy_contracts(netuids, hotkey_pubkeys, recovery_window=recovery_window)
+    hotkey_pubkeys, hotkey_ss58s = _register_validators(netuids)
+    _stake_validators(netuids, hotkey_pubkeys, hotkey_ss58s)
+    deployment = deploy_contracts(netuids, hotkey_pubkeys, recovery_window=recovery_window)
     _log("Phase 5: Fund user account")
     _ensure_evm_account_funded(
         "User account", config.WRAPPER_USER_ADDRESS, config.WRAPPER_USER_SS58,
         minimum_tao=5, transfer_tao=100,
     )
 
-    for netuid in netuids:
-        receipt = chain.cast_send(
-            contracts.vault_address, "createMailbox(uint256,bytes32)", netuid,
-            "0x" + secrets.token_hex(32),
-            private_key=config.WRAPPER_USER_PRIVATE_KEY, gas_limit=2_000_000,
-        )
-        if not chain.receipt_ok(receipt):
-            raise RuntimeError(f"createMailbox failed for netuid {netuid}: {receipt}")
-        print(f"  Protected mailbox and subnet clone prepared for netuid {netuid}")
-
-    wrapper_substrate_coldkey = substrate.h160_to_substrate_b32(config.WRAPPER_USER_ADDRESS)
-    print(f"  Wrapper substrate coldkey: {wrapper_substrate_coldkey}")
-
-    return Environment(
-        netuids=netuids, token_ids=token_ids,
-        hotkey_names=hotkey_names, hotkey_pubkeys=hotkey_pubkeys, hotkey_ss58s=hotkey_ss58s,
-        vault_address=contracts.vault_address,
-        lens_address=contracts.lens_address,
-        mailbox_implementation_address=contracts.mailbox_implementation_address,
-        subnet_clone_implementation_address=contracts.subnet_clone_implementation_address,
-        validator_registry_address=contracts.validator_registry_address,
-        wrapper_substrate_coldkey=wrapper_substrate_coldkey,
-        observation_block_start=observation_block_start,
-        registry_block_start=registry_block_start,
-        registry_block_end=registry_block_end,
+    env = Environment(
+        netuids=netuids, token_ids=deployment.token_ids,
+        hotkey_pubkeys=hotkey_pubkeys, hotkey_ss58s=hotkey_ss58s,
+        vault_address=deployment.vault_address,
+        lens_address=deployment.lens_address,
+        validator_registry_address=deployment.validator_registry_address,
+        wrapper_substrate_coldkey=substrate.h160_to_substrate_b32(config.WRAPPER_USER_ADDRESS),
+        observation_block_start=deployment.observation_block_start,
+        registry_block_start=deployment.registry_block_start,
+        registry_block_end=deployment.registry_block_end,
     )
+    for netuid in netuids:
+        env.create_mailbox(netuid)
+        print(f"  Protected mailbox and subnet clone prepared for netuid {netuid}")
+    print(f"  Wrapper substrate coldkey: {env.wrapper_substrate_coldkey}")
+    return env
