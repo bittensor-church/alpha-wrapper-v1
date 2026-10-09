@@ -193,6 +193,20 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         );
     }
 
+    function test_SingleHolder_UnwrapsHalfForTaoThenTheRestForAlpha() public {
+        _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
+        uint256 shares = _depositForAlice(100 * ALPHA);
+
+        vm.prank(alice);
+        vault.unwrapForTao(TOKEN1, shares / 2, 0);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
+
+        assertEq(alice.balance, 2.5e18, "50 alpha sold at 0.05 TAO/alpha");
+        assertEq(_getStake(hotkey1, alice, NETUID1), 50 * ALPHA, "the rest arrives as alpha");
+        assertEq(vault.totalSupply(TOKEN1), 0, "both exits together retire every share");
+    }
+
     function test_BurnAllShares_PaysFullAlphaAsTao() public {
         uint256 shares = _depositForAlice(100 * ALPHA);
         uint256 aliceBalanceBefore = alice.balance;

@@ -456,9 +456,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
 
-        assertEq(
-            _userStakeAcrossHotkeys(alice, NETUID1), 19_998_000_000, "the full exit pays what is really staked"
-        );
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 19_998_000_000, "the full exit pays what is really staked");
         assertEq(_realBacking(), 0, "and nothing more");
     }
 

@@ -9,7 +9,6 @@ import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 
 contract RecoveryDeadlineTest is AlphaVaultTestBase {
-
     /// @dev 40 alpha at 2000 / 6000 / 2000 bps: 8 alpha is lost on hotkey1, 24 on hotkey2, and hotkey3's
     ///      8 alpha is parked at declaration.
     function _twoLosses() private returns (bytes32 firstTip, bytes32 secondTip, uint256 deadline) {

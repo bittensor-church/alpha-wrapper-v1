@@ -38,6 +38,22 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
         assertEq(vault.balanceOf(alice, vault.currentTokenId(99)), 2e17);
     }
 
+    /// @dev 0.0100000005 TAO/alpha reads as 0.01 in whole RAO, valuing 0.2 alpha at exactly the 2e6 RAO floor.
+    function test_Wrap_AcceptsTheFloorAtTheTruncatedPriceRead() public {
+        _setAlphaPrice(NETUID1, 0.0100000005e18);
+
+        assertEq(_depositAndWrap(alice, NETUID1, 200_000_000), 2e17, "0.2 alpha mints 1e9 shares per RAO");
+    }
+
+    function test_RevertWhen_DepositIsOneRaoBelowTheFloorAtTheTruncatedPriceRead() public {
+        _setAlphaPrice(NETUID1, 0.0100000005e18);
+        _simulateAlphaDeposit(alice, NETUID1, 199_999_999);
+
+        vm.prank(alice);
+        vm.expectRevert(IAlphaVaultAbi.DepositTooSmall.selector);
+        vault.wrap(NETUID1, hotkey1, 0);
+    }
+
     function test_Rebalance_SkipsSubFloorMove() public {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
         _simulateAlphaDepositHotkey(alice, NETUID1, ALPHA, hotkey1);
