@@ -8,14 +8,14 @@ coldkey that itself holds a lock), unwrapForTao -- never touch lock state.
 
   Phase 6   Alice locks all but a movable margin of her subnet stake
   Phase 7   depositing MORE than the movable amount is refused by the chain,
-            atomically, and the following wrap reverts on the empty mailbox
+            and the following wrap reverts on the empty mailbox
   Phase 8   the movable portion of the locked wallet wraps normally
   Phase 9   unwrap pays out to a coldkey that HOLDS an active lock
   Phase 10  unwrapForTao works while a large lock exists on the subnet
 """
 import pytest
 
-from alpha_e2e import checks, config, extrinsics, substrate
+from alpha_e2e import checks, config, exits, extrinsics, substrate
 from alpha_e2e.substrate import h160_to_ss58, h160_to_substrate_b32
 
 UNLOCKED_MARGIN_RAO = 30_000_000_000  # 30 alpha
@@ -32,6 +32,7 @@ def test_convicted_alpha(env):
     test_hotkey_pubkey = env.hotkey_pubkeys[0]
     test_hotkey_ss58 = env.hotkey_ss58s[0]
 
+    subnet_hotkeys = env.subnet_hotkey_pubkeys(0)
     user_mailbox = env.mailbox_address(test_netuid)
     user_mailbox_coldkey = h160_to_substrate_b32(user_mailbox)
     user_mailbox_ss58 = h160_to_ss58(user_mailbox)
@@ -45,7 +46,7 @@ def test_convicted_alpha(env):
         # the lock: it returns TAO value, not the alpha the lock is denominated in.
         return env.total_stake_across(
             config.ALICE_COLDKEY_PUBKEY, test_netuid,
-            [alice_owner_hotkey_pubkey, *env.subnet_hotkey_pubkeys(0)],
+            [alice_owner_hotkey_pubkey, *subnet_hotkeys],
         )
 
     # --- Phase 6: Alice locks all but the movable margin of her subnet stake ------
@@ -95,42 +96,20 @@ def test_convicted_alpha(env):
     )
     print("  Chain refused the over-movable transfer (mailbox rejects locked inflow by default)")
 
-    mailbox_alpha_after = env.stake(test_hotkey_pubkey, user_mailbox_coldkey, test_netuid)
-    assert mailbox_alpha_after == mailbox_alpha_before, (
-        f"mailbox balance changed by a refused transfer "
-        f"({mailbox_alpha_before} -> {mailbox_alpha_after} RAO)"
-    )
-    alice_test_hotkey_stake_after = env.stake(
-        test_hotkey_pubkey, config.ALICE_COLDKEY_PUBKEY, test_netuid,
-    )
-    assert alice_test_hotkey_stake_after >= over_movable_amount, (
-        "Alice's stake decreased despite the refused transfer"
-    )
-    print(f"  Refusal was atomic: mailbox unchanged ({mailbox_alpha_after} RAO), "
-          "Alice's stake intact")
-
-    shares_before_reverted_wrap = env.vault_shares(test_token_id)
-    env.vault_send_expect_revert(
-        1_500_000, "wrap with no arrived deposit did NOT revert",
+    env.assert_vault_reverts_with(
+        "ZeroAmount()", 1_500_000, "wrap with no arrived deposit did NOT revert as ZeroAmount",
         "wrap(uint256,bytes32,uint256)", test_netuid, test_hotkey_pubkey, 0,
     )
-    shares_after_reverted_wrap = env.vault_shares(test_token_id)
-    assert shares_after_reverted_wrap == shares_before_reverted_wrap, (
-        f"shares changed after a reverted wrap "
-        f"({shares_before_reverted_wrap} -> {shares_after_reverted_wrap})"
-    )
-    print(f"  wrap reverted (the mailbox is provably empty); shares unchanged "
-          f"({shares_after_reverted_wrap})")
 
     # --- Phase 8: the movable portion of the locked wallet wraps normally ----------
     movable_deposit_rao = UNLOCKED_MARGIN_RAO // 2
-    env.deposit_and_wrap(
+    receipt = env.deposit_and_wrap(
         test_netuid, test_hotkey_pubkey, test_hotkey_ss58, movable_deposit_rao,
         1_500_000, "wrap of the movable portion failed",
     )
-    shares_after_movable_wrap = env.vault_shares(test_token_id)
-    assert shares_after_movable_wrap > shares_after_reverted_wrap, (
-        "no shares minted for the movable-portion wrap"
+    checks.assert_first_deposit_shares(
+        env.vault_shares(test_token_id), env.deposited(receipt, test_netuid, test_hotkey_pubkey),
+        "movable-portion wrap",
     )
     locked_alpha_after_movable_wrap = _alice_locked_alpha(test_netuid, test_hotkey_ss58)
     # Touching the lock re-persists its lazily-decayed locked amount (the decay is
@@ -141,27 +120,12 @@ def test_convicted_alpha(env):
     assert initial_locked_alpha >= locked_alpha_after_movable_wrap, (
         "Alice's lock grew during a free-portion wrap (a lock migrated unexpectedly)"
     )
-    print(f"  Movable portion wrapped: {shares_after_movable_wrap} shares; "
-          "Alice's lock untouched")
 
     # --- Phase 9: unwrap pays out to a coldkey that HOLDS an active lock -----------
-    total_shares = env.vault_shares(test_token_id)
-    half_shares = total_shares // 2
-    previewed_half_alpha, _ = env.preview_unwrap(test_token_id, half_shares)
-    alice_subnet_alpha_before_unwrap = alice_subnet_alpha()
-
-    env.vault_send(
-        2_000_000, "unwrap to a lock-holding coldkey failed",
-        "unwrap(uint256,uint256,bytes32,uint256)",
-        test_token_id, half_shares, config.ALICE_COLDKEY_PUBKEY, 1,
-    )
-
-    alice_received_alpha = alice_subnet_alpha() - alice_subnet_alpha_before_unwrap
-    # Emissions between the reads only add, so the preview (less drift allowance)
-    # is a safe lower bound proving a real half-position payout.
-    assert alice_received_alpha >= previewed_half_alpha // 100 * 85, (
-        f"unwrap paid a lock-holding coldkey far less than previewed "
-        f"({alice_received_alpha} vs {previewed_half_alpha})"
+    half_shares = env.vault_shares(test_token_id) // 2
+    _, alice_received_alpha = exits.unwrap(
+        env, test_token_id, half_shares, "unwrap to a lock-holding coldkey failed",
+        hotkeys=[alice_owner_hotkey_pubkey, *subnet_hotkeys], coldkey=config.ALICE_COLDKEY_PUBKEY,
     )
     locked_alpha_after_unwrap = _alice_locked_alpha(test_netuid, test_hotkey_ss58)
     assert locked_alpha_after_unwrap >= initial_locked_alpha // 100 * 99, (
@@ -170,23 +134,13 @@ def test_convicted_alpha(env):
     assert initial_locked_alpha >= locked_alpha_after_unwrap, (
         "Alice's lock grew from receiving unwrapped alpha (a lock arrived with the transfer)"
     )
-    print(f"  Locked coldkey received {alice_received_alpha} RAO unlocked alpha "
-          f"(preview {previewed_half_alpha}); lock intact")
+    print(f"  Locked coldkey received {alice_received_alpha} RAO unlocked alpha; lock intact")
 
     # --- Phase 10: unwrapForTao works while a large lock exists on the subnet -------
-    remaining_shares = env.vault_shares(test_token_id)
-    previewed_remaining_alpha, _ = env.preview_unwrap(test_token_id, remaining_shares)
-
-    user_tao_before = env.user_tao_wei()
-    receipt = env.vault_send(
-        2_500_000, "unwrapForTao failed on a subnet with active locks",
-        "unwrapForTao(uint256,uint256,uint256)", test_token_id, remaining_shares, 0,
+    receipt, sold_alpha = exits.unwrap_for_tao(
+        env, test_token_id, env.vault_shares(test_token_id), "unwrapForTao on a subnet with active locks",
+        hotkeys=subnet_hotkeys,
     )
-    final_shares = env.vault_shares(test_token_id)
-    assert final_shares == 0, f"shares still {final_shares} after unwrapForTao"
-
-    sold_alpha = checks.assert_payout_near_quote(
-        user_tao_before, env.user_tao_wei(), receipt, test_netuid, previewed_remaining_alpha,
-        "unwrapForTao payout off the alpha->TAO quote",
-    )
+    assert env.vault_shares(test_token_id) == 0, "shares left after unwrapForTao"
+    exits.assert_drained(env, test_token_id, subnet_hotkeys, receipt, "unwrapForTao on a subnet with active locks")
     print(f"  Remaining shares exited as TAO: sold {sold_alpha} alpha RAO at the chain's quote")

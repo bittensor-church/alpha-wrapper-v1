@@ -5,11 +5,13 @@ import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { BackingUnchanged, NothingToRecover } from "src/VaultErrors.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
-import { MockStaking, CHAIN_MIN_STAKE } from "./mocks/MockStaking.sol";
+import { MockStaking } from "./mocks/MockStaking.sol";
 
 contract RecoveryDustTest is AlphaVaultTestBase {
-    uint256 private constant EXPECTED = 30e6;
-    uint256 private constant DUST = CHAIN_MIN_STAKE / 2;
+    uint256 private constant EXPECTED = 6 * ALPHA / 10;
+    uint256 private constant DUST = ALPHA_FLOOR / 2;
+    /// @dev 3333 bps of EXPECTED: above the floor at 0.05 TAO/alpha, below the 0.2 alpha floor at 0.01.
+    uint256 private constant THIRD_SLOT = 199_980_000;
 
     function _missingPosition() private returns (bytes32[] memory tips) {
         _depositAndWrap(alice, NETUID1, EXPECTED);
@@ -45,7 +47,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         (, uint256 deadline) = _emptyRecovery();
         _plant(hotkey1, DUST);
         assertEq(lens.locatedStake(TOKEN1), DUST);
-        assertEq(lens.missingStake(TOKEN1), EXPECTED - DUST, "recorded dust is located backing");
+        assertEq(lens.missingStake(TOKEN1), 580_000_000, "recorded dust is located backing");
         vm.warp(deadline - 1);
         vm.expectRevert(BackingUnchanged.selector);
         vault.syncBacking(TOKEN1);
@@ -65,26 +67,29 @@ contract RecoveryDustTest is AlphaVaultTestBase {
 
     function test_ParkedPile_CollectsDustWithoutExtendingTheWindow() public {
         (bytes32[] memory tips, uint256 deadline) = _emptyRecovery();
-        uint256 recovered = _getVaultStake(tips[2], NETUID1);
+        bytes32 parking = vault.parkingHotkey();
         vault.recoverStray(TOKEN1, tips[2]);
         _plant(hotkey1, DUST);
+
+        vm.expectEmit(true, true, false, true, address(vault));
+        emit BackingRecovered(TOKEN1, parking, DUST);
         vault.syncBacking(TOKEN1);
-        assertEq(_parkedStake(NETUID1), recovered + DUST);
+
+        assertEq(_parkedStake(NETUID1), THIRD_SLOT + DUST);
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
-        assertEq(lens.missingStake(TOKEN1), EXPECTED - recovered - DUST);
+        assertEq(lens.missingStake(TOKEN1), 380_020_000);
         assertEq(lens.writeOffDeadline(TOKEN1), deadline);
     }
 
     function test_AboveFloorReturnAtExpiry_CollectsPreviouslySkippedDust() public {
         (bytes32[] memory tips, uint256 deadline) = _emptyRecovery();
         _plant(hotkey1, DUST);
-        uint256 recovered = _getVaultStake(tips[2], NETUID1);
         _simulateOffVaultSwap(NETUID1, tips[2], hotkey3);
         vm.warp(deadline);
         vm.expectEmit(true, false, false, true, address(vault));
-        emit BackingWrittenOff(TOKEN1, EXPECTED, recovered + DUST);
+        emit BackingWrittenOff(TOKEN1, EXPECTED, THIRD_SLOT + DUST);
         vault.syncBacking(TOKEN1);
-        assertEq(_parkedStake(NETUID1), recovered + DUST);
+        assertEq(_parkedStake(NETUID1), THIRD_SLOT + DUST);
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
         assertEq(_getVaultStake(hotkey3, NETUID1), 0);
     }
@@ -95,7 +100,8 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
         assertEq(_parkedStake(NETUID1), 0);
         uint256 deadline = lens.writeOffDeadline(TOKEN1);
-        _setAlphaPrice(NETUID1, 3e18);
+        // 0.02 alpha at 0.1 TAO/alpha is exactly the 2e6 RAO floor.
+        _setAlphaPrice(NETUID1, 0.1e18);
         vm.warp(deadline);
         vm.expectEmit(true, false, false, true, address(vault));
         emit BackingWrittenOff(TOKEN1, EXPECTED, DUST);
@@ -106,21 +112,19 @@ contract RecoveryDustTest is AlphaVaultTestBase {
 
     function test_PriceFallDuringRecovery_DoesNotLetDustBlockTheParkedBalance() public {
         (bytes32[] memory tips, uint256 deadline) = _emptyRecovery();
-        uint256 recovered = _getVaultStake(tips[2], NETUID1);
         vault.recoverStray(TOKEN1, tips[2]);
         _plant(hotkey1, DUST);
-        _setAlphaPrice(NETUID1, 0.1e18);
-        assertLt(recovered / 10, CHAIN_MIN_STAKE);
+        _setAlphaPrice(NETUID1, 0.01e18);
         vm.warp(deadline);
         vault.syncBacking(TOKEN1);
-        assertEq(lens.totalStake(TOKEN1), recovered, "the entire parked balance remains backing");
+        assertEq(lens.totalStake(TOKEN1), THIRD_SLOT, "the entire parked balance remains backing");
         assertEq(_getVaultStake(hotkey1, NETUID1), DUST);
         // A subsequent price recovery permits the holder's normal full alpha exit.
-        _setAlphaPrice(NETUID1, 1e18);
+        _setAlphaPrice(NETUID1, ALPHA_PRICE);
         uint256 shares = vault.balanceOf(alice, TOKEN1);
         vm.prank(alice);
-        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), recovered);
-        assertEq(_getStake(vault.parkingHotkey(), alice, NETUID1), recovered);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), THIRD_SLOT);
+        assertEq(_getStake(vault.parkingHotkey(), alice, NETUID1), THIRD_SLOT);
     }
 
     function test_UnknownRoundedPrice_DoesNotAuthorizeADustWriteOff() public {
@@ -128,18 +132,17 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         _plant(hotkey1, DUST);
         _setAlphaPriceReadsZero(NETUID1);
         vm.warp(deadline);
-        // The mock supplies this reason; a native refusal consumes the forwarded gas.
-        vm.expectRevert(bytes("MockStaking: AmountTooLow"));
+        _expectChainRefusal();
         vault.syncBacking(TOKEN1);
     }
 
     function test_FailedAboveFloorCollection_DoesNotUseTheDustException() public {
         (, uint256 deadline) = _emptyRecovery();
-        _plant(hotkey1, CHAIN_MIN_STAKE);
+        _plant(hotkey1, ALPHA_FLOOR);
         _plant(hotkey2, DUST);
         MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(true);
         vm.warp(deadline);
-        vm.expectRevert(bytes("MockStaking: moveStake reverted"));
+        _expectChainRefusal();
         vault.syncBacking(TOKEN1);
     }
 
@@ -147,22 +150,22 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         uint16 netuid = 9;
         _setRegBlock(netuid, 400);
         bytes32[] memory keys = _setValidatorCount(netuid, count);
-        _simulateAlphaDepositHotkey(alice, netuid, 100e6, keys[0]);
+        _simulateAlphaDepositHotkey(alice, netuid, ALPHA, keys[0]);
         _wrapHotkey(alice, netuid, keys[0]);
         uint256 tokenId = vault.currentTokenId(netuid);
         bytes32 coldkey = _subnetColdkey(netuid);
         for (uint256 i; i < count; ++i) {
-            uint256 balance = movable && i == count - 1 ? CHAIN_MIN_STAKE : dust;
+            uint256 balance = movable && i == count - 1 ? ALPHA_FLOOR : dust;
             MockStaking(STAKING_PRECOMPILE).setStake(keys[i], coldkey, netuid, balance);
             located += balance;
         }
         vault.syncBacking(tokenId);
-        assertEq(vault.recordedSlots(tokenId)[0].tracked, 100e6);
+        assertEq(vault.recordedSlots(tokenId)[0].tracked, ALPHA);
         assertEq(_parkedStake(netuid), movable ? located : 0);
         uint256 deadline = lens.writeOffDeadline(tokenId);
         vm.warp(deadline);
         vm.expectEmit(true, false, false, true, address(vault));
-        emit BackingWrittenOff(tokenId, 100e6, movable ? located : 0);
+        emit BackingWrittenOff(tokenId, ALPHA, movable ? located : 0);
         vault.syncBacking(tokenId);
         assertEq(lens.totalStake(tokenId), movable ? located : 0);
         for (uint256 i; i < count; ++i) {
@@ -171,19 +174,16 @@ contract RecoveryDustTest is AlphaVaultTestBase {
     }
 
     function test_TenDustBalances_DoNotBlockWriteOffEvenWhenTheirSumExceedsTheFloor() public {
-        uint256 located = _smallSet(10, CHAIN_MIN_STAKE - 1, false);
-        assertGt(located, CHAIN_MIN_STAKE, "the combined dust exceeds the floor even though each balance does not");
+        _smallSet(10, ALPHA_FLOOR - 1, false);
     }
 
     function test_OneBalanceAtTheFloor_CollectsAllNineDustBalances() public {
-        _smallSet(10, CHAIN_MIN_STAKE - 1, true);
+        _smallSet(10, ALPHA_FLOOR - 1, true);
     }
 
     function testFuzz_SmallSets_OnlySkipIndividuallySubFloorBalances(uint256 rawCount, uint256 rawDust, bool movable)
         public
     {
-        _smallSet(
-            bound(rawCount, 2, 10), bound(rawDust, VaultReads.TRACKED_SLACK_RAO + 1, CHAIN_MIN_STAKE - 1), movable
-        );
+        _smallSet(bound(rawCount, 2, 10), bound(rawDust, VaultReads.TRACKED_SLACK_RAO + 1, ALPHA_FLOOR - 1), movable);
     }
 }

@@ -13,7 +13,7 @@ vacated name. Exits keep working from the parking hotkey throughout.
 """
 import pytest
 
-from alpha_e2e import config, incidents
+from alpha_e2e import config, exits, incidents
 
 
 @pytest.mark.scenario
@@ -26,7 +26,7 @@ def test_watcher_parks_a_position_whose_trail_a_stranger_cut(env):
 
     env.deposit_and_wrap(
         netuid, hotkeys[0], env.hotkey_ss58s[0],
-        config.PER_HOTKEY_TRANSFER_RAO, 1_500_000, "Parked recovery: wrap failed",
+        config.DEPOSIT_RAO, 1_500_000, "Parked recovery: wrap failed",
     )
     shares = env.vault_shares(token_id)
     assert shares != 0, "no shares minted by the setup wrap"
@@ -52,16 +52,9 @@ def test_watcher_parks_a_position_whose_trail_a_stranger_cut(env):
         "Parked recovery: a deposit should be refused while parked",
         "wrap(uint256,bytes32,uint256)", netuid, hotkeys[1], 0,
     )
-    exit_shares = shares // 4
-    quoted_alpha, _ = env.preview_unwrap(token_id, exit_shares)
-    delivered_before = env.stake(parking_hotkey, env.wrapper_substrate_coldkey, netuid)
-    env.vault_send(
-        2_500_000, "Parked recovery: the exit should pay from the parking hotkey",
-        "unwrap(uint256,uint256,bytes32,uint256)", token_id, exit_shares, env.wrapper_substrate_coldkey, 1,
-    )
-    delivered = env.stake(parking_hotkey, env.wrapper_substrate_coldkey, netuid) - delivered_before
-    assert delivered >= quoted_alpha - config.ROUNDING_DUST_TOTAL_RAO, (
-        f"the parked exit delivered {delivered} alpha against a quote of {quoted_alpha}"
+    exits.unwrap(
+        env, token_id, shares // 4, "Parked recovery: the exit should pay from the parking hotkey",
+        hotkeys=[parking_hotkey],
     )
     assert env.awaiting_attestation(token_id), "an exit does not release the position"
 
@@ -83,5 +76,5 @@ def test_watcher_parks_a_position_whose_trail_a_stranger_cut(env):
     deposit_hotkey, deposit_ss58 = successor_pubkey, stranding.successor_ss58
     env.deposit_and_wrap(
         netuid, deposit_hotkey, deposit_ss58,
-        config.PER_HOTKEY_TRANSFER_RAO // 10, 1_500_000, "Parked recovery: deposits should resume",
+        config.DEPOSIT_RAO // 10, 1_500_000, "Parked recovery: deposits should resume",
     )

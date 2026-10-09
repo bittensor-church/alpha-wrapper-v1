@@ -20,4 +20,4 @@ def test_observability_decodes_basic_validator_updates(monkeypatch, capsys):
     script.main()
     contract, event = "BasicValidatorRegistry", "ValidatorUpdated"
     assert calls[0][2:4] == (contract, event)
-    assert f"0x01,7,2,1,123" in capsys.readouterr().out
+    assert "0x01,7,2,1,123" in capsys.readouterr().out

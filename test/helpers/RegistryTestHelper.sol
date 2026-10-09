@@ -37,4 +37,20 @@ abstract contract RegistryTestHelper is Test {
         }
         weights[slots - 1] = VaultMath.BPS_BASE - share * (slots - 1);
     }
+
+    /// @dev Every hotkey but the last holds `eachStake` under `coldkey`; the last holds `lastStake`.
+    function _assertSpread(
+        bytes32[] memory hotkeys,
+        bytes32 coldkey,
+        uint256 netuid,
+        uint256 eachStake,
+        uint256 lastStake
+    ) internal view {
+        MockStaking staking = MockStaking(STAKING_PRECOMPILE);
+        uint256 last = hotkeys.length - 1;
+        for (uint256 i; i < last; ++i) {
+            assertEq(staking.getStake(hotkeys[i], coldkey, netuid), eachStake, "slot off its weight");
+        }
+        assertEq(staking.getStake(hotkeys[last], coldkey, netuid), lastStake, "last slot absorbs the remainder");
+    }
 }

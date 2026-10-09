@@ -57,24 +57,39 @@ contract BasicValidatorRegistryVaultTest is AlphaVaultTestBase {
     function test_UnwrapForTao_DrainsRotatedValidator() public {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
         basicRegistry.setValidator(NETUID1, hotkey3);
-        uint256 balanceBefore = alice.balance;
         uint256 shares = vault.balanceOf(alice, TOKEN1);
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares, 0);
         assertEq(vault.balanceOf(alice, TOKEN1), 0);
         assertEq(lens.totalStake(TOKEN1), 0);
-        assertGt(alice.balance, balanceBefore);
+        assertEq(alice.balance, TAO / 2, "10 alpha sold at 0.05 TAO");
     }
 
-    function test_Rebalance_NewOwnerReleasesRecoveredParking() public {
+    function _parkAfterAnOffVaultSwap() private {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-        uint256 shares = vault.balanceOf(alice, TOKEN1);
         _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
         vault.syncBacking(TOKEN1);
         vault.recoverStray(TOKEN1, hotkey4);
         vault.syncBacking(TOKEN1);
         assertTrue(vault.awaitingAttestation(TOKEN1));
         assertEq(_parkedStake(NETUID1), 10 * ALPHA);
+    }
+
+    function test_Rebalance_SameHotkeyResubmissionReleasesParking() public {
+        _parkAfterAnOffVaultSwap();
+
+        basicRegistry.setValidator(NETUID1, hotkey1);
+        assertFalse(vault.awaitingAttestation(TOKEN1), "the fresh nonce is the owner's decision");
+        vault.rebalance(NETUID1);
+
+        assertEq(_parkedStake(NETUID1), 0);
+        assertEq(_getVaultStake(hotkey1, NETUID1), 10 * ALPHA);
+        assertTrue(lens.isBackingIntact(TOKEN1));
+    }
+
+    function test_Rebalance_NewOwnerReleasesRecoveredParking() public {
+        _parkAfterAnOffVaultSwap();
+        uint256 shares = vault.balanceOf(alice, TOKEN1);
 
         basicRegistry.transferOwnership(bob);
         assertTrue(vault.awaitingAttestation(TOKEN1), "nomination does not publish a validator update");

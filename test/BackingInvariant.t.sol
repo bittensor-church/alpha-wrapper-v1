@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { BackingCampaignHandler, BackingCampaignHarness } from "./helpers/BackingCampaign.sol";
+import {
+    BackingCampaignHandler,
+    BackingCampaignHarness,
+    requireExpectedRevert,
+    recoverErrors
+} from "./helpers/BackingCampaign.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
@@ -12,7 +17,7 @@ contract BackingHandler is BackingCampaignHandler {
 
     constructor(
         AlphaVault _vault,
-        BackingInvariantTest _harness,
+        BackingCampaignSetup _harness,
         uint256 _tokenId,
         uint256 _netuid,
         address[] memory _actors,
@@ -74,7 +79,9 @@ contract BackingHandler is BackingCampaignHandler {
                 owedBefore,
                 "recovery discarded part of the obligation"
             );
-        } catch { }
+        } catch (bytes memory reason) {
+            requireExpectedRevert(reason, recoverErrors());
+        }
     }
 
     function rotateValidators(uint256 seed) external {
@@ -89,14 +96,12 @@ contract BackingHandler is BackingCampaignHandler {
         harness.attest(set);
     }
 
-    function _backing() private view returns (BackingInvariantTest) {
-        return BackingInvariantTest(address(harness));
+    function _backing() private view returns (BackingCampaignSetup) {
+        return BackingCampaignSetup(address(harness));
     }
 }
 
-/// forge-config: default.invariant.fail-on-revert = true
-/// forge-config: ci.invariant.fail-on-revert = true
-contract BackingInvariantTest is BackingCampaignHarness {
+abstract contract BackingCampaignSetup is BackingCampaignHarness {
     BackingHandler internal handler;
 
     function setUp() public override {
@@ -129,9 +134,8 @@ contract BackingInvariantTest is BackingCampaignHarness {
         covered = new bool[](slots.length);
         bytes32 coldkey = _subnetColdkey(NETUID1);
         for (uint256 i; i < slots.length; ++i) {
-            uint256 held = _getStakeForColdkey(slots[i].active, coldkey, NETUID1);
-            // Check the chain ledger directly; recovery must leave each persisted slot covered.
-            covered[i] = held >= slots[i].tracked || slots[i].tracked - held <= BACKING_SLACK_RAO;
+            covered[i] =
+                VaultReads.coversTracked(_getStakeForColdkey(slots[i].active, coldkey, NETUID1), slots[i].tracked);
         }
     }
 
@@ -153,7 +157,21 @@ contract BackingInvariantTest is BackingCampaignHarness {
     function simulateSilentMove(bytes32 from, bytes32 to) external {
         _simulateOffVaultSwap(NETUID1, from, to);
     }
+}
 
+/// forge-config: default.invariant.fail-on-revert = true
+/// forge-config: ci.invariant.fail-on-revert = true
+contract BackingInvariantTest is BackingCampaignSetup {
+    function invariant_TotalTrackedBackingIsBoundedByCurrentChainHoldings() public view {
+        _assertTrackedBackingWithinChainHoldings();
+    }
+
+    function invariant_NoTwoSlotsAnswerForOneKey() public view {
+        _assertNoTwoSlotsAnswerForOneKey();
+    }
+}
+
+contract BackingCampaignPathsTest is BackingCampaignSetup {
     function test_ReplayMergedStrayRecovery_PreservesBackingInvariants() public {
         handler.swapWithoutAnEdge(3920, 702498195375104724870804370661893358612984996200603330987954554);
         _assertSharedInvariants();
@@ -201,7 +219,7 @@ contract BackingInvariantTest is BackingCampaignHarness {
     }
 
     function test_HandlerReachesEverySuccessPath() public {
-        handler.wrap(1, 100e9, 0);
+        handler.wrap(1, 100, 0);
         _assertSharedInvariants();
         assertEq(handler.wraps(), 1, "the deposit wraps into shares");
         handler.unwrap(0, 1e18);

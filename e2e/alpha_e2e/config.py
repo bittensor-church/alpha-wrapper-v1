@@ -9,16 +9,13 @@ import os
 # --- Chain -------------------------------------------------------------------
 CHAIN_ENDPOINT = "ws://127.0.0.1:9944"
 RPC_URL = "http://127.0.0.1:9944"
-CHAIN_ID = 42
 
 NETUID_BITS = 16
-BPS_BASE = 10_000
-UNDECLARED_SHORTFALL = 2**256 - 1
 ALPHA_PRICE_SCALE = 10**18
-ALPHA_PRICE_QUANTUM_E18 = 10**9
-VIRTUAL_SHARES = 10**9
-VIRTUAL_ASSETS = 1
 RAO_PER_TAO = 10**9
+RAO_PER_ALPHA = 10**9
+# Native TAO on the EVM side moves in whole RAO, so every balance is a multiple of this.
+WEI_PER_RAO = 10**9
 
 # --- Wallets -----------------------------------------------------------------
 # The suite generates and overwrites keys, so it keeps them under a directory of
@@ -62,9 +59,9 @@ SUBNET_PRECOMPILE = "0x0000000000000000000000000000000000000803"
 VALIDATOR_STAKE_TAO = (600, 400, 200)
 HOTKEY_SUFFIXES = ("a", "b", "c")
 VALIDATORS_PER_SUBNET = len(HOTKEY_SUFFIXES)
-TRANSFER_AMOUNT_TAO = 100
-# Per-validator transfer amount in RAO (TRANSFER_AMOUNT_TAO split across the 3 validators).
-PER_HOTKEY_TRANSFER_RAO = TRANSFER_AMOUNT_TAO * RAO_PER_TAO // VALIDATORS_PER_SUBNET
+# The standard position a scenario wraps, drawn from Alice's stake under one validator.
+DEPOSIT_RAO = 30 * RAO_PER_ALPHA
+RECOVERY_WINDOW_SECONDS = 3 * 60 * 60
 
 # --- Foundry / subprocess flags ------------------------------------------------
 # A localnet command that stops answering hangs the whole run, so every subprocess
@@ -73,6 +70,13 @@ PER_HOTKEY_TRANSFER_RAO = TRANSFER_AMOUNT_TAO * RAO_PER_TAO // VALIDATORS_PER_SU
 COMMAND_TIMEOUT_SECONDS = 300
 CALL_TIMEOUT_SECONDS = 60
 DEPLOY_TIMEOUT_SECONDS = 900
+# Longest gap between two blocks the suite waits out; the localnet makes one every 12 s, or
+# every 0.25 s with fast blocks.
+BLOCK_TIMEOUT_SECONDS = 30
+# An epoch pays emissions into every stake on its subnet, so a call that stake reads must
+# account for exactly waits out the next epoch unless it is due later than this many seconds
+# after the block that includes the call.
+EPOCH_MARGIN_SECONDS = 3
 
 # Bittensor EVM: gas estimation fails; always use legacy txs with explicit gas.
 EVM_TX_FLAGS = ["--legacy", "--gas-price", "10000000000"]

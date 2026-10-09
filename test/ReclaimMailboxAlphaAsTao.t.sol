@@ -2,52 +2,62 @@
 pragma solidity 0.8.36;
 
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
-import { NetuidOutOfRange, SlippageExceeded, ZeroAmount, ZeroHotkey } from "src/VaultErrors.sol";
+import {
+    LockedDeposit,
+    MailboxNotPrepared,
+    NetuidOutOfRange,
+    SlippageExceeded,
+    ZeroAmount,
+    ZeroHotkey
+} from "src/VaultErrors.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
-import { RevertingReceiver, ReclaimMailboxReentrantReceiver } from "./helpers/TaoRailReceivers.sol";
+import { ReentrantReceiver, RevertingReceiver } from "./helpers/TaoRailReceivers.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
     function _seedMailboxAlpha(address user, uint256 netuid, bytes32 hotkey, uint256 amount) internal {
-        address predicted = _prepareMailbox(user, netuid);
-        bytes32 ck = _toSubstrate(predicted);
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey, ck, netuid, amount);
+        address mailbox = _prepareMailbox(user, netuid);
+        MockStaking(STAKING_PRECOMPILE).setStake(hotkey, _toSubstrate(mailbox), netuid, amount);
+    }
+
+    function _mailboxStake(address user, bytes32 hotkey) internal view returns (uint256) {
+        return _getStakeForColdkey(hotkey, _mailboxColdkey(user, NETUID1), NETUID1);
     }
 
     function test_ReclaimMailboxAlphaAsTao_DrainsMailboxAndPaysCallerInTao() public {
-        _setRemoveStakeRate(1, 1);
-        _seedMailboxAlpha(alice, NETUID1, hotkey1, 50 ether);
+        _seedMailboxAlpha(alice, NETUID1, hotkey1, 100 * ALPHA);
 
         uint256 before = alice.balance;
         vm.prank(alice);
         vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
 
-        assertEq(alice.balance - before, 50 ether);
-        address predicted = vault.getDepositAddress(alice, NETUID1);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey1, _toSubstrate(predicted), NETUID1), 0);
+        assertEq(alice.balance - before, 5 * TAO, "100 alpha at 0.05 TAO per alpha");
+        assertEq(_mailboxStake(alice, hotkey1), 0);
     }
 
-    function test_MinTaoOutZero_AcceptsAnyRealizedAmount() public {
-        _setRemoveStakeRate(1, 100);
-        _seedMailboxAlpha(alice, NETUID1, hotkey1, 50 ether);
+    function test_ReclaimMailboxAlphaAsTao_ZeroMinTaoOutAcceptsPriceImpact() public {
+        _seedMailboxAlpha(alice, NETUID1, hotkey1, 100 * ALPHA);
+        _setRemoveStakeRate(1, 25);
 
+        uint256 before = alice.balance;
         vm.prank(alice);
         vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
+
+        assertEq(alice.balance - before, 4 * TAO, "100 alpha realized at 0.04 TAO per alpha");
+        assertEq(_mailboxStake(alice, hotkey1), 0);
     }
 
     function test_TwoUsersOnSameNetuid_MailboxesAreIsolated() public {
-        _setRemoveStakeRate(1, 1);
-        _seedMailboxAlpha(alice, NETUID1, hotkey1, 50 ether);
-        _seedMailboxAlpha(bob, NETUID1, hotkey1, 70 ether);
+        _seedMailboxAlpha(alice, NETUID1, hotkey1, 100 * ALPHA);
+        _seedMailboxAlpha(bob, NETUID1, hotkey1, 70 * ALPHA);
 
         uint256 aliceBefore = alice.balance;
         vm.prank(alice);
         vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
-        assertEq(alice.balance - aliceBefore, 50 ether);
 
-        address bobMailbox = vault.getDepositAddress(bob, NETUID1);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey1, _toSubstrate(bobMailbox), NETUID1), 70 ether);
+        assertEq(alice.balance - aliceBefore, 5 * TAO);
+        assertEq(_mailboxStake(bob, hotkey1), 70 * ALPHA);
     }
 
     function test_RevertWhen_NetuidExceedsUint16() public {
@@ -62,6 +72,12 @@ contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
         vault.reclaimMailboxAlphaAsTao(NETUID1, bytes32(0), 0);
     }
 
+    function test_RevertWhen_NoMailboxPrepared() public {
+        vm.prank(alice);
+        vm.expectRevert(MailboxNotPrepared.selector);
+        vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
+    }
+
     function test_RevertWhen_NoMailboxStakeForGivenHotkey() public {
         _prepareMailbox(alice, NETUID1);
         vm.prank(alice);
@@ -69,73 +85,72 @@ contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
         vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
     }
 
-    function test_RevertWhen_RealizedTaoBelowMinTaoOut() public {
-        _setRemoveStakeRate(1, 1);
-        _seedMailboxAlpha(alice, NETUID1, hotkey1, 50 ether);
-        uint256 expected = _expectedTaoFor(50 ether);
+    function test_RevertWhen_MailboxAlphaIsLocked() public {
+        _seedMailboxAlpha(alice, NETUID1, hotkey1, 100 * ALPHA);
+        MockStaking(STAKING_PRECOMPILE).setLockedAlpha(_mailboxColdkey(alice, NETUID1), NETUID1, hotkey1, 40 * ALPHA);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(SlippageExceeded.selector, expected));
-        vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, expected + 1);
+        vm.expectRevert(LockedDeposit.selector);
+        vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
+    }
+
+    function test_RevertWhen_RealizedTaoBelowMinTaoOut() public {
+        _seedMailboxAlpha(alice, NETUID1, hotkey1, 100 * ALPHA);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(SlippageExceeded.selector, 5 * TAO));
+        vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 5 * TAO + 1);
     }
 
     function test_RevertWhen_RemoveStakeFails() public {
-        _setRemoveStakeRate(1, 1);
-        _seedMailboxAlpha(alice, NETUID1, hotkey1, 50 ether);
+        _seedMailboxAlpha(alice, NETUID1, hotkey1, 100 * ALPHA);
         _setRemoveStakeReverts(true);
 
         vm.prank(alice);
-        vm.expectRevert();
+        _expectChainRefusal();
         vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
     }
 
     function test_DonationToMailboxPriorToCall_DoesNotInflateTaoOut() public {
-        _setRemoveStakeRate(1, 1);
-        _seedMailboxAlpha(alice, NETUID1, hotkey1, 50 ether);
-
+        _seedMailboxAlpha(alice, NETUID1, hotkey1, 100 * ALPHA);
         address mailbox = vault.getDepositAddress(alice, NETUID1);
-        _donateToClone(mailbox, 3 ether);
+        _donateToClone(mailbox, 1 * TAO);
 
         uint256 before = alice.balance;
         vm.prank(alice);
         vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
 
-        assertEq(alice.balance - before, 50 ether);
-        assertEq(mailbox.balance, 3 ether);
+        assertEq(alice.balance - before, 5 * TAO);
+        assertEq(mailbox.balance, 1 * TAO);
     }
 
     function test_RevertWhen_CallerReceiverRevertsOnReceive() public {
-        _setRemoveStakeRate(1, 1);
         RevertingReceiver receiver = new RevertingReceiver();
-        _seedMailboxAlpha(address(receiver), NETUID1, hotkey1, 50 ether);
+        _seedMailboxAlpha(address(receiver), NETUID1, hotkey1, 100 * ALPHA);
 
         vm.prank(address(receiver));
-        vm.expectRevert();
+        vm.expectRevert(bytes("nope"));
         vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
     }
 
     function test_ReentrantReclaimMailboxAlphaAsTaoIsRejectedByGuard() public {
-        _setRemoveStakeRate(1, 1);
-        ReclaimMailboxReentrantReceiver receiver = new ReclaimMailboxReentrantReceiver();
-        _seedMailboxAlpha(address(receiver), NETUID1, hotkey1, 50 ether);
-        receiver.arm(vault, NETUID1, hotkey1);
+        ReentrantReceiver receiver = new ReentrantReceiver();
+        _seedMailboxAlpha(address(receiver), NETUID1, hotkey1, 100 * ALPHA);
+        receiver.arm(address(vault), abi.encodeCall(vault.reclaimMailboxAlphaAsTao, (NETUID1, hotkey1, 0)));
 
         vm.prank(address(receiver));
         vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
 
         assertEq(receiver.reentryError(), abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector));
         assertFalse(receiver.reentrySucceeded());
-        address predicted = vault.getDepositAddress(address(receiver), NETUID1);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey1, _toSubstrate(predicted), NETUID1), 0);
+        assertEq(_mailboxStake(address(receiver), hotkey1), 0);
     }
 
     function test_ReclaimMailboxAlphaAsTao_EmitsMailboxAlphaSoldForTaoEvent() public {
-        _setRemoveStakeRate(1, 1);
-        _seedMailboxAlpha(alice, NETUID1, hotkey1, 50 ether);
-        uint256 expectedTao = _expectedTaoFor(50 ether);
+        _seedMailboxAlpha(alice, NETUID1, hotkey1, 100 * ALPHA);
 
         vm.expectEmit(true, true, true, true, address(vault));
-        emit MailboxAlphaSoldForTao(alice, NETUID1, hotkey1, 50 ether, expectedTao);
+        emit MailboxAlphaSoldForTao(alice, NETUID1, hotkey1, 100 * ALPHA, 5 * TAO);
 
         vm.prank(alice);
         vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);

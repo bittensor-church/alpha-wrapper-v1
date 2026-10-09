@@ -1,44 +1,36 @@
 # Test design
 
-Test through supported public interfaces. Do not expose internal libraries with
-test-only shims or use production arithmetic for expected values: those checks
-can repeat the same bug on both sides. Public reads such as `recordedSlots()`
-are valid observations.
+Test through supported public interfaces. Expected values are literals derived by
+hand, never computed with production arithmetic or read from the lens: such checks
+repeat the same bug on both sides. Public reads such as `recordedSlots()` are valid
+observations.
 
-`VaultMathWideProduct.t.sol` is the one exception, for two products whose
-intermediate overflow no public interface can reach. `VaultMath.assetsFor`
-would need a stake above `1.16e32` RAO, while slot balances stay inside
-`uint64` and the validator set is capped at 64. `StakeOps.taoValue` would need
-an alpha price so large that `MockStaking._belowTaoValue` overflows first: it
-multiplies a same-magnitude alpha amount by the same price, so it fails before
-the vault is reached. `VaultMath.proRata` is reachable and is covered through
-the vault in `AlphaVaultPublicProperties.t.sol` instead. The file's
-differential fuzz cases pin `mulDiv` to the 256-bit expressions it replaced,
-which is a claim about the arithmetic itself rather than about a caller. Do not
-widen this exception.
+Fixtures use chain-valid values: alpha positions of 1-100,000 alpha, a default price
+of 0.05 TAO per alpha, and TAO credited at `1e9` wei per RAO. The mocks reproduce the
+chain rules the vault depends on: u64 stake, subnet and transfer checks, chain
+minimums, the nominator sweep, and refusals that return no data and consume the
+forwarded gas (`_expectChainRefusal`).
 
 The invariant suites prove different things:
 
-- **Alpha accounting:** exact conservation under healthy conditions. Every holder
-  must exit, but top-ups satisfy the mocked stake minimums. This does not prove
-  small positions can always exit unaided.
-- **Claimable TAO:** entitlements come from an independent ledger of donations
-  and holder balances. Reserve bounds alone would miss underpayments. Cash
-  conservation is exact; entitlement comparisons allow bounded rounding.
-- **Backing:** recovery and coverage checks under faults. Expected refusals are
-  allowed, so this suite cannot establish conservation or exit liveness.
+- **Alpha accounting:** exact conservation of deposited and emitted alpha under a
+  moving price. Every holder must exit, but top-ups satisfy the stake minimums. This
+  does not prove small positions can always exit unaided.
+- **Claimable TAO:** entitlements come from an independent ledger of donations and
+  holder balances. Cash conservation is exact; entitlement comparisons allow
+  bounded rounding.
+- **Backing:** recovery and coverage under hotkey swaps, strays and write-offs.
+- **Hotkey swap:** stake follows renamed, reused and coldkey-swapped validator keys.
 
-Unexpected handler reverts fail all three suites. Alpha exit residue is bounded
-per mint or exit, since repeated conversions accumulate rounding loss; that
-residue still counts in exact conservation.
+Handlers fail on any revert outside the business errors their entry point documents,
+including panics and refused chain calls. Fixed handler sequences live in the
+`*CampaignPathsTest` unit contracts. Alpha exit residue is bounded per mint or exit,
+since repeated conversions accumulate rounding loss; that residue still counts in
+exact conservation.
 
-Some arithmetic fixtures use one wei per TAO RAO. Accounting campaigns use the
-chain's `1e9` scale; E2E scenarios check actual precompile behavior. Mocks control
-observable responses rather than reproduce the chain.
+Gas snapshots include fuzz tests; CI pins the fuzz seed, dictionary weight and thread
+count so they are reproducible. Repeated-ID and distinct-ID batch cases stay separate
+to expose the effect of warm reads.
 
-Only deterministic tests enter gas snapshots; sampled fuzz and invariant gas
-varies. Repeated-ID and distinct-ID batch cases stay separate to expose the
-effect of warm reads.
-
-E2E revert checks require a mined failed receipt. RPC or command failures are
-setup failures, not evidence that the contract rejected a transaction.
+E2E revert checks require a mined failed receipt. RPC or command failures are setup
+failures, not evidence that the contract rejected a transaction.
