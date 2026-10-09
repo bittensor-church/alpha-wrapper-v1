@@ -185,7 +185,12 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         }
         // Full drains and capped partials are multiples of 20 RAO, so only the last chunk rounds.
         assertEq(alice.balance - taoBefore, sold / 20 * 1e9, "the payout is 0.05 TAO per alpha sold");
-        assertGe(vault.balanceOf(alice, TOKEN1), shares - burn, "unsold entitlement came back as shares");
+        // 1e20 shares on 1e11 RAO: the burn is worth burn / 1e9 RAO, and each unsold RAO refunds 1e9 shares.
+        assertEq(
+            vault.balanceOf(alice, TOKEN1),
+            shares - burn + (burn / 1e9 - sold) * 1e9,
+            "unsold entitlement came back as shares"
+        );
     }
 
     function test_BurnAllShares_PaysFullAlphaAsTao() public {

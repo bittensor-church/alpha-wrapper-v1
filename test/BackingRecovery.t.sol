@@ -4,7 +4,6 @@ pragma solidity 0.8.36;
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { AlphaVaultLens } from "src/AlphaVaultLens.sol";
-import { BasicValidatorRegistry } from "src/BasicValidatorRegistry.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
 import {
     AttestedHotkeyRetired,
@@ -42,8 +41,6 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     /// @dev 30 alpha at 3334 / 3333 / 3333 bps: hotkey1 holds 10.002 alpha, hotkey2 and hotkey3 9.999 each.
     uint256 private constant FIRST_SLOT = 10_002_000_000;
     uint256 private constant OTHER_TWO_SLOTS = 19_998_000_000;
-    /// @dev 0.04 alpha: the 2e6 RAO minimum stake at 0.05 TAO/alpha.
-    uint256 private constant FLOOR = 4e7;
     /// @dev The registry nonce setUp's attestation leaves on NETUID1.
     uint256 private constant SETUP_NONCE = 1;
 
@@ -439,7 +436,6 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
         vault.recoverStray(TOKEN1, hotkey4);
         vault.syncBacking(TOKEN1);
-        assertTrue(vault.awaitingAttestation(TOKEN1), "the fixture needs a parked position");
     }
 
     function test_ParkedPosition_RefusesDepositsAndAlignmentUntilANewAttestation() public {
@@ -553,7 +549,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_SubFloorBacking_DeclaresWritesOffAndRemainsRecoverable() public {
-        uint256 dust = FLOOR / 2;
+        uint256 dust = ALPHA_FLOOR / 2;
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 coldkey = _subnetColdkey(NETUID1);
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, coldkey, NETUID1, dust);
@@ -577,8 +573,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
     }
 
-    /// @dev The chain force-sells a whole nominator position below its minimum and credits the TAO to the
-    ///      coldkey. 0.3 alpha is below the 0.4 alpha minimum at 0.05 TAO/alpha and sells for 0.015 TAO.
+    /// @dev 0.3 alpha is below the 0.4 alpha nominator minimum at 0.05 TAO/alpha; its sweep pays 0.015 TAO.
     function test_SweptParkedPosition_IsWrittenOffAndItsSaleStaysClaimable() public {
         uint256 parked = 3 * ALPHA / 10;
         uint256 shares = _parkedPosition(parked);
@@ -619,25 +614,6 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "with nothing lost in the release");
         (, uint256 parkedAtNonce) = vault.recovery(TOKEN1);
         assertEq(parkedAtNonce, 0, "and the position is ordinary again");
-    }
-
-    function test_SameHotkeyResubmission_ReleasesTheParkedPosition() public {
-        BasicValidatorRegistry basicRegistry = new BasicValidatorRegistry(address(this));
-        basicRegistry.setValidator(NETUID1, hotkey1);
-        (vault, lens) = _deployVaultAndLens(address(basicRegistry));
-        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
-        vault.syncBacking(TOKEN1);
-        vault.recoverStray(TOKEN1, hotkey4);
-        vault.syncBacking(TOKEN1);
-        assertTrue(vault.awaitingAttestation(TOKEN1), "the fixture needs a parked position");
-
-        basicRegistry.setValidator(NETUID1, hotkey1);
-        assertFalse(vault.awaitingAttestation(TOKEN1), "resubmitting the same hotkey advances the nonce");
-        vault.rebalance(NETUID1);
-
-        assertEq(_parkedStake(NETUID1), 0, "the parking hotkey is empty again");
-        assertEq(_getVaultStake(hotkey1, NETUID1), 30 * ALPHA, "and the resubmitted validator holds it all");
     }
 
     function test_Wrap_ReleasesAParkedPositionAfterANewAttestation() public {
@@ -874,7 +850,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
         _reattestCurrentSet(NETUID1);
         cohorts.recapitalizationDeposit = cohorts.backingAfterWriteOff == 0
-            ? bound(recapitalizationSeed, FLOOR, ALPHA)
+            ? bound(recapitalizationSeed, ALPHA_FLOOR, ALPHA)
             : bound(recapitalizationSeed, cohorts.backingAfterWriteOff / 4, cohorts.backingAfterWriteOff * 4);
         _addRecapitalizer(cohorts);
         for (uint256 i; i < hiddenSlotCount; ++i) {

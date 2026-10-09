@@ -10,11 +10,27 @@ contract AlphaVaultRoundingTest is AlphaVaultTestBase {
     ///      at least one share, even against a whole subnet's alpha in emissions.
     function testFuzz_Wrap_MintsSharesForEveryDepositAboveTheFloor(uint256 emissions, uint256 deposit) public {
         emissions = bound(emissions, 0, MAX_SUBNET_ALPHA / 2);
-        deposit = bound(deposit, ALPHA / 25, MAX_SUBNET_ALPHA / 2);
+        deposit = bound(deposit, ALPHA_FLOOR, MAX_SUBNET_ALPHA / 2);
         _depositAndWrap(alice, NETUID1, ALPHA);
         _simulateEmissions(NETUID1, emissions);
 
         assertGt(_depositAndWrap(bob, NETUID1, deposit), 0);
+    }
+
+    /// @dev At 0.2 TAO/alpha the deposit floor is 0.01 alpha. With one share left over 11M alpha of emissions,
+    ///      0.01 alpha mints 1e7 * (1 + 1e9) / (11e15 + 2) = 0.9 shares, floored to none.
+    function test_RevertWhen_DepositIsWorthLessThanOneShare() public {
+        _setAlphaPrice(NETUID1, 0.2e18);
+        _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
+        uint256 shares = _depositAndWrap(alice, NETUID1, 100 * ALPHA);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares - 1, _toSubstrate(alice), 0);
+        _simulateEmissions(NETUID1, 11_000_000 * ALPHA);
+        _simulateAlphaDeposit(bob, NETUID1, ALPHA / 100);
+
+        vm.prank(bob);
+        vm.expectRevert(ZeroAmount.selector);
+        vault.wrap(NETUID1, hotkey1, 0);
     }
 
     function test_RevertWhen_UnwrappingSharesWorthLessThanOneRao() public {

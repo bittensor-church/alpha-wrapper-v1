@@ -9,9 +9,7 @@ import { MockStaking } from "./mocks/MockStaking.sol";
 
 contract RecoveryDustTest is AlphaVaultTestBase {
     uint256 private constant EXPECTED = 6 * ALPHA / 10;
-    /// @dev 0.04 alpha: the 2e6 RAO minimum stake at 0.05 TAO/alpha.
-    uint256 private constant FLOOR = 4e7;
-    uint256 private constant DUST = FLOOR / 2;
+    uint256 private constant DUST = ALPHA_FLOOR / 2;
     /// @dev 3333 bps of EXPECTED: above the floor at 0.05 TAO/alpha, below the 0.2 alpha floor at 0.01.
     uint256 private constant THIRD_SLOT = 199_980_000;
 
@@ -140,7 +138,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
 
     function test_FailedAboveFloorCollection_DoesNotUseTheDustException() public {
         (, uint256 deadline) = _emptyRecovery();
-        _plant(hotkey1, FLOOR);
+        _plant(hotkey1, ALPHA_FLOOR);
         _plant(hotkey2, DUST);
         MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(true);
         vm.warp(deadline);
@@ -157,7 +155,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         uint256 tokenId = vault.currentTokenId(netuid);
         bytes32 coldkey = _subnetColdkey(netuid);
         for (uint256 i; i < count; ++i) {
-            uint256 balance = movable && i == count - 1 ? FLOOR : dust;
+            uint256 balance = movable && i == count - 1 ? ALPHA_FLOOR : dust;
             MockStaking(STAKING_PRECOMPILE).setStake(keys[i], coldkey, netuid, balance);
             located += balance;
         }
@@ -176,16 +174,16 @@ contract RecoveryDustTest is AlphaVaultTestBase {
     }
 
     function test_TenDustBalances_DoNotBlockWriteOffEvenWhenTheirSumExceedsTheFloor() public {
-        _smallSet(10, FLOOR - 1, false);
+        _smallSet(10, ALPHA_FLOOR - 1, false);
     }
 
     function test_OneBalanceAtTheFloor_CollectsAllNineDustBalances() public {
-        _smallSet(10, FLOOR - 1, true);
+        _smallSet(10, ALPHA_FLOOR - 1, true);
     }
 
     function testFuzz_SmallSets_OnlySkipIndividuallySubFloorBalances(uint256 rawCount, uint256 rawDust, bool movable)
         public
     {
-        _smallSet(bound(rawCount, 2, 10), bound(rawDust, VaultReads.TRACKED_SLACK_RAO + 1, FLOOR - 1), movable);
+        _smallSet(bound(rawCount, 2, 10), bound(rawDust, VaultReads.TRACKED_SLACK_RAO + 1, ALPHA_FLOOR - 1), movable);
     }
 }

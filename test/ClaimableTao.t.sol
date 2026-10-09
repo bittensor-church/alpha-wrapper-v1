@@ -355,7 +355,7 @@ contract ClaimableTaoTest is AlphaVaultTestBase {
         }
         _sweepAndWriteOff(TAO / 20);
 
-        // Each recapitalization of written-off shares multiplies supply by about 1e9 (1e18, then 1e27 and
+        // Each recapitalization of written-off shares multiplies supply by about 1e9 (1e18, then 1e27 + 2e18 and
         // 1e36 + 3e27 + 3e18); one more alpha would mint 1e45 + 3e36 + 3e27 + 1e18 shares, past the 1e45 cap.
         _simulateAlphaDeposit(bob, NETUID1, ALPHA);
         vm.expectRevert(SupplyCapExceeded.selector);

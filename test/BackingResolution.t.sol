@@ -209,6 +209,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         assertEq(slots[0].active, hotkey4, "the emptied slot kept its resolved key");
         assertEq(slots[1].active, hotkey1, "beside the slot whose alpha its name carries");
+        assertEq(slots[2].active, hotkey3, "and the untouched third slot");
         assertEq(_getVaultStake(hotkey4, NETUID1), 6_667_333_200, "3334 bps of the remaining 19.998 alpha");
         assertEq(lens.totalStake(TOKEN1), 19_998_000_000, "and the total counts each balance once");
     }
@@ -249,7 +250,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         uint256 tokenId = vault.currentTokenId(netuid);
 
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, _subnetColdkey(netuid), netuid, 0);
-        _setAlphaPrice(netuid, bound(priceRao, 1e6, 2e8) * 1e9);
+        _setAlphaPrice(netuid, _wholeRaoPrice(priceRao));
 
         assertFalse(lens.isBackingIntact(tokenId), "nothing on chain accounts for the emptying");
         vm.expectPartialRevert(BackingShortfall.selector);

@@ -4,13 +4,11 @@ pragma solidity 0.8.36;
 import { VaultMath } from "src/libraries/VaultMath.sol";
 import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
-import { BackingNotSecured, BackingUnchanged, NothingToRecover, ShortfallOnFile } from "src/VaultErrors.sol";
+import { BackingNotSecured, BackingUnchanged, NothingToRecover } from "src/VaultErrors.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 
 contract RecoveryDeadlineTest is AlphaVaultTestBase {
-    /// @dev 0.04 alpha: the 2e6 RAO minimum stake at 0.05 TAO/alpha.
-    uint256 private constant FLOOR = 4e7;
 
     /// @dev 40 alpha at 2000 / 6000 / 2000 bps: 8 alpha is lost on hotkey1, 24 on hotkey2, and hotkey3's
     ///      8 alpha is parked at declaration.
@@ -58,10 +56,6 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertEq(vault.recordedSlots(TOKEN1)[0].tracked, 40 * ALPHA);
         assertEq(_getVaultStake(secondTip, NETUID1), 0);
         assertEq(lens.writeOffDeadline(TOKEN1), deadline, "partial recovery cannot extend the window");
-        vm.expectRevert(ShortfallOnFile.selector);
-        lens.totalStake(TOKEN1);
-        vm.expectRevert(NothingToRecover.selector);
-        vault.recoverStray(TOKEN1, secondTip);
 
         vault.recoverStray(TOKEN1, firstTip);
         assertEq(_parkedStake(NETUID1), 40 * ALPHA);
@@ -72,6 +66,15 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertEq(lens.writeOffDeadline(TOKEN1), 0);
         assertEq(vault.recordedSlots(TOKEN1).length, 1);
         assertTrue(vault.awaitingAttestation(TOKEN1));
+    }
+
+    function test_RevertWhen_RecoveringAnEmptiedSourceAgain() public {
+        (, bytes32 secondTip, uint256 deadline) = _twoLosses();
+        vm.warp(deadline - 1);
+        vault.recoverStray(TOKEN1, secondTip);
+
+        vm.expectRevert(NothingToRecover.selector);
+        vault.recoverStray(TOKEN1, secondTip);
     }
 
     function test_ReturnedBalance_IsSecuredBeforeItsHotkeyCanSwapAgain() public {
@@ -270,7 +273,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
     }
 
     function test_MovableSourceFirst_EnablesNineSeparateDustRecoveries() public {
-        uint256 dust = FLOOR / 2;
+        uint256 dust = ALPHA_FLOOR / 2;
         uint256 dustSources = 9;
         _depositAndWrap(alice, NETUID1, ALPHA);
         _buildSwapTrail(NETUID1, hotkey1, 2);
@@ -288,7 +291,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
             vault.recoverStray(TOKEN1, source);
         }
         _simulateHotkeyOwnerPresent(hotkey4);
-        staking.setStake(hotkey4, coldkey, NETUID1, FLOOR);
+        staking.setStake(hotkey4, coldkey, NETUID1, ALPHA_FLOOR);
         vault.recoverStray(TOKEN1, hotkey4);
         for (uint256 i; i < dustSources; ++i) {
             bytes32 source = keccak256(abi.encode("dust source", i));

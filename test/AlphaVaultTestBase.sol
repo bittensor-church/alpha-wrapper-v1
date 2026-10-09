@@ -65,6 +65,9 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
 
     uint256 internal constant ALPHA_PRICE = DEFAULT_ALPHA_PRICE_E18;
 
+    /// @dev 0.04 alpha, worth the chain's 2e6 RAO minimum stake at the default price.
+    uint256 internal constant ALPHA_FLOOR = 4e7;
+
     /// @dev One TAO in native wei; the chain credits 1e9 wei per TAO RAO.
     uint256 internal constant TAO = 1 ether;
 
@@ -312,6 +315,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         total += _getStakeForColdkey(hotkey2, coldkey, netuid);
         total += _getStakeForColdkey(hotkey3, coldkey, netuid);
         total += _getStakeForColdkey(hotkey4, coldkey, netuid);
+        total += _getStakeForColdkey(hotkey5, coldkey, netuid);
     }
 
     function _userStakeAcrossHotkeys(address user, uint256 netuid) internal view returns (uint256) {

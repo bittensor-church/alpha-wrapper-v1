@@ -347,7 +347,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
     function testFuzz_Unwrap_DeliversExactlyPreview(uint256 priceRao, uint256 deposit) public {
         uint256 priceE18 = _wholeRaoPrice(priceRao);
         uint256 floorAlpha = (CHAIN_MIN_STAKE * 1e18) / priceE18 + 1;
-        // Keep all weighted slots above the floor; this mock does not apply stake-share rounding.
+        // Keep all weighted slots above the floor.
         deposit = bound(deposit, 4 * floorAlpha, 100_000 * ALPHA);
 
         _setAlphaPrice(NETUID1, priceE18);

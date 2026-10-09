@@ -26,8 +26,6 @@ contract ClaimableTaoRoundingTest is AlphaVaultTestBase {
 
         // A third of 30.3 TAO plus half of the 96-RAO gift, whose share for alice's last share is below one wei.
         assertEq(_claimQuotedAmount(bob, TOKEN1), 10_100_000_048e9, "bob");
-        vm.expectRevert(ZeroAmount.selector);
-        _sell(carol, 1);
         assertEq(_claimQuotedAmount(carol, TOKEN1), 10_100_000_048e9, "carol");
         _donateToClone(clone, 4359e9);
 
@@ -35,6 +33,13 @@ contract ClaimableTaoRoundingTest is AlphaVaultTestBase {
         assertEq(_claimQuotedAmount(alice, TOKEN1), 10.1e18, "alice keeps her historical third");
         assertEq(clone.balance, 4359e9, "only the last gift remains");
         assertEq(vault.taoLiability(TOKEN1), 4359e9, "reserved for bob and carol");
+    }
+
+    function test_RevertWhen_SellingOneShareWorthLessThanOneRao() public {
+        _depositAndWrap(alice, NETUID1, 1_000 * ALPHA);
+
+        vm.expectRevert(ZeroAmount.selector);
+        _sell(alice, 1);
     }
 
     function _transfer(address from, address to, uint256 shares) private {

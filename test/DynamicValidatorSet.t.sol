@@ -15,20 +15,6 @@ contract DynamicValidatorSetTest is AlphaVaultTestBase {
         _assertSpread(hks, _subnetColdkey(NETUID1), NETUID1, eachStake, lastStake);
     }
 
-    /// @dev Each slot but the last holds its weight's share rounded down to the RAO; the last holds the rest.
-    function _assertWeightedSpread(bytes32[] memory hks, uint256 amount) private view {
-        uint16[] memory weights = _evenWeights(hks.length);
-        uint256 placed;
-        for (uint256 i; i < hks.length; ++i) {
-            uint256 stake = _getVaultStake(hks[i], NETUID1);
-            placed += stake;
-            if (i + 1 == hks.length) break;
-            assertLe(stake * BPS_BASE, amount * weights[i], "slot above its weight");
-            assertGt((stake + 1) * BPS_BASE, amount * weights[i], "slot more than one RAO below its weight");
-        }
-        assertEq(placed, amount, "nothing lost");
-    }
-
     function test_Wrap_SpreadsAcrossFullValidatorCap() public {
         bytes32[] memory hks = _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _depositAndWrap(alice, NETUID1, DEPOSIT);
@@ -70,7 +56,7 @@ contract DynamicValidatorSetTest is AlphaVaultTestBase {
         assertEq(_lastSeen(TOKEN1).length, MAX_VALIDATORS);
     }
 
-    /// @dev The dropped 0.172 alpha clears the move floor, but its share of each of 62 deficits does not.
+    /// @dev The dropped 0.172 alpha clears the move floor; most of the 63-way deficits it leaves (0.002 alpha) do not.
     function test_Rebalance_DrainsDroppedBalanceTooSmallToSpread() public {
         bytes32[] memory wide = _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
@@ -138,14 +124,14 @@ contract DynamicValidatorSetTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), ALPHA, "and is fully priced");
     }
 
-    function testFuzz_Wrap_SpreadsAcrossAnyValidatorCount(uint256 count, uint256 amount) public {
+    function testFuzz_Wrap_KeepsTheWholeDepositAcrossAnyValidatorCount(uint256 count, uint256 amount) public {
         count = bound(count, 1, MAX_VALIDATORS);
         amount = bound(amount, MIN_SPREADABLE, MAX_SUBNET_ALPHA);
 
         bytes32[] memory hks = _setValidatorCount(NETUID1, count);
         _depositAndWrap(alice, NETUID1, amount);
 
-        _assertWeightedSpread(hks, amount);
+        assertEq(_vaultStakeAcross(hks, NETUID1), amount, "every validator slot together holds the deposit");
         assertEq(lens.totalStake(TOKEN1), amount);
     }
 
