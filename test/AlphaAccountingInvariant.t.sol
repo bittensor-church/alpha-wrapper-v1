@@ -21,6 +21,9 @@ contract AlphaAccountingHandler is Test {
     uint256 public alphaDelivered;
     uint256 public alphaSold;
     uint256 public shareConversions;
+    /// @dev The 1e9 virtual shares keep their slice of a position whose last holder leaves for alpha; a full
+    ///      TAO exit sells the whole backing.
+    uint256 public virtualShareSlice;
 
     constructor(
         AlphaAccountingInvariantTest owner,
@@ -70,6 +73,8 @@ contract AlphaAccountingHandler is Test {
             shares = vault.balanceOf(actor, tokenId);
         }
         uint256 backingBefore = harness.chainBacking();
+        uint256 supply = vault.totalSupply(tokenId);
+        virtualShareSlice = 0;
         if (forTao) {
             uint256 balanceBefore = actor.balance;
             vm.prank(actor);
@@ -89,6 +94,9 @@ contract AlphaAccountingHandler is Test {
             uint256 delivered = harness.recipientStake(actor) - stakeBefore;
             assertEq(backingBefore - harness.chainBacking(), delivered, "alpha reaches the caller's destination");
             alphaDelivered += delivered;
+            if (shares == supply) {
+                virtualShareSlice = backingBefore * VaultMath.VIRTUAL_SHARES / (supply + VaultMath.VIRTUAL_SHARES) + 1;
+            }
         }
         assertEq(vault.balanceOf(actor, tokenId), 0, "a healthy full exit retires the holder's shares");
         ++shareConversions;
@@ -168,7 +176,11 @@ contract AlphaAccountingInvariantTest is AlphaVaultTestBase {
     function afterInvariant() public {
         handler.closeAllPositions();
         assertEq(vault.totalSupply(TOKEN1), 0, "every healthy holder can leave");
-        assertLe(chainBacking(), handler.shareConversions(), "at most one RAO per share conversion stays behind");
+        assertLe(
+            chainBacking(),
+            handler.shareConversions() + handler.virtualShareSlice(),
+            "at most one RAO per share conversion stays behind, beside the virtual shares' slice"
+        );
         invariant_EveryDepositedOrEmittedAlphaIsHeldDeliveredOrSold();
     }
 }

@@ -80,9 +80,10 @@ class Environment:
             holder or config.WRAPPER_USER_ADDRESS, token_id, block=block,
         ))
 
-    def vault_total_supply(self, token_id: int) -> int:
+    def vault_total_supply(self, token_id: int, block: Optional[int] = None) -> int:
+        """Total shares of a token id, live or as of `block`."""
         return int(chain.cast_call(
-            self.vault_address, "totalSupply(uint256)(uint256)", token_id,
+            self.vault_address, "totalSupply(uint256)(uint256)", token_id, block=block,
         ))
 
     def vault_total_stake(self, token_id: int) -> int:
