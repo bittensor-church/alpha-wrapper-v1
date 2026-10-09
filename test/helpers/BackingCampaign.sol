@@ -16,6 +16,7 @@ import {
     NothingToUnwrap,
     Parked,
     ShortfallOnFile,
+    SupplyCapExceeded,
     WithdrawTooSmall,
     ZeroAmount
 } from "src/VaultErrors.sol";
@@ -45,10 +46,11 @@ function backingErrors(uint256 extra) pure returns (bytes4[] memory errors, uint
 
 function wrapErrors() pure returns (bytes4[] memory errors) {
     uint256 next;
-    (errors, next) = backingErrors(3);
+    (errors, next) = backingErrors(4);
     errors[next] = Parked.selector;
     errors[next + 1] = IAlphaVaultAbi.DepositTooSmall.selector;
     errors[next + 2] = ZeroAmount.selector;
+    errors[next + 3] = SupplyCapExceeded.selector;
 }
 
 function unwrapErrors() pure returns (bytes4[] memory errors) {

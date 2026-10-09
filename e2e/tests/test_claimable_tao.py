@@ -87,8 +87,11 @@ def test_root_sweep_tao_becomes_claimable_and_the_loss_is_written_off(env):
         except Exception as restore_error:  # noqa: BLE001
             print(f"  WARNING: dust threshold not restored to {previous_factor}: {restore_error}")
 
-    # The clearing pass sold the whole nomination, so the record expects alpha that is gone.
-    assert env.total_stake_across(clone_coldkey, netuid, hotkeys) == 0, "the clearing pass left clone stake"
+    # The clearing pass sold the whole nomination, so the record expects alpha that is gone; a share
+    # remainder can grow back to dust with later emissions.
+    assert env.total_stake_across(clone_coldkey, netuid, hotkeys) <= config.ROUNDING_DUST_TOTAL_RAO, (
+        "the clearing pass left clone stake"
+    )
     assert not env.backing_intact(token_id), "the swept position must read short"
 
     # Any caller can put the loss on file; the window runs from that block.
