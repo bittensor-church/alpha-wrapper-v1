@@ -4,8 +4,13 @@ pragma solidity 0.8.36;
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { MockStaking } from "./MockStaking.sol";
 
+/// @dev 0.05 TAO per alpha, a round price inside the chain's usual range.
+uint256 constant DEFAULT_ALPHA_PRICE_E18 = 0.05e18;
+
+/// @dev The swap's minimum price, 1e-6 TAO per alpha: it refuses any sale at or below it.
+uint256 constant MIN_SELL_PRICE_E18 = 1e12;
+
 contract MockAlpha {
-    uint256 private constant DEFAULT_PRICE_E18 = 1e18;
     uint256 private constant PRICE_QUANTUM_E18 = 1e9;
 
     mapping(uint16 => uint256) private _chainPriceE18;
@@ -18,21 +23,29 @@ contract MockAlpha {
         _isSet[netuid] = true;
     }
 
-    /// @dev Mirror the precompile's truncation to whole RAO before scaling back to 1e18.
+    /// @dev The precompile truncates to whole RAO, saturates at u64 and scales back to 1e18.
     function getAlphaPrice(uint16 netuid) external view returns (uint256) {
-        return chainAlphaPrice(netuid) / PRICE_QUANTUM_E18 * PRICE_QUANTUM_E18;
+        uint256 priceRao = chainAlphaPrice(netuid) / PRICE_QUANTUM_E18;
+        if (priceRao > type(uint64).max) priceRao = type(uint64).max;
+        return priceRao * PRICE_QUANTUM_E18;
     }
 
     function chainAlphaPrice(uint16 netuid) public view returns (uint256) {
-        return _isSet[netuid] ? _chainPriceE18[netuid] : DEFAULT_PRICE_E18;
+        return _isSet[netuid] ? _chainPriceE18[netuid] : DEFAULT_ALPHA_PRICE_E18;
     }
 
     bool public simSwapReverts;
+    mapping(uint64 => bool) private _simRefused;
     mapping(uint64 => uint256) private _simQuoteOverride;
     mapping(uint64 => bool) private _simQuoteSet;
 
     function setSimSwapReverts(bool v) external {
         simSwapReverts = v;
+    }
+
+    /// @dev Refuses any sale of one exact input, as a pool too shallow for it would.
+    function setSimSwapRefused(uint64 alpha, bool refused) external {
+        _simRefused[alpha] = refused;
     }
 
     /// @dev Exact-input overrides model price impact absent from the default linear rate.
@@ -41,21 +54,25 @@ contract MockAlpha {
         _simQuoteSet[alpha] = true;
     }
 
-    mapping(uint64 => bool) private _simQuoteRefused;
-
-    /// @dev The chain refuses a quote it cannot fill and the refusal consumes every unit of forwarded gas.
-    function setSimSwapRefused(uint64 alpha, bool refused) external {
-        _simQuoteRefused[alpha] = refused;
+    /// @dev The swap refuses a sale at or below its minimum price, an input that would pay nothing and a sale the pool
+    ///      cannot fill. Simulated and executed sales run the same checks.
+    function refusesSale(uint16 netuid, uint64 alpha) public view returns (bool) {
+        return simSwapReverts || _simRefused[alpha] || chainAlphaPrice(netuid) <= MIN_SELL_PRICE_E18
+            || _simQuote(netuid, alpha) == 0;
     }
 
-    function simSwapAlphaForTao(uint16, uint64 alpha) external view returns (uint256) {
-        require(!simSwapReverts, "MockAlpha: simSwap reverted");
-        if (_simQuoteRefused[alpha]) {
+    /// @dev A refused simulation consumes every unit of forwarded gas, as on chain.
+    function simSwapAlphaForTao(uint16 netuid, uint64 alpha) external view returns (uint256) {
+        if (refusesSale(netuid, alpha)) {
             assembly {
                 invalid()
             }
         }
-        if (_simQuoteSet[alpha]) return _simQuoteOverride[alpha];
-        return MockStaking(STAKING_PRECOMPILE).quoteTaoOut(alpha);
+        return _simQuote(netuid, alpha);
+    }
+
+    function _simQuote(uint16 netuid, uint64 alpha) private view returns (uint256) {
+        return
+            _simQuoteSet[alpha] ? _simQuoteOverride[alpha] : MockStaking(STAKING_PRECOMPILE).quoteTaoOut(netuid, alpha);
     }
 }

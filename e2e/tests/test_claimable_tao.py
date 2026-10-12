@@ -1,46 +1,49 @@
-"""Scenario: TAO the chain strands on the vault becomes claimable by holders.
+"""Scenario: TAO the chain strands on the vault becomes claimable, and the loss is written off.
 
 When the chain's dust threshold is raised by governance, small stake entries
 are force-sold and the vault's subnet account receives native TAO that no
 vault operation paid out. The vault must credit exactly the holders present
-at that moment, let them withdraw it, and give none of it to later
-depositors.
+at that moment and let them withdraw it.
 
 The threshold raise clears sub-threshold nominations on EVERY subnet and
 force-sells the vault's whole (deliberately tiny) position. Nothing on chain
 records that as the cause, and a hotkey swap whose edge the chain has since
-dropped looks identical, so the vault will not guess: it holds the expectation
-and shuts the alpha rails for a recovery window. The test restores the threshold
-it found, puts the loss on file with no quorum involved, and leaves the token to
-its window rather than pretending the position can be retired inside it.
+dropped looks identical, so the vault will not guess: anyone can put the loss
+on file, the exits stay shut for the recovery window, and once it expires a
+sync writes the deficit off and parks the empty position. The scenario deploys
+with a short window so it can wait one out.
 """
 import pytest
 
 from alpha_e2e import chain, checks, config, extrinsics
 
 # The mainnet factor: threshold = 0.002 TAO * factor / 1e6 = 0.02 TAO, far above
-# the per-validator slices the deposit below leaves on each validator.
+# the position the deposit below leaves on its validator.
 RAISED_THRESHOLD_FACTOR = 10_000_000
+WRITE_OFF_WINDOW_SECONDS = 120
 
-# One RAO in EVM wei: native TAO balances move at this granularity.
-RAO_WEI = 10**9
+
+@pytest.fixture(scope="session")
+def recovery_window():
+    return WRITE_OFF_WINDOW_SECONDS
 
 
 @pytest.mark.scenario
-def test_root_sweep_tao_becomes_claimable(env):
+def test_root_sweep_tao_becomes_claimable_and_the_loss_is_written_off(env):
     netuid = env.netuids[0]
     token_id = env.token_ids[0]
-    hotkey_pubkey = env.hotkey_pubkeys[0]
-    hotkey_ss58 = env.hotkey_ss58s[0]
+    hotkeys = env.subnet_hotkey_pubkeys(0)
 
-    # A deposit sized so every per-validator slice sits far below the raised
-    # threshold, but comfortably above the deposit floor.
+    # A deposit sized far below the raised threshold, but comfortably above the deposit floor.
     _, floor_boundary_alpha = env.floor_boundary(netuid, env.chain_min_stake_tao())
-    deposit = floor_boundary_alpha * 3 // 2
-    env.deposit_and_wrap(netuid, hotkey_pubkey, hotkey_ss58, deposit, 1_500_000, "Sweep: wrap failed")
-    print(f"  Wrapped {deposit} alpha RAO on netuid {netuid}")
-
+    wrap_receipt = env.deposit_and_wrap(
+        netuid, hotkeys[0], env.hotkey_ss58s[0], floor_boundary_alpha * 3 // 2, 1_500_000, "Sweep: wrap failed",
+    )
     clone_evm = env.clone_address(token_id)
+    clone_coldkey = env.clone_coldkey(token_id)
+    recorded_backing = env.total_stake_across(
+        clone_coldkey, netuid, hotkeys, chain.receipt_block_number(wrap_receipt, "Sweep: wrap"),
+    )
     clone_balance_before = chain.cast_balance_wei(clone_evm)
 
     def claimable_tao() -> int:
@@ -59,8 +62,8 @@ def test_root_sweep_tao_becomes_claimable(env):
         # The view quotes at RAO granularity, so it can sit up to one RAO below the raw
         # stranded amount (index flooring plus the RAO floor of the quote).
         claimable = claimable_tao()
-        assert claimable % RAO_WEI == 0, f"claimable {claimable} is not RAO-granular"
-        assert 0 <= stranded - claimable <= RAO_WEI, (
+        assert claimable % config.WEI_PER_RAO == 0, f"claimable {claimable} is not RAO-granular"
+        assert 0 <= stranded - claimable <= config.WEI_PER_RAO, (
             f"claimable {claimable} != stranded {stranded} floored to the RAO"
         )
 
@@ -72,7 +75,6 @@ def test_root_sweep_tao_becomes_claimable(env):
         delivered = checks.reconstructed_payout(
             user_balance_before, env.user_tao_wei(), receipt, "Sweep: claim payout",
         )
-        print(f"  Claim delivered {delivered} wei")
         # The quote is a commitment: the claim delivers exactly what the view promised, and the
         # sub-RAO remainder stays reserved for the claimant below the quote's one-RAO floor.
         assert delivered == claimable, f"delivered {delivered} != quoted {claimable}"
@@ -85,28 +87,41 @@ def test_root_sweep_tao_becomes_claimable(env):
         except Exception as restore_error:  # noqa: BLE001
             print(f"  WARNING: dust threshold not restored to {previous_factor}: {restore_error}")
 
-    # A short position must open recovery; an intact position can exit immediately.
+    # The clearing pass sold the whole nomination, so the record expects alpha that is gone; a share
+    # remainder can grow back to dust with later emissions.
+    assert env.total_stake_across(clone_coldkey, netuid, hotkeys) <= config.ROUNDING_DUST_TOTAL_RAO, (
+        "the clearing pass left clone stake"
+    )
+    assert not env.backing_intact(token_id), "the swept position must read short"
+
+    # Any caller can put the loss on file; the window runs from that block.
+    declare_receipt = env.sync_backing(token_id, label="syncBacking [declare]")
+    declared_at = chain.block_timestamp(chain.receipt_block_number(declare_receipt, "Sweep: declare"))
+    deadline = env.write_off_deadline(token_id)
+    assert deadline == declared_at + WRITE_OFF_WINDOW_SECONDS, (
+        f"write-off deadline {deadline}; expected the declaring block's {declared_at} + {WRITE_OFF_WINDOW_SECONDS} s"
+    )
     all_shares = env.vault_shares(token_id)
-    if not env.backing_intact(token_id):
-        located = env.vault_located_stake(token_id)
-        print(f"  Position reads short by design; {located} alpha RAO still located")
-
-        # Any caller can ask the vault to open the recovery window.
-        env.sync_backing(token_id)
-        opens_from = env.write_off_deadline(token_id)
-        assert opens_from > 0, "syncBacking did not start the recovery window"
-        print(f"  Loss on file with nobody's permission; the record settles from {opens_from}")
-
-        # Until then the alpha rails are shut. Three hours is not a thing a test can wait out, so
-        # the assertion is the refusal itself, not the reopening.
-        env.vault_send_expect_revert(
-            2_500_000, "Sweep: the exit should be refused while the recovery window runs",
-            "unwrapForTao(uint256,uint256,uint256)", token_id, all_shares, 0,
-        )
-        return
-
-    env.vault_send(
-        2_500_000, "Sweep: cleanup unwrap failed",
+    env.assert_vault_reverts_with(
+        "ShortfallOnFile()", 2_500_000, "Sweep: the exit should be refused while the recovery window runs",
         "unwrapForTao(uint256,uint256,uint256)", token_id, all_shares, 0,
     )
-    assert env.vault_total_supply(token_id) == 0, "cleanup left outstanding shares"
+
+    chain.wait_for_timestamp(deadline, timeout=2 * WRITE_OFF_WINDOW_SECONDS)
+    write_off_receipt = env.sync_backing(token_id, label="syncBacking [write off]")
+    expected = chain.event_word(write_off_receipt, "BackingWrittenOff(uint256,uint256,uint256)", 0, "Sweep: write-off")
+    located = chain.event_word(write_off_receipt, "BackingWrittenOff(uint256,uint256,uint256)", 1, "Sweep: write-off")
+    assert expected == recorded_backing, (
+        f"the write-off expected {expected} RAO; the wrap recorded {recorded_backing}"
+    )
+    assert located == 0, f"the write-off located {located} RAO of a fully swept position"
+    assert env.awaiting_attestation(token_id), "the written-off position should rest on the parking hotkey"
+    assert env.write_off_deadline(token_id) == 0, "nothing should be on file after the write-off"
+
+    # With nothing left to deliver, a zero floor burns the shares and closes the position.
+    env.vault_send(
+        2_000_000, "Sweep: the holder could not retire written-off shares",
+        "unwrap(uint256,uint256,bytes32,uint256)", token_id, all_shares, env.wrapper_substrate_coldkey, 0,
+    )
+    assert env.vault_total_supply(token_id) == 0, "the written-off position kept outstanding shares"
+    assert not env.awaiting_attestation(token_id), "an empty position should not stay parked"

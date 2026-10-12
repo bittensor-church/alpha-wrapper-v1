@@ -2,11 +2,11 @@
 
 Chain migrations have rewritten live subnets' registration blocks. A position must
 survive that untouched, while a subnet dissolved and registered again must get a new
-token with the old one still redeemable.
+token with the old one still redeemable for its dissolution refund.
 """
 import pytest
 
-from alpha_e2e import bootstrap, config, extrinsics
+from alpha_e2e import bootstrap, chain, checks, config, exits, extrinsics
 
 IMMUNITY_EXTENSION_BLOCKS = 13 * 7200
 
@@ -19,7 +19,7 @@ def test_token_follows_the_registration_counter_not_the_block(env):
 
     env.deposit_and_wrap(
         netuid, hotkeys[0], env.hotkey_ss58s[0],
-        config.PER_HOTKEY_TRANSFER_RAO, 1_500_000, "Generation: wrap failed",
+        config.DEPOSIT_RAO, 1_500_000, "Generation: wrap failed",
     )
     shares = env.vault_shares(token_id)
     assert shares != 0, "no shares minted by the setup wrap"
@@ -31,24 +31,21 @@ def test_token_follows_the_registration_counter_not_the_block(env):
 
     assert env.current_token_id(netuid) == token_id, "a rewritten registration block changes nothing"
     assert env.backing_intact(token_id), "the record is untouched"
-    exit_shares = shares // 4
-    quoted_alpha, _ = env.preview_unwrap(token_id, exit_shares)
-    delivered_before = env.total_stake_across(env.wrapper_substrate_coldkey, netuid, hotkeys)
-    env.vault_send(
-        2_500_000, "Generation: the exit should pay in alpha after the rewrite",
-        "unwrap(uint256,uint256,bytes32,uint256)", token_id, exit_shares, env.wrapper_substrate_coldkey, 1,
-        label="unwrap [after block rewrite]",
+    exits.unwrap(
+        env, token_id, shares // 4, "Generation: the exit should pay in alpha after the rewrite",
+        hotkeys=hotkeys, label="unwrap [after block rewrite]",
     )
-    delivered = env.total_stake_across(env.wrapper_substrate_coldkey, netuid, hotkeys) - delivered_before
-    assert delivered >= quoted_alpha - config.ROUNDING_DUST_TOTAL_RAO, (
-        f"the exit delivered {delivered} alpha against a quote of {quoted_alpha}"
+    receipt = env.deposit_and_wrap(
+        netuid, hotkeys[0], env.hotkey_ss58s[0],
+        config.DEPOSIT_RAO // 10, 1_500_000, "Generation: deposits should land on the same token",
     )
-    deposit_index = 0
-    env.deposit_and_wrap(
-        netuid, hotkeys[deposit_index], env.hotkey_ss58s[deposit_index],
-        config.PER_HOTKEY_TRANSFER_RAO // 10, 1_500_000, "Generation: deposits should land on the same token",
+    deposited = env.deposited(receipt, netuid, hotkeys[0])
+    joined = env.stake_change(
+        env.clone_coldkey(token_id), netuid, hotkeys, chain.receipt_block_number(receipt, "Generation: deposit"),
     )
-    assert env.vault_shares(token_id) > shares - exit_shares, "the deposit joined the existing position"
+    assert abs(joined - deposited) <= config.ROUNDING_DUST_SLOT_RAO, (
+        f"the existing position's clone gained {joined} RAO of a {deposited} RAO deposit"
+    )
 
     extrinsics.dissolve_network(netuid)
     env.wait_for_dissolution_cleanup(netuid)
@@ -56,5 +53,17 @@ def test_token_follows_the_registration_counter_not_the_block(env):
 
     assert env.registration_counter(netuid) == registrations + 1, "the counter stepped with the registration"
     assert env.current_token_id(netuid) == netuid | ((registrations + 1) << config.NETUID_BITS), "so the new subnet has a new token"
-    alpha_quote, tao_quote = env.preview_unwrap(token_id, env.vault_shares(token_id))
-    assert alpha_quote == 0 and tao_quote > 0, "while the old token redeems its dissolution refund"
+
+    # The sole holder's slice of the refund is all of it, floored to whole RAO.
+    old_clone = env.clone_address(token_id)
+    expected_refund = chain.cast_balance_wei(old_clone) // config.WEI_PER_RAO * config.WEI_PER_RAO
+    assert expected_refund > 0, "the old token's clone received no dissolution refund"
+    balance_before = env.user_tao_wei()
+    receipt = env.vault_send(
+        2_000_000, "Generation: the old token should redeem its dissolution refund",
+        "unwrap(uint256,uint256,bytes32,uint256)",
+        token_id, env.vault_shares(token_id), env.wrapper_substrate_coldkey, 0,
+    )
+    refund = checks.reconstructed_payout(balance_before, env.user_tao_wei(), receipt, "Generation: refund")
+    assert refund == expected_refund, f"the old token paid {refund} wei of its clone's {expected_refund} wei refund"
+    assert env.vault_total_supply(token_id) == 0, "the old token kept outstanding shares"

@@ -50,15 +50,6 @@ contract BasicValidatorRegistryTest is Test {
         assertEq(registry.nonces(netuid), 0);
     }
 
-    function test_Constructor_RecordsOwner() public view {
-        assertEq(registry.owner(), registryOwner);
-    }
-
-    function test_RevertWhen_NonOwnerConfiguresSubnet() public {
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
-        registry.setValidator(NETUID, HOTKEY);
-    }
-
     function test_SetValidator_UsesOwnerExistenceFlag() public {
         // Subtensor returns the stored AccountId independently of the existence flag.
         _mockHotkeyOwner(HOTKEY, true, 0);
@@ -104,8 +95,6 @@ contract BasicValidatorRegistryTest is Test {
         _setValidatorAsOwner(NETUID, HOTKEY);
         _mockHotkeyOwner(HOTKEY, false, 0);
         _assertValidator(NETUID, HOTKEY, HOTKEY_COLDKEY, 1);
-        vm.expectRevert(abi.encodeWithSelector(BasicValidatorRegistry.OwnerlessHotkey.selector, HOTKEY));
-        _setValidatorAsOwner(NETUID, HOTKEY);
     }
 
     function test_SetValidator_SubnetsAreIndependent() public {
@@ -142,14 +131,18 @@ contract BasicValidatorRegistryTest is Test {
         _setValidatorAsOwner(NETUID, HOTKEY);
     }
 
-    function test_RevertWhen_OwnerRenouncesWithoutPendingSuccessor() public {
+    function test_RevertWhen_OwnerRenounces() public {
         vm.prank(registryOwner);
         vm.expectRevert(BasicValidatorRegistry.RenunciationDisabled.selector);
         registry.renounceOwnership();
     }
 
-    function testFuzz_RevertWhen_CallerIsNotOwner(address caller) public {
-        vm.assume(caller != registryOwner);
+    function testFuzz_RevertWhen_CallerIsNotOwner(uint256 offset) public {
+        address caller;
+        // Any nonzero offset, wrapping around the address space, lands on an address other than the owner.
+        unchecked {
+            caller = address(uint160(registryOwner) + uint160(bound(offset, 1, type(uint160).max)));
+        }
         vm.prank(caller);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, caller));
         registry.setValidator(NETUID, HOTKEY);

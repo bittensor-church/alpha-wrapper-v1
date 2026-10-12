@@ -1,7 +1,7 @@
 """Sub-floor deposits require a top-up; a later deposit consolidates dust from a rotated-out validator."""
 import pytest
 
-from alpha_e2e import config, extrinsics
+from alpha_e2e import chain, config, exits, extrinsics
 from alpha_e2e.checks import assert_gas_within
 from alpha_e2e.substrate import h160_to_ss58
 
@@ -63,9 +63,10 @@ def test_min_stake_floor(env):
     # chain floor in one transaction - no keeper, no forfeiture.
     dust_netuid = env.netuids[2]
     dust_token_id = env.token_ids[2]
-    dust_hotkey_pubkey = env.hotkey_pubkeys[6]
+    dust_hotkeys = env.subnet_hotkey_pubkeys(2)
+    dust_hotkey_pubkey = dust_hotkeys[0]
     dust_hotkey_ss58 = env.hotkey_ss58s[6]
-    kept_hotkey_b_pubkey = env.hotkey_pubkeys[7]
+    kept_hotkey_b_pubkey = dust_hotkeys[1]
     kept_hotkey_b_ss58 = env.hotkey_ss58s[7]
 
     dust_price, dust_boundary = env.floor_boundary(dust_netuid, chain_min_stake)
@@ -79,11 +80,8 @@ def test_min_stake_floor(env):
     dust_clone_coldkey = env.clone_coldkey(dust_token_id)
 
     # Delivers ~1.25x the boundary and leaves ~0.25x of it behind as sub-floor dust.
-    dust_burn = dust_shares * 5 // 6
-    env.vault_send(
-        2_500_000, "Dust consolidation: partial unwrap failed",
-        "unwrap(uint256,uint256,bytes32,uint256)",
-        dust_token_id, dust_burn, env.wrapper_substrate_coldkey, 1,
+    exits.unwrap(
+        env, dust_token_id, dust_shares * 5 // 6, "Dust consolidation: partial unwrap failed", hotkeys=dust_hotkeys,
     )
     dust_residue = env.stake(dust_hotkey_pubkey, dust_clone_coldkey, dust_netuid)
     assert dust_residue * dust_price // config.ALPHA_PRICE_SCALE < chain_min_stake, (
@@ -93,12 +91,11 @@ def test_min_stake_floor(env):
           "soon-rotated hotkey")
 
     env.set_validator(dust_netuid, kept_hotkey_b_pubkey)
-    dust_total_before = env.vault_total_stake(dust_token_id)
-    consolidating_deposit = dust_boundary * 3
-    env.deposit_and_wrap(
-        dust_netuid, kept_hotkey_b_pubkey, kept_hotkey_b_ss58, consolidating_deposit,
+    receipt = env.deposit_and_wrap(
+        dust_netuid, kept_hotkey_b_pubkey, kept_hotkey_b_ss58, dust_boundary * 3,
         2_500_000, "Dust consolidation: consolidating wrap failed",
     )
+    consolidating_deposit = env.deposited(receipt, dust_netuid, kept_hotkey_b_pubkey)
 
     dust_residue_after = env.stake(dust_hotkey_pubkey, dust_clone_coldkey, dust_netuid)
     assert dust_residue_after <= config.ROUNDING_DUST_SLOT_RAO, (
@@ -111,12 +108,11 @@ def test_min_stake_floor(env):
     assert not env.hotkey_in_last_seen(dust_token_id, dust_hotkey_pubkey), (
         "Dust consolidation: consolidated hotkey still present in lastSeenHotkeys"
     )
-    dust_total_after = env.vault_total_stake(dust_token_id)
-    assert dust_total_after >= (
-        dust_total_before + consolidating_deposit - config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO
-    ), (
-        f"Dust consolidation: backing did not fold in deposit + reclaimed dust "
-        f"({dust_total_after})"
+    wrap_block = chain.receipt_block_number(receipt, "Dust consolidation: consolidating wrap")
+    landed = env.stake_change(dust_clone_coldkey, dust_netuid, dust_hotkeys, wrap_block)
+    assert abs(landed - consolidating_deposit) <= config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO, (
+        f"Dust consolidation: the clone gained {landed} RAO from a {consolidating_deposit} RAO deposit "
+        "while folding in its own dust"
     )
     print("  Backing folded in the fresh deposit and the reclaimed dust; "
           "remembered set refreshed to the current set")

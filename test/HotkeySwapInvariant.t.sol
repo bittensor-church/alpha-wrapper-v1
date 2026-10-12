@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { BackingCampaignHandler, BackingCampaignHarness } from "./helpers/BackingCampaign.sol";
+import {
+    Attempt,
+    BackingCampaignHandler,
+    BackingCampaignHarness,
+    unwrapForTaoErrors
+} from "./helpers/BackingCampaign.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
@@ -21,7 +26,7 @@ contract HotkeySwapHandler is BackingCampaignHandler {
 
     constructor(
         AlphaVault _vault,
-        HotkeySwapInvariantTest _harness,
+        HotkeySwapCampaignSetup _harness,
         uint256 _tokenId,
         uint256 _netuid,
         address[] memory _actors,
@@ -38,14 +43,17 @@ contract HotkeySwapHandler is BackingCampaignHandler {
         uint256 slot = bound(slotSeed, 0, slots.length - 1);
         uint256 held = _swaps().vaultStakeAt(slots[slot].active);
         uint256 located = _swaps().locatedStake();
-        if (held == 0 || located == 0) return;
+        // The pool refuses a sale that would pay nothing.
+        if (located == 0 || MockStaking(STAKING_PRECOMPILE).quoteTaoOut(uint16(netuid), held) == 0) return;
         uint256 shares = (vault.totalSupply(tokenId) * (held + DRAIN_MARGIN_RAO)) / located + 1;
         if (shares > balance) return;
         uint256 keepOthers = ((1 << slots.length) - 1) ^ (1 << slot);
         vm.prank(actor);
         try vault.unwrapForTao(tokenId, shares, 0, keepOthers) {
             if (_swaps().vaultStakeAt(slots[slot].active) == 0) ++drains;
-        } catch { }
+        } catch (bytes memory reason) {
+            _requireJustifiedRevert(reason, unwrapForTaoErrors(), Attempt(0, shares, keepOthers, bytes32(0), true));
+        }
     }
 
     function swapToFreshKey(uint256 validatorSeed, uint256 keySeed, bool allSubnets) external {
@@ -92,14 +100,12 @@ contract HotkeySwapHandler is BackingCampaignHandler {
         return bound(seed, 0, liveKeys.length - 1);
     }
 
-    function _swaps() private view returns (HotkeySwapInvariantTest) {
-        return HotkeySwapInvariantTest(address(harness));
+    function _swaps() private view returns (HotkeySwapCampaignSetup) {
+        return HotkeySwapCampaignSetup(address(harness));
     }
 }
 
-/// forge-config: default.invariant.fail-on-revert = true
-/// forge-config: ci.invariant.fail-on-revert = true
-contract HotkeySwapInvariantTest is BackingCampaignHarness {
+abstract contract HotkeySwapCampaignSetup is BackingCampaignHarness {
     HotkeySwapHandler internal handler;
 
     function setUp() public override {
@@ -169,7 +175,25 @@ contract HotkeySwapInvariantTest is BackingCampaignHarness {
             }
         }
     }
+}
 
+/// forge-config: default.invariant.fail-on-revert = true
+/// forge-config: ci.invariant.fail-on-revert = true
+contract HotkeySwapInvariantTest is HotkeySwapCampaignSetup {
+    function invariant_TotalTrackedBackingIsBoundedByCurrentChainHoldings() public view {
+        _assertTrackedBackingWithinChainHoldings();
+    }
+
+    function invariant_ReportedBackingNeverExceedsWhatTheChainHolds() public view {
+        _assertReportedBackingWithinChainHoldings();
+    }
+
+    function invariant_NoTwoSlotsAnswerForOneKey() public view {
+        _assertNoTwoSlotsAnswerForOneKey();
+    }
+}
+
+contract HotkeySwapCampaignPathsTest is HotkeySwapCampaignSetup {
     function test_ReusedNameAfterARetiredKey_ResolvesWithoutARepublish() public {
         handler.swapToFreshKey(0, 1, true);
         _assertSharedInvariants();
@@ -221,7 +245,7 @@ contract HotkeySwapInvariantTest is BackingCampaignHarness {
     }
 
     function test_HandlerReachesEverySuccessPath() public {
-        handler.wrap(1, 100e9, 0);
+        handler.wrap(1, 100, 0);
         _assertSharedInvariants();
         handler.unwrap(0, 1e18);
         _assertSharedInvariants();

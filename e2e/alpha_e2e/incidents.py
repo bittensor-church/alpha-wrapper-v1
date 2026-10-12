@@ -1,5 +1,6 @@
 """Chain-side incidents the recovery scenarios stage against a vault position."""
 from dataclasses import dataclass
+
 from . import config, extrinsics
 from .environment import Environment
 
@@ -30,7 +31,7 @@ def cut_trail(
     lost_pubkey = env.hotkey_pubkeys[position]
     lost_ss58 = env.hotkey_ss58s[position]
     clone_coldkey = env.clone_coldkey(token_id)
-    backing_before = env.vault_total_stake(token_id)
+    backing_before = env.total_stake_across(clone_coldkey, netuid, env.subnet_hotkey_pubkeys(subnet_index))
     assert env.stake(lost_pubkey, clone_coldkey, netuid) > 0, (
         f"{context}: nothing sits under the hotkey about to move"
     )

@@ -5,9 +5,8 @@ import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { ISubnet, SUBNET_PRECOMPILE } from "src/interfaces/ISubnet.sol";
 
 contract TransferSyncReadsTest is AlphaVaultTestBase {
-    uint256 internal constant DEPOSIT = 30 ether;
-    uint256 internal constant DONATION = 3 ether;
-    uint256 internal constant NATIVE_TRANSFER_QUANTUM = 1e9;
+    uint256 internal constant DEPOSIT = 1_000 * ALPHA;
+    uint256 internal constant DONATION = 3 * TAO;
 
     function setUp() public override {
         super.setUp();
@@ -56,8 +55,8 @@ contract TransferSyncReadsTest is AlphaVaultTestBase {
 
         _transferHalf(TOKEN1);
 
-        assertApproxEqAbs(vault.taoLiability(TOKEN1), DONATION, NATIVE_TRANSFER_QUANTUM, "the donation is reserved");
-        assertApproxEqAbs(lens.claimableTaoOf(alice, TOKEN1), DONATION, NATIVE_TRANSFER_QUANTUM);
+        assertEq(vault.taoLiability(TOKEN1), DONATION, "the donation is reserved");
+        assertEq(lens.claimableTaoOf(alice, TOKEN1), DONATION);
         assertEq(lens.claimableTaoOf(bob, TOKEN1), 0);
     }
 
@@ -69,8 +68,8 @@ contract TransferSyncReadsTest is AlphaVaultTestBase {
 
         _batchTransferHalf();
 
-        assertApproxEqAbs(vault.taoLiability(TOKEN1), DONATION, NATIVE_TRANSFER_QUANTUM);
-        assertApproxEqAbs(vault.taoLiability(TOKEN2), DONATION, NATIVE_TRANSFER_QUANTUM);
+        assertEq(vault.taoLiability(TOKEN1), DONATION);
+        assertEq(vault.taoLiability(TOKEN2), DONATION);
         assertEq(lens.claimableTaoOf(bob, TOKEN1), 0);
         assertEq(lens.claimableTaoOf(bob, TOKEN2), 0);
     }

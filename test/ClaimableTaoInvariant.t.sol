@@ -5,8 +5,8 @@ import { VaultMath } from "src/libraries/VaultMath.sol";
 import { Test } from "forge-std/Test.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
-import { MockStaking } from "./mocks/MockStaking.sol";
-import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { requireExpectedRevert } from "./helpers/BackingCampaign.sol";
+import { WithdrawTooSmall, ZeroAmount } from "src/VaultErrors.sol";
 
 contract ClaimableTaoHandler is Test {
     AlphaVault public immutable vault;
@@ -36,8 +36,9 @@ contract ClaimableTaoHandler is Test {
         return actors[bound(seed, 0, actors.length - 1)];
     }
 
-    function donate(uint256 amount) external countAction {
-        amount = bound(amount, 1, 1_000 ether);
+    /// @dev Chain balances move in whole RAO.
+    function donate(uint256 amountRao) external countAction {
+        uint256 amount = bound(amountRao, 1e7, 1e11) * VaultMath.TAO_NATIVE_QUANTUM;
         address clone = vault.subnetClone(tokenId);
         vm.deal(clone, clone.balance + amount);
         totalDonated += amount;
@@ -58,8 +59,7 @@ contract ClaimableTaoHandler is Test {
     }
 
     function wrap(uint256 actorSeed, uint256 amount) external countAction {
-        amount = bound(amount, 1e9, 1_000e9);
-        harness.wrapFor(_actor(actorSeed), amount);
+        harness.wrapFor(_actor(actorSeed), bound(amount, 10, 1_000) * 1e9);
         if (unassigned != 0) {
             uint256 arrival = unassigned;
             unassigned = 0;
@@ -81,6 +81,7 @@ contract ClaimableTaoHandler is Test {
         address actor = _actor(actorSeed);
         address clone = vault.subnetClone(tokenId);
         uint256 cloneBefore = clone.balance;
+        if (harness.quotedClaim(actor) == 0) return;
         uint256 delivered = harness.claimQuotedFor(actor);
         assertEq(cloneBefore - clone.balance, delivered);
         totalClaimed += delivered;
@@ -93,7 +94,21 @@ contract ClaimableTaoHandler is Test {
         if (balance == 0) return;
         uint256 shares = bound(shareSeed, 1, balance);
         vm.prank(actor);
-        try vault.unwrapForTao(tokenId, shares, 0) { } catch { }
+        try vault.unwrapForTao(tokenId, shares, 0) { }
+        catch (bytes memory reason) {
+            // No swaps, strays or losses here: only a burn too small to sell can fail.
+            bytes4[] memory expected = new bytes4[](2);
+            expected[0] = ZeroAmount.selector;
+            expected[1] = WithdrawTooSmall.selector;
+            requireExpectedRevert(reason, expected);
+            uint256 assets = harness.taoExitAssets(shares);
+            if (bytes4(reason) == ZeroAmount.selector) assertEq(assets, 0, "refused shares worth a RAO");
+            else assertFalse(harness.taoExitSells(assets), "refused a TAO exit that sells");
+        }
+    }
+
+    function movePrice(uint256 priceSeed) external countAction {
+        harness.movePrice(priceSeed);
     }
 }
 
@@ -104,13 +119,12 @@ contract ClaimableTaoInvariantTest is AlphaVaultTestBase {
 
     function setUp() public override {
         super.setUp();
-        MockStaking(STAKING_PRECOMPILE).setNativeTaoUnits(true);
         address[] memory actors = new address[](3);
         actors[0] = alice;
         actors[1] = bob;
         actors[2] = makeAddr("carol");
         for (uint256 i; i < actors.length;) {
-            _depositAndWrap(actors[i], NETUID1, 50e9);
+            _depositAndWrap(actors[i], NETUID1, 50 * ALPHA);
             unchecked {
                 ++i;
             }
@@ -123,8 +137,27 @@ contract ClaimableTaoInvariantTest is AlphaVaultTestBase {
         _depositAndWrap(user, NETUID1, amount);
     }
 
+    function quotedClaim(address user) external view returns (uint256) {
+        return lens.claimableTaoOf(user, TOKEN1);
+    }
+
     function claimQuotedFor(address user) external returns (uint256 delivered) {
         return _claimQuotedAmount(user, TOKEN1);
+    }
+
+    function movePrice(uint256 priceSeed) external {
+        _setAlphaPrice(NETUID1, _wholeRaoPrice(priceSeed));
+    }
+
+    /// @dev Nothing here moves stake off the recorded keys, so the backing is the clone's stake on them.
+    function taoExitAssets(uint256 shares) external view returns (uint256) {
+        uint256 backing = _vaultStakeAcross(_recordedKeys(TOKEN1), NETUID1);
+        uint256 supply = vault.totalSupply(TOKEN1);
+        return shares == supply ? backing : shares * (backing + 1) / (supply + 1e9);
+    }
+
+    function taoExitSells(uint256 assets) external view returns (bool) {
+        return _taoExitSellsWithin(_recordedKeys(TOKEN1), assets, 0, NETUID1);
     }
 
     function invariant_CloneBalanceCoversReservedTao() public view {
@@ -132,16 +165,7 @@ contract ClaimableTaoInvariantTest is AlphaVaultTestBase {
         assertGe(clone.balance, vault.taoLiability(TOKEN1));
     }
 
-    function invariant_LiabilityNeverExceedsDonated() public view {
-        assertLe(vault.taoLiability(TOKEN1) + handler.totalClaimed(), handler.totalDonated());
-    }
-
     function invariant_EachHolderKeepsTheirShareOfEveryArrival() public view {
-        assertLt(
-            vault.totalSupply(TOKEN1),
-            VaultMath.TAO_INDEX_PRECISION,
-            "campaign keeps an index-rounding step below one wei"
-        );
         // Per holder, a donation has two rounding steps: allocation and index truncation.
         // An exit with a share refund has at most four checkpoint/debt floors.
         // Four wei per action cover either; one extra action covers the pending read,

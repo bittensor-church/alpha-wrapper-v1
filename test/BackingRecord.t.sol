@@ -12,18 +12,18 @@ import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract BackingRecordTest is AlphaVaultTestBase {
     function test_Wrap_RecordsWhereEachValidatorsAlphaIs() public {
-        _depositAndWrap(alice, NETUID1, 30 ether);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
 
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         assertEq(slots.length, 3, "one slot per attested validator");
         assertEq(slots[0].logical, hotkey1, "the slot names the attested validator");
         assertEq(slots[0].active, hotkey1, "with nothing swapped the two agree");
-        assertEq(slots[0].tracked, _getVaultStake(hotkey1, NETUID1), "the expectation mirrors the staked alpha");
+        assertEq(slots[0].tracked, 10_002_000_000, "the expectation is the slot's 3334 bps of 30 alpha");
         assertEq(lens.writeOffDeadline(TOKEN1), 0, "and no clock is running");
     }
 
     function test_IntactSlot_NeverReadsASuccessor() public {
-        _depositAndWrap(alice, NETUID1, 30 ether);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         MockStaking(STAKING_PRECOMPILE).setHotkeySuccessor(hotkey1, NETUID1, hotkey5);
 
         vault.rebalance(NETUID1);
@@ -33,7 +33,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
     }
 
     function test_DirectSwap_MovesActiveAndLeavesLogicalAlone() public {
-        _depositAndWrap(alice, NETUID1, 30 ether);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
 
         assertTrue(lens.isBackingIntact(TOKEN1), "the quote resolves the swap before any write");
@@ -42,13 +42,13 @@ contract BackingRecordTest is AlphaVaultTestBase {
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         assertEq(slots[0].logical, hotkey1, "the registry still names the original validator");
         assertEq(slots[0].active, hotkey4, "the alpha is tracked at the successor");
-        assertEq(lens.totalStake(TOKEN1), 30 ether, "backing whole across the swap");
+        assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "backing whole across the swap");
     }
 
     function test_RepeatedSwaps_AdvanceOneHopPerCall() public {
         uint256 netuid = 5;
         _registerSubnet(netuid, hotkey1);
-        _depositAndWrap(alice, netuid, 10 ether);
+        _depositAndWrap(alice, netuid, 10 * ALPHA);
         uint256 tokenId = vault.currentTokenId(netuid);
 
         _simulateFollowedSwap(netuid, hotkey1, hotkey4);
@@ -64,21 +64,18 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertEq(slots[0].logical, hotkey1, "the registry has not moved");
         assertEq(slots[0].active, hotkey5, "the alpha is tracked at the live key");
         assertEq(lens.lastSeenHotkeys(tokenId)[0], hotkey5, "the lens reports the same key");
-        assertEq(lens.totalStake(tokenId), 10 ether, "backing whole across both swaps");
+        assertEq(lens.totalStake(tokenId), 10 * ALPHA, "backing whole across both swaps");
     }
 
     function test_SwappedValidator_AllRailsKeepWorking() public {
-        _depositAndWrap(alice, NETUID1, 30 ether);
-        uint256 shares = _depositAndWrap(bob, NETUID1, 30 ether);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        uint256 shares = _depositAndWrap(bob, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
-        MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey1, true);
 
-        _simulateAlphaDepositHotkey(alice, NETUID1, 10 ether, hotkey4);
-        vm.expectRevert(ZeroAmount.selector);
-        _wrapHotkey(alice, NETUID1, hotkey1);
+        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey4);
         vm.prank(alice);
         vault.reclaimAlphaFromMailbox(NETUID1, hotkey4, _toSubstrate(alice));
-        _simulateAlphaDepositHotkey(alice, NETUID1, 10 ether, hotkey2);
+        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey2);
         _wrapHotkey(alice, NETUID1, hotkey2);
         vm.prank(bob);
         vault.unwrap(TOKEN1, shares / 2, _toSubstrate(bob), 0);
@@ -86,12 +83,26 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vault.unwrapForTao(TOKEN1, shares / 4, 0);
         vault.rebalance(NETUID1);
 
+        assertEq(
+            _getStakeForColdkey(hotkey4, _toSubstrate(bob), NETUID1), 15 * ALPHA, "the alpha exit paid at the successor"
+        );
+        assertEq(bob.balance, 0.375e18, "the TAO exit sold 7.5 alpha at 0.05 TAO/alpha");
+        assertEq(lens.totalStake(TOKEN1), 47_500_000_000, "70 alpha less both exits");
         assertEq(_getVaultStake(hotkey1, NETUID1), 0, "nothing staked toward the retired key");
         assertTrue(lens.isBackingIntact(TOKEN1), "record sound throughout");
     }
 
+    function test_RevertWhen_WrapNamesTheRetiredKeyForADepositOnItsSuccessor() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
+        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey4);
+
+        vm.expectRevert(ZeroAmount.selector);
+        _wrapHotkey(alice, NETUID1, hotkey1);
+    }
+
     function test_ReorderedSet_KeepsWeightsWithTheirValidators() public {
-        _depositAndWrap(alice, NETUID1, 30 ether);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         // Per-subnet swapping retains the old owner, allowing the reordered attestation.
         _simulatePerSubnetSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
@@ -103,11 +114,11 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertEq(slots[0].logical, hotkey3, "slot order follows the attested set");
         assertEq(slots[1].logical, hotkey1, "the swapped validator kept its own weight slot");
         assertEq(slots[1].active, hotkey4, "and its alpha is still tracked at the successor");
-        assertEq(lens.totalStake(TOKEN1), 30 ether, "nothing lost in the reorder");
+        assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "nothing lost in the reorder");
     }
 
     function test_DroppedValidator_HasItsAlphaRolledOntoTheNewSet() public {
-        _depositAndWrap(alice, NETUID1, 30 ether);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
 
@@ -116,11 +127,11 @@ contract BackingRecordTest is AlphaVaultTestBase {
 
         assertEq(_getVaultStake(hotkey4, NETUID1), 0, "the successor was drained");
         assertEq(vault.recordedSlots(TOKEN1).length, 2, "the record matches the new set");
-        assertEq(lens.totalStake(TOKEN1), 30 ether, "backing whole after the roll");
+        assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "backing whole after the roll");
     }
 
     function test_SetNamingTheSuccessor_CountsTheBalanceOnce() public {
-        _depositAndWrap(alice, NETUID1, 30 ether);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
 
@@ -132,12 +143,11 @@ contract BackingRecordTest is AlphaVaultTestBase {
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         assertEq(slots[0].logical, hotkey4, "the attested name took over the slot");
         assertEq(slots[0].active, hotkey4, "answering for its own key");
-        assertEq(lens.totalStake(TOKEN1), 30 ether, "and nothing is counted twice");
+        assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "and nothing is counted twice");
     }
 
-    function test_SetNamingASwappedKeyAndItsSuccessor_RefusesCheaply() public {
-        _setAlphaPrice(NETUID1, 1e18);
-        uint256 shares = _depositAndWrap(alice, NETUID1, 30 ether);
+    function _setNamingASwappedKeyAndItsSuccessor() private returns (uint256 shares) {
+        shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulatePerSubnetSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
 
@@ -146,12 +156,25 @@ contract BackingRecordTest is AlphaVaultTestBase {
             NETUID1, _hotkeys(hotkey1, hotkey4, hotkey2), _weights(NETUID1_BPS_HK1, NETUID1_BPS_HK2, NETUID1_BPS_HK3)
         );
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey1, true);
+    }
+
+    function test_RevertWhen_RebalancingASetNamingASwappedKeyAndItsSuccessor() public {
+        _setNamingASwappedKeyAndItsSuccessor();
 
         vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
         vault.rebalance(NETUID1);
+    }
+
+    function test_RevertWhen_UnwrappingUnderASetNamingASwappedKeyAndItsSuccessor() public {
+        uint256 shares = _setNamingASwappedKeyAndItsSuccessor();
+
         vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
+    }
+
+    function test_SetNamingASwappedKeyAndItsSuccessor_KeepsTheTaoExitAndResumesOnceDropped() public {
+        uint256 shares = _setNamingASwappedKeyAndItsSuccessor();
 
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares / 4, 0);
@@ -163,8 +186,10 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1), "dropping the stale name resumes service");
     }
 
+    /// @dev Leaves 19.998 alpha on hotkey2 and hotkey3 behind 1.9998e19 shares, with the first slot
+    ///      emptied on the successor hotkey4.
     function _positionWithADrainedSwap() private {
-        _depositAndWrap(alice, NETUID1, 30 ether);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
         _drainTheFirstSlot(alice, NETUID1);
@@ -176,7 +201,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
 
         assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey4, "the slot answers under the successor");
-        assertGt(_getVaultStake(hotkey4, NETUID1), 0, "which is where its share went");
+        assertEq(_getVaultStake(hotkey4, NETUID1), 6_667_333_200, "3334 bps of the remaining 19.998 alpha");
         assertEq(_getVaultStake(hotkey1, NETUID1), 0, "and nothing was aimed at the retired name");
     }
 
@@ -188,24 +213,25 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
 
         assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey4, "the slot answers under the successor");
-        assertGt(_getVaultStake(hotkey4, NETUID1), 0, "which is where its share went");
-        assertGt(_userStakeAcrossHotkeys(alice, NETUID1), 0, "and the exit delivered");
+        // Alignment moves 4.99999995 alpha from hotkey3; the remaining 499,950 RAO move is below the floor.
+        assertEq(_getVaultStake(hotkey4, NETUID1), 4_999_999_950, "which is where its share went");
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 4_999_500_000, "the exit delivered a quarter");
         assertTrue(lens.isBackingIntact(TOKEN1), "with the record accounting for what is left");
     }
 
     function test_WrapAfterADrainedSwap_StakesTheShareAtTheSuccessor() public {
         _positionWithADrainedSwap();
 
-        _simulateAlphaDepositHotkey(bob, NETUID1, 6 ether, hotkey2);
+        _simulateAlphaDepositHotkey(bob, NETUID1, 6 * ALPHA, hotkey2);
         _wrapHotkey(bob, NETUID1, hotkey2);
 
-        assertGt(vault.balanceOf(bob, TOKEN1), 0, "the deposit landed");
+        assertEq(vault.balanceOf(bob, TOKEN1), 6e18, "6 alpha against 19.998 alpha on 1.9998e19 shares");
         assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey4, "the slot answers under the successor");
-        assertGt(_getVaultStake(hotkey4, NETUID1), 0, "which is where its share went");
+        assertEq(_getVaultStake(hotkey4, NETUID1), 8_667_733_200, "3334 bps of 25.998 alpha");
     }
 
     function test_ValidatorSwappingBeforeItIsFunded_StakesItsShareAtTheSuccessor() public {
-        _depositAndWrap(alice, NETUID1, 30 ether);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey4), _weights(3334, 3333, 3333));
         _simulateFollowedSwap(NETUID1, hotkey4, hotkey5);
 
@@ -214,12 +240,12 @@ contract BackingRecordTest is AlphaVaultTestBase {
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         assertEq(slots[2].logical, hotkey4, "the record names the attested validator");
         assertEq(slots[2].active, hotkey5, "while its share sits at the successor");
-        assertGt(_getVaultStake(hotkey5, NETUID1), 0, "which is where the rebalance staked it");
-        assertEq(lens.totalStake(TOKEN1), 30 ether, "backing whole across the swap");
+        assertEq(_getVaultStake(hotkey5, NETUID1), 9_999_000_000, "which is where the rebalance staked it");
+        assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "backing whole across the swap");
     }
 
     function test_PerSubnetSwapAfterADrain_StakesTheShareAtTheAttestedName() public {
-        _depositAndWrap(alice, NETUID1, 30 ether);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulatePerSubnetSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
         _drainTheFirstSlot(alice, NETUID1);
@@ -227,13 +253,17 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
 
         assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey1, "the slot answers under its own name again");
-        assertGt(_getVaultStake(hotkey1, NETUID1), 0, "which is where its share went");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 6_667_333_200, "3334 bps of the remaining 19.998 alpha");
     }
 
-    function test_RetiredNameWithNoSuccessor_RefusesEveryAlphaRail() public {
-        uint256 shares = _depositAndWrap(alice, NETUID1, 30 ether);
+    function _retiredNameWithNoSuccessor() private returns (uint256 shares) {
+        shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey4), _weights(3334, 3333, 3333));
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey4, true);
+    }
+
+    function test_RevertWhen_AnAlphaRailMeetsARetiredNameWithNoSuccessor() public {
+        uint256 shares = _retiredNameWithNoSuccessor();
 
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey4));
         vault.rebalance(NETUID1);
@@ -242,16 +272,23 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
 
-        _simulateAlphaDepositHotkey(bob, NETUID1, 6 ether, hotkey2);
+        _simulateAlphaDepositHotkey(bob, NETUID1, 6 * ALPHA, hotkey2);
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey4));
         _wrapHotkey(bob, NETUID1, hotkey2);
+    }
+
+    function test_RetiredNameWithNoSuccessor_LeavesTheTaoExitOpen() public {
+        uint256 shares = _retiredNameWithNoSuccessor();
 
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares / 4, 0);
+
+        assertEq(alice.balance, 0.375e18, "7.5 alpha sold at 0.05 TAO/alpha");
+        assertEq(vault.balanceOf(alice, TOKEN1), shares - shares / 4);
     }
 
     function test_RetiredNameWithARetiredSuccessor_RefusesTheRebalance() public {
-        _depositAndWrap(alice, NETUID1, 30 ether);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey4), _weights(3334, 3333, 3333));
         _simulateFollowedSwap(NETUID1, hotkey4, hotkey5);
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey5, true);
@@ -261,7 +298,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
     }
 
     function _positionWithTwoFollowedSwapsThenADrain() private {
-        _depositAndWrap(alice, NETUID1, 30 ether);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
         _simulateFollowedSwap(NETUID1, hotkey4, hotkey5);
@@ -277,7 +314,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
 
         assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey5, "the slot stays on the key it was found under");
-        assertGt(_getVaultStake(hotkey5, NETUID1), 0, "which is where its share went");
+        assertEq(_getVaultStake(hotkey5, NETUID1), 6_667_333_200, "3334 bps of the remaining 19.998 alpha");
         assertEq(_getVaultStake(hotkey4, NETUID1), 0, "and nothing was aimed at the retired successor");
         assertTrue(lens.isBackingIntact(TOKEN1), "with the record accounting for everything");
     }
@@ -290,65 +327,58 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
 
         assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey5, "the slot stays on the key it was found under");
-        assertGt(_getVaultStake(hotkey5, NETUID1), 0, "which is where its share went");
-        assertGt(_userStakeAcrossHotkeys(alice, NETUID1), 0, "and the exit delivered");
+        assertEq(_getVaultStake(hotkey5, NETUID1), 4_999_999_950, "which is where its share went");
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 4_999_500_000, "the exit delivered a quarter");
         assertTrue(lens.isBackingIntact(TOKEN1), "with the record accounting for what is left");
     }
 
     function test_RebalanceAfterAReusedName_StakesTheShareAtTheSuccessor() public {
         _reuseTheDrainedNameAfterItsRecordedKeyRetires();
-        uint256 backing = _realBacking();
 
         vault.rebalance(NETUID1);
 
-        _assertSlotMovedToTheSuccessor();
-        assertEq(_realBacking(), backing, "moving the share created and lost nothing");
+        _assertSlotMovedToTheSuccessor(6_667_333_200);
+        assertEq(_realBacking(), 19_998_000_000, "moving the share created and lost nothing");
     }
 
     function test_UnwrapAfterAReusedName_StakesTheShareAtTheSuccessor() public {
         _reuseTheDrainedNameAfterItsRecordedKeyRetires();
-        uint256 backing = _realBacking();
         uint256 shares = vault.balanceOf(alice, TOKEN1);
-        uint256 aliceBefore = _stakeAcrossAllHotkeys(_toSubstrate(alice));
 
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
 
-        uint256 paid = _stakeAcrossAllHotkeys(_toSubstrate(alice)) - aliceBefore;
-        assertApproxEqRel(paid, backing / 4, 0.01e18, "a quarter of the shares buys a quarter of the backing");
-        assertApproxEqAbs(_realBacking(), backing - paid, 1e12, "and the rest stays staked");
-        _assertSlotMovedToTheSuccessor();
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 4_999_500_000, "a quarter of 19.998 alpha");
+        assertEq(_realBacking(), 14_998_500_000, "and the rest stays staked");
+        _assertSlotMovedToTheSuccessor(4_999_999_950);
     }
 
     function test_WrapAfterAReusedName_StakesTheShareAtTheSuccessor() public {
         _reuseTheDrainedNameAfterItsRecordedKeyRetires();
 
-        _simulateAlphaDepositHotkey(bob, NETUID1, 6 ether, hotkey3);
-        _wrapAndExpectProportionalShares(bob, hotkey3, 6 ether);
+        _depositSixAlphaAndWrapUnder(hotkey3);
 
-        _assertSlotMovedToTheSuccessor();
+        _assertSlotMovedToTheSuccessor(8_667_733_200);
     }
 
     function test_WrapUnderAReusedName_StakesTheShareAtTheSuccessor() public {
         _reuseTheDrainedNameAfterItsRecordedKeyRetires();
 
-        _simulateAlphaDepositHotkey(bob, NETUID1, 6 ether, hotkey1);
-        _wrapAndExpectProportionalShares(bob, hotkey1, 6 ether);
+        _depositSixAlphaAndWrapUnder(hotkey1);
 
-        _assertSlotMovedToTheSuccessor();
+        _assertSlotMovedToTheSuccessor(8_667_733_200);
     }
 
     function test_ReusedAttestedNameUnderOneColdkey_StakesTheShareAtTheSuccessor() public {
         _attestUnderOneColdkey(_hotkeys(hotkey1, hotkey2));
         _reuseTheDrainedNameAfterItsRecordedKeyRetires();
-        uint256 backing = _realBacking();
 
         vault.rebalance(NETUID1);
 
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         assertEq(slots[0].active, hotkey5, "the emptied slot answers under the successor");
         assertEq(slots[1].active, hotkey1, "the reused name stays with the slot that holds it");
-        assertEq(_realBacking(), backing, "moving the share created and lost nothing");
+        assertEq(_realBacking(), 19_998_000_000, "moving the share created and lost nothing");
         assertTrue(lens.isBackingIntact(TOKEN1), "and the backing is counted once");
     }
 
@@ -369,10 +399,14 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
     }
 
-    function test_ReusedNamesSuccessorHeldByAThirdSlot_RefusesAlphaRailsAndKeepsTheTaoExit() public {
+    function _reusedNamesSuccessorHeldByAThirdSlot() private {
         _attestUnderOneColdkey(_hotkeys(hotkey1, hotkey2, hotkey3));
         _reuseTheDrainedNameAfterItsRecordedKeyRetires();
         _simulateFollowedSwap(NETUID1, hotkey3, hotkey5);
+    }
+
+    function test_RevertWhen_AnAlphaRailMeetsAReusedNamesSuccessorHeldByAThirdSlot() public {
+        _reusedNamesSuccessorHeldByAThirdSlot();
         uint256 shares = vault.balanceOf(alice, TOKEN1);
 
         vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
@@ -380,38 +414,49 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
+    }
+
+    function test_ReusedNamesSuccessorHeldByAThirdSlot_LeavesTheTaoExitOpen() public {
+        _reusedNamesSuccessorHeldByAThirdSlot();
+        uint256 shares = vault.balanceOf(alice, TOKEN1);
+        uint256 taoBefore = alice.balance;
 
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares / 4, 0);
+
+        assertEq(alice.balance - taoBefore, 249_975_000 * 1e9, "4.9995 alpha sold at 0.05 TAO/alpha");
         assertEq(vault.balanceOf(alice, TOKEN1), shares - shares / 4, "the TAO exit stays open");
     }
 
-    function test_DrainedKeySwappedBackOntoItsReusedName_RefusesAndPaysOnlyRealBacking() public {
+    function _swapTheDrainedKeyBackOntoItsReusedName() private {
         _attestUnderOneColdkey(_hotkeys(hotkey1, hotkey2));
         _positionWithADrainedSwap();
-        uint256 shares = vault.balanceOf(alice, TOKEN1);
         _simulateFollowedSwap(NETUID1, hotkey4, hotkey1);
         _simulateFollowedSwap(NETUID1, hotkey2, hotkey1);
+    }
+
+    function test_RevertWhen_AnAlphaRailMeetsADrainedKeySwappedBackOntoItsReusedName() public {
+        _swapTheDrainedKeyBackOntoItsReusedName();
+        uint256 shares = vault.balanceOf(alice, TOKEN1);
 
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
         vault.rebalance(NETUID1);
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
-        _simulateAlphaDepositHotkey(bob, NETUID1, 6 ether, hotkey3);
+        _simulateAlphaDepositHotkey(bob, NETUID1, 6 * ALPHA, hotkey3);
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
         _wrapHotkey(bob, NETUID1, hotkey3);
+    }
 
-        uint256 realBacking = _realBacking();
-        uint256 aliceBefore = _stakeAcrossAllHotkeys(_toSubstrate(alice));
+    function test_DrainedKeySwappedBackOntoItsReusedName_PaysAFullExitFromRealBacking() public {
+        _swapTheDrainedKeyBackOntoItsReusedName();
+        uint256 shares = vault.balanceOf(alice, TOKEN1);
+
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
-        assertApproxEqAbs(
-            _stakeAcrossAllHotkeys(_toSubstrate(alice)) - aliceBefore,
-            realBacking,
-            1e12,
-            "the full exit pays what is really staked"
-        );
+
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 19_998_000_000, "the full exit pays what is really staked");
         assertEq(_realBacking(), 0, "and nothing more");
     }
 
@@ -425,79 +470,86 @@ contract BackingRecordTest is AlphaVaultTestBase {
         );
     }
 
+    /// @dev hotkey1 now holds the second slot's 9.999 alpha while the first slot's record names the
+    ///      retired hotkey4, whose successor is hotkey5.
     function _reuseTheDrainedNameAfterItsRecordedKeyRetires() private {
         _positionWithADrainedSwap();
         _simulateFollowedSwap(NETUID1, hotkey4, hotkey5);
         _simulateFollowedSwap(NETUID1, hotkey2, hotkey1);
     }
 
-    function _wrapAndExpectProportionalShares(address user, bytes32 chosenHotkey, uint256 deposit) private {
-        uint256 backing = _realBacking();
-        uint256 supply = vault.totalSupply(TOKEN1);
+    function _depositSixAlphaAndWrapUnder(bytes32 chosenHotkey) private {
+        _simulateAlphaDepositHotkey(bob, NETUID1, 6 * ALPHA, chosenHotkey);
+        _wrapHotkey(bob, NETUID1, chosenHotkey);
 
-        _wrapHotkey(user, NETUID1, chosenHotkey);
-
-        assertApproxEqRel(
-            vault.balanceOf(user, TOKEN1),
-            deposit * supply / backing,
-            0.01e18,
-            "shares price the deposit against real backing"
-        );
-        assertApproxEqAbs(_realBacking(), backing + deposit, 1e12, "and the whole deposit is staked");
+        assertEq(vault.balanceOf(bob, TOKEN1), 6e18, "6 alpha against 19.998 alpha on 1.9998e19 shares");
+        assertEq(_realBacking(), 25_998_000_000, "and the whole deposit is staked");
     }
 
-    function _assertSlotMovedToTheSuccessor() private view {
+    function _assertSlotMovedToTheSuccessor(uint256 successorStake) private view {
         assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey5, "the slot answers under the successor");
-        assertGt(_getVaultStake(hotkey5, NETUID1), 0, "which is where its share went");
+        assertEq(_getVaultStake(hotkey5, NETUID1), successorStake, "which is where its share went");
         assertEq(_getVaultStake(hotkey4, NETUID1), 0, "and nothing was aimed at the retired key");
         assertTrue(lens.isBackingIntact(TOKEN1), "with the record accounting for the backing once");
     }
 
-    function _stakeAcrossAllHotkeys(bytes32 coldkey) private view returns (uint256 total) {
-        total = _getStakeForColdkey(hotkey1, coldkey, NETUID1) + _getStakeForColdkey(hotkey2, coldkey, NETUID1)
-            + _getStakeForColdkey(hotkey3, coldkey, NETUID1) + _getStakeForColdkey(hotkey4, coldkey, NETUID1)
-            + _getStakeForColdkey(hotkey5, coldkey, NETUID1);
-    }
-
     function _realBacking() private view returns (uint256) {
-        return _stakeAcrossAllHotkeys(_subnetColdkey(NETUID1));
+        return _userStakeAcrossHotkeys(_subnetColdkey(NETUID1), NETUID1);
     }
 
-    function test_FullUnwrapBesideARetiredEntry_PaysFromTheHeldKeys() public {
+    function _retiredEntryBesideAHeldKey() private returns (uint256 shares) {
         _setValidators(NETUID1, _hotkeys(hotkey2), _weights(VaultMath.BPS_BASE));
-        uint256 shares = _depositAndWrap(alice, NETUID1, 30 ether);
+        shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _setValidators(NETUID1, _hotkeys(hotkey4, hotkey2), _weights(5000, 5000));
         _simulateFollowedSwap(NETUID1, hotkey4, hotkey5);
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey5, true);
+    }
+
+    function test_RevertWhen_PartialUnwrapNeedsARetiredEntry() public {
+        uint256 shares = _retiredEntryBesideAHeldKey();
 
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey4));
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
+    }
+
+    function test_FullUnwrapBesideARetiredEntry_PaysFromTheHeldKeys() public {
+        uint256 shares = _retiredEntryBesideAHeldKey();
 
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
 
         assertEq(vault.balanceOf(alice, TOKEN1), 0, "the whole position was burned");
-        assertApproxEqAbs(_userStakeAcrossHotkeys(alice, NETUID1), 30 ether, 1e12, "and paid out as staked alpha");
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 30 * ALPHA, "and paid out as staked alpha");
         assertEq(_getVaultStake(hotkey2, NETUID1), 0, "leaving nothing behind");
     }
 
-    function test_FullUnwrapRollingStakeOntoARetiredEntry_Refuses() public {
-        uint256 shares = _depositAndWrap(alice, NETUID1, 30 ether);
+    function _fullPositionBesideARetiredEntry() private returns (uint256 shares) {
+        shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _setValidators(NETUID1, _hotkeys(hotkey4, hotkey2, hotkey3), _weights(3334, 3333, 3333));
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey4, true);
+    }
+
+    function test_RevertWhen_FullUnwrapWouldRollStakeOntoARetiredEntry() public {
+        uint256 shares = _fullPositionBesideARetiredEntry();
 
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey4));
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
+    }
+
+    function test_RetiredEntry_LeavesTheFullTaoExitOpen() public {
+        uint256 shares = _fullPositionBesideARetiredEntry();
 
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares, 0);
+
         assertEq(vault.balanceOf(alice, TOKEN1), 0, "the TAO exit stays open");
+        assertEq(alice.balance, 1.5e18, "30 alpha sold at 0.05 TAO/alpha");
     }
 
-    function test_SetNamingADrainedSwapAndItsSuccessor_StillRefuses() public {
-        _depositAndWrap(alice, NETUID1, 30 ether);
+    function test_RevertWhen_RebalancingASetNamingADrainedSwapAndItsSuccessor() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulatePerSubnetSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey4, hotkey2), _weights(3334, 3333, 3333));
@@ -508,15 +560,23 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
     }
 
-    function test_SetNamingADrainedSwapBesideItsLiveName_StillRefuses() public {
-        _depositAndWrap(alice, NETUID1, 30 ether);
+    function _setNamingADrainedSwapBesideItsLiveName() private {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulatePerSubnetSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey4, hotkey2), _weights(3334, 3333, 3333));
         _drainTheFirstSlot(alice, NETUID1);
+    }
+
+    function test_RevertWhen_RebalancingASetNamingADrainedSwapBesideItsLiveName() public {
+        _setNamingADrainedSwapBesideItsLiveName();
 
         vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
         vault.rebalance(NETUID1);
+    }
+
+    function test_SetNamingADrainedSwapBesideItsLiveName_ResumesOnceTheOldNameIsDropped() public {
+        _setNamingADrainedSwapBesideItsLiveName();
 
         _setValidators(NETUID1, _hotkeys(hotkey4, hotkey2), _weights(5000, 5000));
         vault.rebalance(NETUID1);
@@ -528,7 +588,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         uint256 netuid = 11;
         _setRegBlock(netuid, 500);
         bytes32[] memory hks = _setValidatorCount(netuid, count);
-        _simulateAlphaDepositHotkey(alice, netuid, 30 ether, hks[0]);
+        _simulateAlphaDepositHotkey(alice, netuid, 30 * ALPHA, hks[0]);
         _wrapHotkey(alice, netuid, hks[0]);
         uint256 tokenId = vault.currentTokenId(netuid);
 
@@ -555,13 +615,12 @@ contract BackingRecordTest is AlphaVaultTestBase {
     }
 
     function test_Emissions_DoNotTrip() public {
-        _depositAndWrap(alice, NETUID1, 30 ether);
-        _simulateEmissions(NETUID1, 5 ether);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _simulateEmissions(NETUID1, 5 * ALPHA);
         vault.rebalance(NETUID1);
-        assertGt(lens.totalStake(TOKEN1), 30 ether, "emission counted, no false trip");
+        assertEq(lens.totalStake(TOKEN1), 35 * ALPHA, "emission counted, no false trip");
     }
 
-    // The TAO exit narrows slot balances to the chain's 64-bit stake amounts, so this stays in RAO.
     function test_OperationSequence_NeverTrips() public {
         uint256 aliceShares = _depositAndWrap(alice, NETUID1, 60 * ALPHA);
         vault.rebalance(NETUID1);
@@ -574,10 +633,11 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
 
         assertTrue(lens.isBackingIntact(TOKEN1), "the record settled through the whole sequence");
+        assertEq(lens.totalStake(TOKEN1), 45 * ALPHA, "85 alpha less two 20 alpha exits");
     }
 
     function test_Withdrawal_ReanchorsTheRecord() public {
-        uint256 shares = _depositAndWrap(alice, NETUID1, 30 ether);
+        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
 
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
@@ -589,7 +649,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
     }
 
     function test_SwapAfterWithdrawal_IsStillFollowed() public {
-        uint256 shares = _depositAndWrap(alice, NETUID1, 30 ether);
+        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
 
@@ -601,24 +661,24 @@ contract BackingRecordTest is AlphaVaultTestBase {
     }
 
     function test_SwapAfterTaoExit_StaysOperable() public {
-        uint256 shares = _depositAndWrap(alice, NETUID1, 30 ether);
+        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares / 2, 0);
-        uint256 backingAfterExit = lens.totalStake(TOKEN1);
 
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
 
         assertTrue(lens.isBackingIntact(TOKEN1), "the TAO rail leaves a record the swap cannot trip");
         vault.rebalance(NETUID1);
-        assertEq(lens.totalStake(TOKEN1), backingAfterExit, "backing whole across the swap");
+        assertEq(lens.totalStake(TOKEN1), 15 * ALPHA, "backing whole across the swap");
     }
 
-    function test_MoveRounding_DoesNotTrip() public {
+    function test_MoveRounding_IsBookedAtTheLandedAmount() public {
         MockStaking(STAKING_PRECOMPILE).setMoveStakeRoundingLoss(100);
-        _depositAndWrap(alice, NETUID1, 30 ether);
-        vault.rebalance(NETUID1);
-        vault.rebalance(NETUID1);
-        assertTrue(lens.isBackingIntact(TOKEN1), "rounding stays inside the slack");
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+
+        assertEq(vault.recordedSlots(TOKEN1)[1].tracked, 9_998_999_900, "the slot expects what landed");
+        assertEq(lens.totalStake(TOKEN1), 29_999_999_800, "two alignment moves each lose 100 RAO");
+        assertTrue(lens.isBackingIntact(TOKEN1), "and the loss trips nothing");
     }
 
     function testFuzz_WideSet_FollowsASwap(uint256 rawCount) public {
@@ -627,7 +687,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         _setRegBlock(netuid, 400);
         bytes32[] memory hks = _setValidatorCount(netuid, count);
 
-        _simulateAlphaDepositHotkey(alice, netuid, MAX_VALIDATORS * 1 ether, hks[0]);
+        _simulateAlphaDepositHotkey(alice, netuid, MAX_VALIDATORS * ALPHA, hks[0]);
         _wrapHotkey(alice, netuid, hks[0]);
         uint256 tokenId = vault.currentTokenId(netuid);
 
@@ -635,7 +695,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         _simulateFollowedSwap(netuid, hks[0], swapped);
         vault.rebalance(netuid);
 
-        assertEq(lens.totalStake(tokenId), MAX_VALIDATORS * 1 ether, "backing whole across the wide set");
+        assertEq(lens.totalStake(tokenId), MAX_VALIDATORS * ALPHA, "backing whole across the wide set");
         assertTrue(lens.isBackingIntact(tokenId), "record sound after the follow");
     }
 }

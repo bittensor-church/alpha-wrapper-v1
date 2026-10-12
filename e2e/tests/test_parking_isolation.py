@@ -6,7 +6,7 @@ by side, and each must release on its own attestation.
 """
 import pytest
 
-from alpha_e2e import config, incidents
+from alpha_e2e import config, exits, incidents
 
 VALIDATORS = config.VALIDATORS_PER_SUBNET
 
@@ -21,11 +21,11 @@ def test_parked_subnets_share_the_hotkey_without_sharing_state(env):
 
     env.deposit_and_wrap(
         netuid_a, hotkeys_a[0], env.hotkey_ss58s[0],
-        config.PER_HOTKEY_TRANSFER_RAO, 1_500_000, "Isolation: wrap on A failed",
+        config.DEPOSIT_RAO, 1_500_000, "Isolation: wrap on A failed",
     )
     env.deposit_and_wrap(
         netuid_b, hotkeys_b[0], env.hotkey_ss58s[VALIDATORS],
-        config.PER_HOTKEY_TRANSFER_RAO, 1_500_000, "Isolation: wrap on B failed",
+        config.DEPOSIT_RAO, 1_500_000, "Isolation: wrap on B failed",
     )
     stakes_b_before = [env.stake(hotkey, clone_b, netuid_b) for hotkey in hotkeys_b]
 
@@ -41,23 +41,15 @@ def test_parked_subnets_share_the_hotkey_without_sharing_state(env):
     deposit_index = 0
     env.deposit_and_wrap(
         netuid_b, hotkeys_b[deposit_index], env.hotkey_ss58s[VALIDATORS + deposit_index],
-        config.PER_HOTKEY_TRANSFER_RAO // 10, 1_500_000, "Isolation: B should accept a deposit while A is parked",
+        config.DEPOSIT_RAO // 10, 1_500_000, "Isolation: B should accept a deposit while A is parked",
     )
     env.vault_send(
         4_000_000, "Isolation: B should align while A is parked", "rebalance(uint256)", netuid_b,
         label="rebalance [sibling parked]",
     )
-    exit_shares = env.vault_shares(token_b) // 4
-    quoted_alpha, _ = env.preview_unwrap(token_b, exit_shares)
-    delivered_before = env.total_stake_across(env.wrapper_substrate_coldkey, netuid_b, hotkeys_b)
-    env.vault_send(
-        2_500_000, "Isolation: B should pay an exit while A is parked",
-        "unwrap(uint256,uint256,bytes32,uint256)", token_b, exit_shares, env.wrapper_substrate_coldkey, 1,
-        label="unwrap [sibling parked]",
-    )
-    delivered = env.total_stake_across(env.wrapper_substrate_coldkey, netuid_b, hotkeys_b) - delivered_before
-    assert delivered >= quoted_alpha - config.ROUNDING_DUST_TOTAL_RAO, (
-        f"B's exit delivered {delivered} alpha against a quote of {quoted_alpha}"
+    exits.unwrap(
+        env, token_b, env.vault_shares(token_b) // 4, "Isolation: B should pay an exit while A is parked",
+        hotkeys=hotkeys_b, label="unwrap [sibling parked]",
     )
     assert env.stake(parking_hotkey, clone_a, netuid_a) == parked_a, "A's parked balance moved while B traded"
     assert env.awaiting_attestation(token_a), "A should still be waiting for its registry owner"

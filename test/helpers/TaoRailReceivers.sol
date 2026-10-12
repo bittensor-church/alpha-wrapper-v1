@@ -29,19 +29,18 @@ contract RefundRejectingReceiver {
     receive() external payable { }
 }
 
-/// @dev Capture the re-entry error so tests can distinguish the guard from incidental failures.
-contract UnwrapForTaoReentrantReceiver {
-    AlphaVault target;
-    uint256 tokenId;
-    uint256 shares;
+/// @dev Re-enters `target` once from its TAO payout and captures the error, so tests can tell the guard
+///      from incidental failures.
+contract ReentrantReceiver {
+    address private target;
+    bytes private reentry;
     bytes public reentryError;
     bool public reentrySucceeded;
     bool private entered;
 
-    function arm(AlphaVault t, uint256 tid, uint256 s) external {
-        target = t;
-        tokenId = tid;
-        shares = s;
+    function arm(address _target, bytes calldata _reentry) external {
+        target = _target;
+        reentry = _reentry;
     }
 
     function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
@@ -51,36 +50,11 @@ contract UnwrapForTaoReentrantReceiver {
     receive() external payable {
         if (entered) return;
         entered = true;
-        try target.unwrapForTao(tokenId, shares, 0) {
+        (bool ok, bytes memory result) = target.call(reentry);
+        if (ok) {
             reentrySucceeded = true;
-        } catch (bytes memory err) {
-            reentryError = err;
-        }
-    }
-}
-
-/// @dev Capture the re-entry error without reverting the outer payout.
-contract ReclaimMailboxReentrantReceiver {
-    AlphaVault target;
-    uint256 netuid;
-    bytes32 hotkey;
-    bytes public reentryError;
-    bool public reentrySucceeded;
-    bool private entered;
-
-    function arm(AlphaVault t, uint256 n, bytes32 h) external {
-        target = t;
-        netuid = n;
-        hotkey = h;
-    }
-
-    receive() external payable {
-        if (entered) return;
-        entered = true;
-        try target.reclaimMailboxAlphaAsTao(netuid, hotkey, 0) {
-            reentrySucceeded = true;
-        } catch (bytes memory err) {
-            reentryError = err;
+        } else {
+            reentryError = result;
         }
     }
 }
@@ -101,26 +75,6 @@ contract ClaimDuringTransferReceiver {
     }
 
     receive() external payable { }
-}
-
-contract ClaimReentrantReceiver {
-    AlphaVault private immutable vault;
-    uint256 private immutable tokenId;
-    bytes public reentryError;
-    bool public reentrySucceeded;
-
-    constructor(AlphaVault target, uint256 id) {
-        vault = target;
-        tokenId = id;
-    }
-
-    receive() external payable {
-        try vault.claimTao(tokenId, payable(address(this))) {
-            reentrySucceeded = true;
-        } catch (bytes memory reason) {
-            reentryError = reason;
-        }
-    }
 }
 
 contract QuoteProbeReceiver {

@@ -8,10 +8,10 @@ The bittensor SDK is imported lazily so the pure-Python helpers in this
 package stay usable without it installed.
 """
 import hashlib
-import time
 from contextlib import contextmanager
+from typing import Optional, Tuple
 
-from . import config
+from . import chain, config
 
 
 class ExtrinsicError(RuntimeError):
@@ -131,18 +131,6 @@ def set_perpetual_lock(
         ), signer_uri=signer_uri)
 
 
-def account_flags(coldkey_ss58: str, *, chain_endpoint: str = config.CHAIN_ENDPOINT) -> int:
-    """The chain's per-coldkey flag word; bit 0 set means the account accepts locked alpha."""
-    with _connect(chain_endpoint) as client:
-        value = client.query(_sdk().storage.SubtensorModule.AccountFlags, [coldkey_ss58])
-    return int(value) if value is not None else 0
-
-
-def coldkey_swap_announcement_delay(*, chain_endpoint: str = config.CHAIN_ENDPOINT) -> int:
-    with _connect(chain_endpoint) as client:
-        return int(client.query(_sdk().storage.SubtensorModule.ColdkeySwapAnnouncementDelay))
-
-
 def set_coldkey_swap_announcement_delay(
     blocks: int, *, chain_endpoint: str = config.CHAIN_ENDPOINT,
 ) -> str:
@@ -231,7 +219,7 @@ def toggle_transfer(
             if current == enabled:
                 return block_hash
             if attempt != attempts - 1:
-                time.sleep(6)
+                chain.wait_for_blocks(1, timeout=config.BLOCK_TIMEOUT_SECONDS)
     raise ExtrinsicError(f"toggle_transfer netuid={netuid} did not reach toggle={enabled}")
 
 
@@ -318,6 +306,32 @@ def dissolve_network(
     if still_registered:
         raise ExtrinsicError(f"dissolve_network netuid={netuid} left the subnet registered")
     return block_hash
+
+
+def epoch_schedule(netuid: int, *, chain_endpoint: str = config.CHAIN_ENDPOINT) -> Tuple[float, int, int]:
+    """(seconds per block, tempo, block of the last epoch) for `netuid`; its next epoch is due
+    at the last epoch's block plus the tempo."""
+    with _connect(chain_endpoint) as client:
+        storage = _sdk().storage.SubtensorModule
+        return (
+            float(client.block_time()),
+            int(client.query(storage.Tempo, [netuid])),
+            int(client.query(storage.LastEpochBlock, [netuid])),
+        )
+
+
+def wait_for_epoch(netuid: int, timeout: float, *, chain_endpoint: str = config.CHAIN_ENDPOINT) -> None:
+    """Block until `netuid` runs its next epoch."""
+    with _connect(chain_endpoint) as client:
+        client.wait_for_epoch(netuid, timeout=timeout)
+
+
+def last_epoch_block(
+    netuid: int, block: Optional[int] = None, *, chain_endpoint: str = config.CHAIN_ENDPOINT,
+) -> int:
+    """The block of `netuid`'s latest epoch, as of `block` (default: the head)."""
+    with _connect(chain_endpoint) as client:
+        return int(client.query(_sdk().storage.SubtensorModule.LastEpochBlock, [netuid], block=block))
 
 
 def network_registration_block(netuid: int, *, chain_endpoint: str = config.CHAIN_ENDPOINT) -> int:
