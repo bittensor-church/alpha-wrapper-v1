@@ -922,6 +922,11 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
 
         if (!ok) {
             assertEq(bytes4(reason), WithdrawTooSmall.selector, "only an unsellable partial request may fail");
+            assertLt(
+                _sweepSafeChunk(balance, assets, priceE18) * priceE18 / 1e18,
+                CHAIN_MIN_STAKE,
+                "refused a sweep-safe chunk that clears the minimum stake"
+            );
             return;
         }
         uint256 slotAfter = _getVaultStake(hotkey1, NETUID1);

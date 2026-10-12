@@ -556,7 +556,10 @@ contract MockStaking {
     function _clearSmallNomination(bytes32 hotkey, bytes32 coldkey, uint256 netuid) private returns (uint256 taoOut) {
         uint256 remainder = _stakes[hotkey][coldkey][netuid];
         if (!_isSmallNomination(hotkey, coldkey, netuid, remainder)) return 0;
-        if (remainder <= _availableToUnstake(coldkey, netuid) && MockAlpha(ALPHA_PRECOMPILE).sellable(uint16(netuid))) {
+        if (
+            remainder <= _availableToUnstake(coldkey, netuid)
+                && !MockAlpha(ALPHA_PRECOMPILE).refusesSale(uint16(netuid), uint64(remainder))
+        ) {
             taoOut = quoteTaoOut(uint16(netuid), remainder);
         }
         _reduceLock(coldkey, netuid, remainder);

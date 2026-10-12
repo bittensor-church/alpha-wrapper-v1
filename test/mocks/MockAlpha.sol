@@ -43,13 +43,9 @@ contract MockAlpha {
         simSwapReverts = v;
     }
 
-    /// @dev Refuses the quote for one exact input, as a pool too shallow for it would.
+    /// @dev Refuses any sale of one exact input, as a pool too shallow for it would.
     function setSimSwapRefused(uint64 alpha, bool refused) external {
         _simRefused[alpha] = refused;
-    }
-
-    function sellable(uint16 netuid) public view returns (bool) {
-        return chainAlphaPrice(netuid) > MIN_SELL_PRICE_E18;
     }
 
     /// @dev Exact-input overrides model price impact absent from the default linear rate.
@@ -58,15 +54,25 @@ contract MockAlpha {
         _simQuoteSet[alpha] = true;
     }
 
-    /// @dev A refused simulation consumes every unit of forwarded gas, as on chain. The swap refuses a sale at or below
-    ///      its minimum price and an input that would pay nothing.
-    function simSwapAlphaForTao(uint16 netuid, uint64 alpha) external view returns (uint256 taoOut) {
-        taoOut =
-            _simQuoteSet[alpha] ? _simQuoteOverride[alpha] : MockStaking(STAKING_PRECOMPILE).quoteTaoOut(netuid, alpha);
-        if (simSwapReverts || _simRefused[alpha] || !sellable(netuid) || taoOut == 0) {
+    /// @dev The swap refuses a sale at or below its minimum price, an input that would pay nothing and a sale the pool
+    ///      cannot fill. Simulated and executed sales run the same checks.
+    function refusesSale(uint16 netuid, uint64 alpha) public view returns (bool) {
+        return simSwapReverts || _simRefused[alpha] || chainAlphaPrice(netuid) <= MIN_SELL_PRICE_E18
+            || _simQuote(netuid, alpha) == 0;
+    }
+
+    /// @dev A refused simulation consumes every unit of forwarded gas, as on chain.
+    function simSwapAlphaForTao(uint16 netuid, uint64 alpha) external view returns (uint256) {
+        if (refusesSale(netuid, alpha)) {
             assembly {
                 invalid()
             }
         }
+        return _simQuote(netuid, alpha);
+    }
+
+    function _simQuote(uint16 netuid, uint64 alpha) private view returns (uint256) {
+        return
+            _simQuoteSet[alpha] ? _simQuoteOverride[alpha] : MockStaking(STAKING_PRECOMPILE).quoteTaoOut(netuid, alpha);
     }
 }

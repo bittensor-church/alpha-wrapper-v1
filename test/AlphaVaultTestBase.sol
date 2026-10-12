@@ -382,6 +382,15 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         return bound(priceRao, 1e6, 2e8) * 1e9;
     }
 
+    /// @dev The most a partial TAO sale can take from a slot: the request, capped to keep a leftover worth more than the
+    ///      nominator minimum at `priceE18`, plus one RAO for rounding.
+    function _sweepSafeChunk(uint256 balance, uint256 request, uint256 priceE18) internal pure returns (uint256) {
+        if (priceE18 == 0) return 0;
+        uint256 leftover = (DUST_THRESHOLD + 1) * 1e18 / priceE18 + 1;
+        if (balance <= leftover) return 0;
+        return balance - leftover < request ? balance - leftover : request;
+    }
+
     function _alphaPriceRead(uint256 netuid) internal view returns (uint256) {
         return MockAlpha(ALPHA_PRECOMPILE).getAlphaPrice(uint16(netuid));
     }

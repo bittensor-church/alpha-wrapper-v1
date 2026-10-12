@@ -243,16 +243,17 @@ abstract contract BackingCampaignHandler is Test {
         } else if (selector == Parked.selector) {
             assertTrue(harness.parked(), "refused as parked after the release");
         } else if (selector == AttestedHotkeyRetired.selector) {
-            assertTrue(
-                harness.ownerHoldsNoReceivingKeyFor(_firstWord(reason)), "refused a name its owner can receive on"
-            );
+            assertEq(harness.firstRetiredName(), _firstWord(reason), "refused a name its owner can receive on");
         } else if (selector == IAlphaVaultAbi.SwappedHotkeyStillAttested.selector) {
-            assertTrue(harness.anySwapOnRecord(), "refused a swap that never happened");
-        } else if (
-            selector == IAlphaVaultAbi.ConsolidationBelowFloor.selector
-                || selector == IAlphaVaultAbi.GatherBelowFloor.selector
-        ) {
-            assertTrue(harness.holdsASubFloorPile(attempt.source), "refused piles that clear the floor");
+            (,,, bool collides) = harness.attestedAssignment();
+            assertTrue(collides, "refused an assignment without a collision");
+        } else if (selector == IAlphaVaultAbi.ConsolidationBelowFloor.selector) {
+            bool belowFloor = attempt.source == bytes32(0)
+                ? harness.consolidationBelowFloor(attempt.deposit)
+                : harness.annexBelowFloor(attempt.source);
+            assertTrue(belowFloor, "refused to consolidate piles that clear the floor");
+        } else if (selector == IAlphaVaultAbi.GatherBelowFloor.selector) {
+            assertTrue(harness.gatherBelowFloor(), "refused to gather piles that clear the floor");
         } else if (selector == NothingToRecover.selector) {
             assertTrue(harness.nothingToCollectFrom(attempt.source), "refused a collectable stray");
         } else if (selector == NothingToUnwrap.selector) {
@@ -404,17 +405,16 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         return shares == vault.totalSupply(TOKEN1) ? resolvedBacking() : leastAssetsFor(shares);
     }
 
-    /// @dev Some eligible slot either drains within `assets`, or sells all of `assets` as a partial whose sale clears
-    ///      the minimum stake and whose leftover clears the nominator minimum at the read price.
+    /// @dev Some eligible slot either drains within `assets` or sells a sweep-safe chunk of them that clears the
+    ///      minimum stake at the read price. Either sale pays, so the exit cannot end with nothing sold.
     function sellsASlotWithin(uint256 assets, uint256 excludedSlots) external view returns (bool) {
         (, uint256[] memory balances,) = resolvedSlots();
+        uint256 price = _alphaPriceRead(NETUID1);
         for (uint256 i; i < balances.length; ++i) {
             uint256 balance = (excludedSlots >> i) & 1 == 0 ? balances[i] : 0;
             if (balance == 0) continue;
             if (balance <= assets) return true;
-            if (taoValueAtRead(assets) >= CHAIN_MIN_STAKE && taoValueAtRead(balance - assets) > DUST_THRESHOLD) {
-                return true;
-            }
+            if (taoValueAtRead(_sweepSafeChunk(balance, assets, price)) >= CHAIN_MIN_STAKE) return true;
         }
         return false;
     }
@@ -428,61 +428,100 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         return parkedAtNonce != 0 && registry.nonces(NETUID1) == parkedAtNonce;
     }
 
-    /// @dev A funded slot keeps its resolved key. An empty or new slot may take the name while no other attested slot
-    ///      holds it, its slot's key, or that key's successor. The name retires only when its owner holds none of them.
-    function ownerHoldsNoReceivingKeyFor(bytes32 name) external view returns (bool) {
-        (bytes32[] memory names,, bytes32[] memory owners) = registry.getValidators(NETUID1);
-        uint256 index = _indexOf(names, name);
-        if (index == type(uint256).max) return false;
-        bytes32 owner = owners[index];
+    /// @dev The documented key assignment for the attested set. A funded slot keeps its resolved key. An empty or new
+    ///      slot takes the name while no other attested slot holds it, else its slot's key, else that key's successor,
+    ///      each only under the attested owner; `live` marks a key the owner holds. The assignment collides when an
+    ///      empty or new slot settles on another attested name, a key another attested slot holds, or a key already
+    ///      assigned.
+    function attestedAssignment()
+        public
+        view
+        returns (bytes32[] memory names, bytes32[] memory actives, bool[] memory live, bool collides)
+    {
+        bytes32[] memory owners;
+        (names,, owners) = registry.getValidators(NETUID1);
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         (bytes32[] memory keys, uint256[] memory balances,) = resolvedSlots();
-        uint256 slot = type(uint256).max;
-        for (uint256 i; i < slots.length; ++i) {
-            if (slots[i].logical == name) {
-                slot = i;
-                break;
+        actives = new bytes32[](names.length);
+        live = new bool[](names.length);
+        for (uint256 i; i < names.length; ++i) {
+            bytes32 name = names[i];
+            uint256 slot = _slotOf(slots, name);
+            if (slot != type(uint256).max && balances[slot] != 0) {
+                actives[i] = keys[slot];
+                live[i] = _ownedBy(keys[slot], owners[i]);
+                continue;
             }
+            bool nameHeld = _heldByAnotherAttestedSlot(keys, slots, names, name, slot);
+            if (nameHeld && slot == type(uint256).max) return (names, actives, live, true);
+            bytes32 key = name;
+            live[i] = !nameHeld && _ownedBy(name, owners[i]);
+            if (!live[i]) {
+                if (slot != type(uint256).max) key = keys[slot];
+                live[i] = key != name && _ownedBy(key, owners[i]);
+                bytes32 successor = _successorOf(key);
+                if (!live[i] && successor != bytes32(0) && successor != name && _ownedBy(successor, owners[i])) {
+                    key = successor;
+                    live[i] = true;
+                }
+                if (key != name && (_contains(names, key) || _heldByAnotherAttestedSlot(keys, slots, names, key, slot)))
+                {
+                    return (names, actives, live, true);
+                }
+            }
+            if (key != name && _contains(actives, key)) return (names, actives, live, true);
+            actives[i] = key;
         }
-        if (slot != type(uint256).max && balances[slot] != 0) return !_ownedBy(keys[slot], owner);
-
-        uint256 nameHolder = _indexOf(keys, name);
-        bool nameFree =
-            nameHolder == type(uint256).max || nameHolder == slot || !_contains(names, slots[nameHolder].logical);
-        bytes32 key = slot == type(uint256).max ? name : keys[slot];
-        bytes32 successor = _successorOf(key);
-        return !(nameFree && _ownedBy(name, owner)) && (key == name || !_ownedBy(key, owner))
-            && (successor == name || !_ownedBy(successor, owner));
     }
 
-    function anySwapOnRecord() external view returns (bool) {
-        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
-        for (uint256 i; i < slots.length; ++i) {
-            if (slots[i].active != slots[i].logical || _successorOf(slots[i].active) != bytes32(0)) return true;
+    /// @dev The name a completed assignment reports as retired: the first whose key its owner does not hold.
+    function firstRetiredName() external view returns (bytes32) {
+        (bytes32[] memory names,, bool[] memory live, bool collides) = attestedAssignment();
+        if (collides) return bytes32(0);
+        for (uint256 i; i < names.length; ++i) {
+            if (!live[i]) return names[i];
         }
-        for (uint256 i; i < currentSet.length; ++i) {
-            if (_successorOf(currentSet[i]) != bytes32(0)) return true;
-        }
-        return false;
+        return bytes32(0);
     }
 
-    /// @dev Some recorded or attested key, a successor of one, or the stray being collected holds a nonzero pile
-    ///      below the floor even at the highest price the rounded read can hide.
-    function holdsASubFloorPile(bytes32 source) external view returns (bool) {
-        if (_belowFloorAtAnyPrice(_getVaultStake(source, NETUID1))) return true;
-        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
-        bytes32[] memory keys = new bytes32[](slots.length + currentSet.length);
-        for (uint256 i; i < slots.length; ++i) {
-            keys[i] = slots[i].active;
-        }
-        for (uint256 i; i < currentSet.length; ++i) {
-            keys[slots.length + i] = currentSet[i];
-        }
+    /// @dev Consolidation refuses only when a resolved key outside the assignment holds stake and even the richest
+    ///      pile among those keys, the assigned keys and `deposit`, which lands on an assigned key first, is below the
+    ///      floor at any price.
+    function consolidationBelowFloor(uint256 deposit) external view returns (bool) {
+        (, bytes32[] memory actives,,) = attestedAssignment();
+        (bytes32[] memory keys, uint256[] memory balances,) = resolvedSlots();
+        uint256 richest = deposit;
+        bool rotatedOut;
         for (uint256 i; i < keys.length; ++i) {
-            if (_belowFloorAtAnyPrice(_getVaultStake(keys[i], NETUID1))) return true;
-            if (_belowFloorAtAnyPrice(_getVaultStake(_successorOf(keys[i]), NETUID1))) return true;
+            if (_contains(actives, keys[i])) continue;
+            if (balances[i] != 0) rotatedOut = true;
+            if (balances[i] > richest) richest = balances[i];
         }
-        return false;
+        for (uint256 i; i < actives.length; ++i) {
+            uint256 held = _getVaultStake(actives[i], NETUID1);
+            if (held > richest) richest = held;
+        }
+        return rotatedOut && _belowFloorAtAnyPrice(richest);
+    }
+
+    /// @dev Annexing refuses only when the stray holds stake and neither it nor the first slot's key holds a pile that
+    ///      clears the floor at any price.
+    function annexBelowFloor(bytes32 source) external view returns (bool) {
+        (bytes32[] memory keys,,) = resolvedSlots();
+        uint256 stray = _getVaultStake(source, NETUID1);
+        uint256 home = _getVaultStake(keys[0], NETUID1);
+        return stray != 0 && _belowFloorAtAnyPrice(stray > home ? stray : home);
+    }
+
+    /// @dev An alpha exit refuses to gather only when even the largest resolved pile is below the floor at any price:
+    ///      consolidation only adds to the keys it pays from.
+    function gatherBelowFloor() external view returns (bool) {
+        (, uint256[] memory balances,) = resolvedSlots();
+        uint256 largest;
+        for (uint256 i; i < balances.length; ++i) {
+            if (balances[i] > largest) largest = balances[i];
+        }
+        return _belowFloorAtAnyPrice(largest);
     }
 
     /// @dev An open recovery stays unchanged only while parking does not cover the obligation and the sync has nothing
@@ -518,6 +557,26 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
     function _successorOf(bytes32 hotkey) private view returns (bytes32) {
         (bool exists, bytes32 successor) = MockStaking(STAKING_PRECOMPILE).getHotkeySuccessor(hotkey, uint16(NETUID1));
         return exists && successor != hotkey ? successor : bytes32(0);
+    }
+
+    function _slotOf(VaultReads.Slot[] memory slots, bytes32 name) private pure returns (uint256) {
+        for (uint256 i; i < slots.length; ++i) {
+            if (slots[i].logical == name) return i;
+        }
+        return type(uint256).max;
+    }
+
+    /// @dev A key another slot resolves to while that slot's name is still attested.
+    function _heldByAnotherAttestedSlot(
+        bytes32[] memory keys,
+        VaultReads.Slot[] memory slots,
+        bytes32[] memory names,
+        bytes32 key,
+        uint256 ownSlot
+    ) private pure returns (bool) {
+        uint256 holder = _indexOf(keys, key);
+        if (holder == type(uint256).max || holder == ownSlot) return false;
+        return _contains(names, slots[holder].logical);
     }
 
     function _ownedBy(bytes32 hotkey, bytes32 coldkey) private view returns (bool) {

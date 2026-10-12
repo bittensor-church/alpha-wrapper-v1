@@ -3,10 +3,15 @@ pragma solidity 0.8.36;
 
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { LockedDeposit, MailboxNotPrepared, ZeroAmount } from "src/VaultErrors.sol";
+import { MockAlpha } from "./mocks/MockAlpha.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
+import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract MailboxReclaimTest is AlphaVaultTestBase {
+    /// @dev 0.3 alpha, below the 0.4-alpha nominator minimum at 0.05 TAO/alpha, so the network sweep takes it.
+    uint256 private constant SWEEPABLE_DEPOSIT = 300_000_000;
+
     MockStaking internal mock;
 
     function setUp() public override {
@@ -62,17 +67,36 @@ contract MailboxReclaimTest is AlphaVaultTestBase {
         assertEq(mock.lockHotkey(destination, NETUID1), hotkey5);
     }
 
-    /// @dev A 0.3-alpha deposit sits below the 0.4-alpha nominator minimum at 0.05 TAO/alpha. The chain cannot sell
-    ///      locked alpha, so its sweep deletes the deposit unpaid.
-    function test_RevertWhen_ReclaimingTaoAfterTheSweepDeletedALockedDeposit() public {
-        _simulateAlphaDepositHotkey(alice, NETUID1, 300_000_000, hotkey1);
-        bytes32 mailboxColdkey = _mailboxColdkey(alice, NETUID1);
-        mock.setLockedAlpha(mailboxColdkey, NETUID1, hotkey1, 300_000_000);
+    function _depositSweepableDust() internal returns (bytes32 mailboxColdkey) {
+        _simulateAlphaDepositHotkey(alice, NETUID1, SWEEPABLE_DEPOSIT, hotkey1);
+        mailboxColdkey = _mailboxColdkey(alice, NETUID1);
+    }
 
+    function _sweepDust(bytes32 mailboxColdkey) internal {
         mock.sweepSmallNomination(hotkey1, vault.getDepositAddress(alice, NETUID1), NETUID1);
-
         assertEq(_getStakeForColdkey(hotkey1, mailboxColdkey, NETUID1), 0, "the sweep deleted the deposit");
-        assertEq(mock.lockedAlpha(mailboxColdkey, NETUID1), 0, "and released its lock");
+    }
+
+    /// @dev The chain cannot sell locked alpha, so its sweep deletes the deposit unpaid.
+    function test_RevertWhen_ReclaimingTaoAfterTheSweepDeletedALockedDeposit() public {
+        bytes32 mailboxColdkey = _depositSweepableDust();
+        mock.setLockedAlpha(mailboxColdkey, NETUID1, hotkey1, SWEEPABLE_DEPOSIT);
+
+        _sweepDust(mailboxColdkey);
+
+        assertEq(mock.lockedAlpha(mailboxColdkey, NETUID1), 0, "the sweep released the lock");
+        vm.prank(alice);
+        vm.expectRevert(ZeroAmount.selector);
+        vault.reclaimTaoFromMailbox(NETUID1);
+    }
+
+    /// @dev The sweep sells through the pool; when the pool cannot fill the sale, the deposit is deleted unpaid.
+    function test_RevertWhen_ReclaimingTaoAfterThePoolRefusedTheSweep() public {
+        bytes32 mailboxColdkey = _depositSweepableDust();
+        MockAlpha(ALPHA_PRECOMPILE).setSimSwapRefused(uint64(SWEEPABLE_DEPOSIT), true);
+
+        _sweepDust(mailboxColdkey);
+
         vm.prank(alice);
         vm.expectRevert(ZeroAmount.selector);
         vault.reclaimTaoFromMailbox(NETUID1);
