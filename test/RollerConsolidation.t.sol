@@ -6,6 +6,8 @@ import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { ALPHA_PRECOMPILE, IAlpha } from "src/interfaces/IAlpha.sol";
+import { WithdrawTooSmall } from "src/VaultErrors.sol";
 
 contract RollerConsolidationTest is AlphaVaultTestBase {
     /// @dev The largest pile worth less than the 2e6-RAO minimum stake even at 0.05 TAO/alpha plus the
@@ -212,5 +214,17 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
         vm.prank(alice);
         _expectChainRefusal();
         vault.unwrapForTao(TOKEN1, shares, 0);
+    }
+
+    /// @dev Each slot holds about 333,000 alpha, more than a quarter exit's 250,000, so the exit needs a partial sale.
+    ///      A price read of zero cannot size one, so the exit is refused before any quote.
+    function test_RevertWhen_ATaoExitNeedsAPartialSaleWhilePriceReadsZero() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, LARGE_POSITION);
+        _setAlphaPriceReadsZero(NETUID1);
+
+        vm.expectCall(ALPHA_PRECOMPILE, abi.encodeWithSelector(IAlpha.simSwapAlphaForTao.selector), 0);
+        vm.prank(alice);
+        vm.expectRevert(WithdrawTooSmall.selector);
+        vault.unwrapForTao(TOKEN1, shares / 4, 0);
     }
 }

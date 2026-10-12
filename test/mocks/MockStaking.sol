@@ -161,12 +161,20 @@ contract MockStaking {
     /// @dev Locked mass per (coldkey, netuid) in alpha RAO, and the one hotkey the chain keys it to.
     mapping(bytes32 => mapping(uint256 => uint256)) public lockedAlpha;
     mapping(bytes32 => mapping(uint256 => bytes32)) public lockHotkey;
+    /// @dev Coldkeys whose lock was keyed to (hotkey, netuid), as the chain's `LockingColdkeys` index. Entries go stale
+    ///      when a lock moves or clears, so readers check the lock still names the hotkey.
+    mapping(bytes32 => mapping(uint256 => bytes32[])) private _lockingColdkeys;
     mapping(bytes32 => bool) private _acceptsLockedAlpha;
     mapping(bytes32 => uint256) public rejectLockedAlphaCalls;
 
     function setLockedAlpha(bytes32 coldkey, uint256 netuid, bytes32 hotkey, uint256 amount) external {
         lockedAlpha[coldkey][netuid] = amount;
-        lockHotkey[coldkey][netuid] = amount == 0 ? bytes32(0) : hotkey;
+        _keyLock(coldkey, netuid, amount == 0 ? bytes32(0) : hotkey);
+    }
+
+    function _keyLock(bytes32 coldkey, uint256 netuid, bytes32 hotkey) private {
+        lockHotkey[coldkey][netuid] = hotkey;
+        if (hotkey != bytes32(0)) _lockingColdkeys[hotkey][netuid].push(coldkey);
     }
 
     /// @dev Models the flag a coldkey swap copies onto an account with no stake.
@@ -193,12 +201,17 @@ contract MockStaking {
         rejectLockedAlphaCalls[coldkey]++;
     }
 
+    /// @dev Alpha the coldkey holds on `netuid` across hotkeys beyond its lock.
+    function _availableToUnstake(bytes32 coldkey, uint256 netuid) private view returns (uint256) {
+        uint256 locked = lockedAlpha[coldkey][netuid];
+        uint256 total = coldkeyAlpha[coldkey][netuid];
+        return total > locked ? total - locked : 0;
+    }
+
     /// @dev Unlocked alpha leaves first; whatever a transfer takes beyond it carries the lock along.
     function _carriedLock(bytes32 coldkey, uint256 netuid, uint256 amount) private view returns (uint256) {
         uint256 locked = lockedAlpha[coldkey][netuid];
-        if (locked == 0) return 0;
-        uint256 total = coldkeyAlpha[coldkey][netuid];
-        uint256 available = total > locked ? total - locked : 0;
+        uint256 available = _availableToUnstake(coldkey, netuid);
         if (amount <= available) return 0;
         uint256 excess = amount - available;
         return excess > locked ? locked : excess;
@@ -243,7 +256,7 @@ contract MockStaking {
             bytes32 destinationLockHotkey = lockHotkey[destination_coldkey][destination_netuid];
             if (destinationLockHotkey != bytes32(0) && destinationLockHotkey != hotkey) _fail();
             _reduceLock(origin, origin_netuid, carriedLock);
-            lockHotkey[destination_coldkey][destination_netuid] = hotkey;
+            _keyLock(destination_coldkey, destination_netuid, hotkey);
             lockedAlpha[destination_coldkey][destination_netuid] += carriedLock;
         }
         _writeStake(hotkey, origin, origin_netuid, _stakes[hotkey][origin][origin_netuid] - amount);
@@ -291,15 +304,20 @@ contract MockStaking {
         return _stakes[hotkey][coldkey][netuid];
     }
 
-    /// @dev A chain hotkey swap moves every coldkey's position and lock on `netuid` from one hotkey to the other.
+    /// @dev A chain hotkey swap moves every coldkey's position on `netuid` from one hotkey to the other, and every lock
+    ///      keyed to it, whether or not its coldkey holds stake there.
     function moveHotkeyPositions(bytes32 fromHotkey, bytes32 toHotkey, uint256 netuid) external {
         bytes32[] memory stakers = _stakers[fromHotkey][netuid];
         for (uint256 i; i < stakers.length; ++i) {
             uint256 amount = _stakes[fromHotkey][stakers[i]][netuid];
             _writeStake(fromHotkey, stakers[i], netuid, 0);
             _addStake(toHotkey, stakers[i], netuid, amount);
-            if (lockHotkey[stakers[i]][netuid] == fromHotkey) lockHotkey[stakers[i]][netuid] = toHotkey;
         }
+        bytes32[] memory lockers = _lockingColdkeys[fromHotkey][netuid];
+        for (uint256 i; i < lockers.length; ++i) {
+            if (lockHotkey[lockers[i]][netuid] == fromHotkey) _keyLock(lockers[i], netuid, toHotkey);
+        }
+        delete _lockingColdkeys[fromHotkey][netuid];
     }
 
     /// @dev Models a missing owner record, not deletion of the hotkey identifier or its stake.
@@ -426,7 +444,7 @@ contract MockStaking {
             _addStake(hotkeys[i], destination, netuid, amount);
         }
         lockedAlpha[destination][netuid] = lockedAlpha[source][netuid];
-        lockHotkey[destination][netuid] = lockHotkey[source][netuid];
+        _keyLock(destination, netuid, lockHotkey[source][netuid]);
         delete lockedAlpha[source][netuid];
         delete lockHotkey[source][netuid];
         _acceptsLockedAlpha[destination] = _acceptsLockedAlpha[source];
@@ -508,9 +526,7 @@ contract MockStaking {
         uint256 staked = _stakes[hotkey][coldkey][netuid];
         alphaAmount = _u64(alphaAmount) < staked ? _u64(alphaAmount) : staked;
         if (alphaAmount == 0 || !_hasOwnerRecord(hotkey)) _fail();
-        uint256 locked = lockedAlpha[coldkey][netuid];
-        uint256 total = coldkeyAlpha[coldkey][netuid];
-        if (alphaAmount > (total > locked ? total - locked : 0)) _fail();
+        if (alphaAmount > _availableToUnstake(coldkey, netuid)) _fail();
         // Every sale is simulated first; only a full drain skips the minimum output.
         uint256 simulated = _simulatedSale(uint16(netuid), alphaAmount);
         if (alphaAmount != staked && simulated < _chainMinStakeTao) _fail();
@@ -536,11 +552,13 @@ contract MockStaking {
     }
 
     /// @dev The chain force-sells a non-owner's remainder below the nominator minimum, at the price after any sale
-    ///      that left it. When that sale fails the remainder is deleted unpaid.
+    ///      that left it. When that sale fails, on locked alpha or at the pool, the remainder is deleted unpaid.
     function _clearSmallNomination(bytes32 hotkey, bytes32 coldkey, uint256 netuid) private returns (uint256 taoOut) {
         uint256 remainder = _stakes[hotkey][coldkey][netuid];
         if (!_isSmallNomination(hotkey, coldkey, netuid, remainder)) return 0;
-        if (MockAlpha(ALPHA_PRECOMPILE).sellable(uint16(netuid))) taoOut = quoteTaoOut(uint16(netuid), remainder);
+        if (remainder <= _availableToUnstake(coldkey, netuid) && MockAlpha(ALPHA_PRECOMPILE).sellable(uint16(netuid))) {
+            taoOut = quoteTaoOut(uint16(netuid), remainder);
+        }
         _reduceLock(coldkey, netuid, remainder);
         _writeStake(hotkey, coldkey, netuid, 0);
     }

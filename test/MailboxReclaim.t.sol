@@ -43,6 +43,41 @@ contract MailboxReclaimTest is AlphaVaultTestBase {
         assertEq(mock.lockedAlpha(mailboxColdkey, NETUID1), 0, "and leaves the mailbox");
     }
 
+    /// @dev Alice locks to hotkey1 while her stake sits on hotkey2. Renaming hotkey1 to hotkey5 carries her lock, so a
+    ///      locked deposit on hotkey5 can join it.
+    function test_ReclaimAlphaFromMailbox_JoinsALockThatFollowedARename() public {
+        bytes32 destination = _toSubstrate(alice);
+        mock.setStake(hotkey2, destination, NETUID1, 10 * ALPHA);
+        mock.setLockedAlpha(destination, NETUID1, hotkey1, 10 * ALPHA);
+        mock.setAcceptsLockedAlpha(destination, true);
+        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey5);
+        _simulateAlphaDepositHotkey(alice, NETUID1, 100 * ALPHA, hotkey5);
+        mock.setLockedAlpha(_mailboxColdkey(alice, NETUID1), NETUID1, hotkey5, 40 * ALPHA);
+
+        vm.prank(alice);
+        vault.reclaimAlphaFromMailbox(NETUID1, hotkey5, destination);
+
+        assertEq(_getStakeForColdkey(hotkey5, destination, NETUID1), 100 * ALPHA, "the whole deposit arrives");
+        assertEq(mock.lockedAlpha(destination, NETUID1), 50 * ALPHA, "the deposit's lock joins hers");
+        assertEq(mock.lockHotkey(destination, NETUID1), hotkey5);
+    }
+
+    /// @dev A 0.3-alpha deposit sits below the 0.4-alpha nominator minimum at 0.05 TAO/alpha. The chain cannot sell
+    ///      locked alpha, so its sweep deletes the deposit unpaid.
+    function test_RevertWhen_ReclaimingTaoAfterTheSweepDeletedALockedDeposit() public {
+        _simulateAlphaDepositHotkey(alice, NETUID1, 300_000_000, hotkey1);
+        bytes32 mailboxColdkey = _mailboxColdkey(alice, NETUID1);
+        mock.setLockedAlpha(mailboxColdkey, NETUID1, hotkey1, 300_000_000);
+
+        mock.sweepSmallNomination(hotkey1, vault.getDepositAddress(alice, NETUID1), NETUID1);
+
+        assertEq(_getStakeForColdkey(hotkey1, mailboxColdkey, NETUID1), 0, "the sweep deleted the deposit");
+        assertEq(mock.lockedAlpha(mailboxColdkey, NETUID1), 0, "and released its lock");
+        vm.prank(alice);
+        vm.expectRevert(ZeroAmount.selector);
+        vault.reclaimTaoFromMailbox(NETUID1);
+    }
+
     function test_RevertWhen_ReclaimingAlphaWithoutAMailbox() public {
         vm.prank(alice);
         vm.expectRevert(MailboxNotPrepared.selector);
