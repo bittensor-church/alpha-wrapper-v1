@@ -11,8 +11,9 @@ import {
     ZeroAmount
 } from "src/VaultErrors.sol";
 import { MockAlpha } from "./mocks/MockAlpha.sol";
-import { CHAIN_MIN_STAKE } from "./mocks/MockStaking.sol";
+import { CHAIN_MIN_STAKE, MockStaking } from "./mocks/MockStaking.sol";
 import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
+import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import {
     QuoteProbeReceiver,
     RefundRejectingReceiver,
@@ -40,9 +41,10 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
     }
 
     function _unwrapForTaoCall(uint256 shares) internal returns (bool ok, bytes memory ret) {
+        uint256 excluded = _zeroPaySlots(_lastSeen(TOKEN1), NETUID1);
         vm.prank(alice);
-        (ok, ret) =
-            address(vault).call(abi.encodeWithSignature("unwrapForTao(uint256,uint256,uint256)", TOKEN1, shares, 0));
+        (ok, ret) = address(vault)
+            .call(abi.encodeWithSignature("unwrapForTao(uint256,uint256,uint256,uint256)", TOKEN1, shares, 0, excluded));
     }
 
     function test_UnwrapForTao_IgnoresDisabledTransfers() public {
@@ -73,6 +75,65 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         assertEq(alice.balance - before, 3.5e18, "70 alpha sells from the other slots");
         assertEq(_getVaultStake(hotkey2, NETUID1), 10 * ALPHA, "the excluded slot is never touched");
         assertEq(vault.balanceOf(alice, TOKEN1), shares - 70e18, "with nothing to refund");
+    }
+
+    /// @dev An 80-alpha first slot and a 20-alpha second: a 50-alpha burn drains the second whole, then needs a
+    ///      30-alpha partial from the first, whose full-balance quote the pool refuses.
+    function _layoutWithARefusedPartialSlot() internal returns (uint256 shares) {
+        shares = _depositForAlice(100 * ALPHA);
+        _plantVaultStakes(NETUID1, 80 * ALPHA, 20 * ALPHA, 0);
+        MockAlpha(ALPHA_PRECOMPILE).setSimSwapRefused(uint64(80 * ALPHA), true);
+    }
+
+    function test_RevertWhen_APartialSlotsQuoteIsRefused() public {
+        _layoutWithARefusedPartialSlot();
+
+        vm.prank(alice);
+        _expectChainRefusal();
+        vault.unwrapForTao(TOKEN1, 50e18, 0);
+    }
+
+    function test_UnwrapForTao_ExcludingTheRefusedSlotPaysTheRestAndRefundsIt() public {
+        uint256 shares = _layoutWithARefusedPartialSlot();
+
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        vault.unwrapForTao(TOKEN1, 50e18, 0, 1 << 0);
+
+        assertEq(alice.balance - before, TAO, "the second slot's 20 alpha sells");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 80 * ALPHA, "the excluded slot is never quoted or sold");
+        // 30e9 * (5e19 + 1e9) / (5e10 + 1) = 3e19: the unsold 30 alpha at the unchanged rate.
+        assertEq(vault.balanceOf(alice, TOKEN1), shares - 50e18 + 3e19, "the unsold 30 alpha comes back as shares");
+    }
+
+    function test_RevertWhen_AFullExitMeetsAPoolThatCannotPay() public {
+        uint256 shares = _depositForAlice(100 * ALPHA);
+        MockAlpha(ALPHA_PRECOMPILE).setSimSwapReverts(true);
+
+        vm.prank(alice);
+        _expectChainRefusal();
+        vault.unwrapForTao(TOKEN1, shares, 0);
+    }
+
+    /// @dev The pool sells 15 of the first slot's 20 alpha before reaching its minimum price, and the chain then
+    ///      fails to sell the 5-alpha remainder and deletes it unpaid.
+    function test_UnwrapForTao_ShortFilledDrainWhoseRemainderIsDeleted_CostsOnlyTheSeller() public {
+        uint256 aliceShares = _depositForAlice(60 * ALPHA);
+        _depositAndWrap(bob, NETUID1, 40 * ALPHA);
+        _plantVaultStakes(NETUID1, 20 * ALPHA, 80 * ALPHA, 0);
+        _setRemoveStakeCap(15 * ALPHA);
+        MockStaking(STAKING_PRECOMPILE).setPostSalePrice(NETUID1, 1e12);
+
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        vault.unwrapForTao(TOKEN1, aliceShares, 0);
+
+        assertEq(alice.balance - before, 0.75e18, "only the 15 alpha the pool took is paid, at 0.05 TAO");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 0, "the remainder was deleted");
+        assertEq(_getVaultStake(hotkey2, NETUID1), 80 * ALPHA, "no partial sale at the minimum price");
+        // 40e9 * (4e19 + 1e9) / (4e10 + 1) = 4e19: the 40 alpha never sold, less nothing for the deleted 5.
+        assertEq(vault.balanceOf(alice, TOKEN1), 4e19, "the seller is refunded only what stayed in the vault");
+        assertEq(_positionValue(bob), 40 * ALPHA, "the co-holder keeps every alpha of their share");
     }
 
     function test_UnwrapForTao_FullExitRefundsAnExcludedSlotAsShares() public {
@@ -915,6 +976,4 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         vm.expectRevert(WithdrawTooSmall.selector);
         vault.unwrapForTao(TOKEN1, 5e17, 0);
     }
-
-    receive() external payable { }
 }

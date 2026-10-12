@@ -10,11 +10,8 @@ via_ir = true
 
 fuzz = { runs = 256 }
 
-# The gas snapshot includes fuzz tests, so CI pins the whole fuzz input stream: the seed, dictionary_weight = 0
-# (dictionary values come from compiled artifacts and differ across machines) and 2 threads (the stream depends on
-# the thread count; the CI runner has 2 vCPUs). Regenerate after `forge clean` with
-# `FOUNDRY_PROFILE=ci forge snapshot --fuzz-seed 0x1 --threads 2 --no-match-contract Invariant`; `forge snapshot`
-# ignores the configured seed without the flag. Locally the default profile keeps a random, dictionary-guided seed.
+# Fuzz gas is snapshotted, so the input stream must not vary: the seed does not pin values drawn from the build's
+# dictionary, and the stream depends on the thread count (the CI runner has 2 vCPUs). See test/README.md.
 [profile.ci]
 gas_snapshot_check = true
 threads = 2

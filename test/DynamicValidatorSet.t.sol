@@ -168,6 +168,8 @@ contract DynamicValidatorSetTest is AlphaVaultTestBase {
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
 
+        // A first deposit backs 1e9 shares with each RAO, so a burn is worth shares / 1e9.
+        assertEq(previewAlpha, shares / 1e9, "the quote prices the burn at the first-deposit rate");
         assertEq(_stakeAcross(hks, _toSubstrate(alice), NETUID1), previewAlpha, "delivery matches the quote");
         assertEq(lens.totalStake(TOKEN1), amount - previewAlpha, "only the delivered alpha left the vault");
     }

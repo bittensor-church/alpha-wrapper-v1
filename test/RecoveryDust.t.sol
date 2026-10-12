@@ -186,4 +186,25 @@ contract RecoveryDustTest is AlphaVaultTestBase {
     {
         _smallSet(bound(rawCount, 2, 10), bound(rawDust, VaultReads.TRACKED_SLACK_RAO + 1, ALPHA_FLOOR - 1), movable);
     }
+
+    /// @dev A 0.3-alpha slot sits below the 0.4-alpha nominator minimum at 0.05 TAO/alpha. The chain's sweep runs
+    ///      while the price is at the pool's minimum, cannot sell the slot and deletes it unpaid.
+    function test_UnpaidSweepOfASlot_IsWrittenOffWithNoTaoToClaim() public {
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(9970, 30));
+        uint256 shares = _depositAndWrap(alice, NETUID1, 100 * ALPHA);
+        assertEq(_getVaultStake(hotkey2, NETUID1), 300_000_000, "30 bps of the deposit");
+
+        _setAlphaPrice(NETUID1, 1e12);
+        MockStaking(STAKING_PRECOMPILE).sweepSmallNomination(hotkey2, vault.subnetClone(TOKEN1), NETUID1);
+        _setAlphaPrice(NETUID1, ALPHA_PRICE);
+        assertEq(_getVaultStake(hotkey2, NETUID1), 0, "the sweep deleted the slot");
+
+        _runOutRecoveryWindow(TOKEN1);
+
+        assertEq(vault.subnetClone(TOKEN1).balance, 0, "the deleted alpha paid no TAO");
+        assertEq(vault.recordedSlots(TOKEN1)[0].tracked, 99_700_000_000, "only the deleted slot is written off");
+        assertEq(_parkedStake(NETUID1), 99_700_000_000, "the rest is parked");
+        (uint256 alpha,) = lens.previewUnwrap(TOKEN1, shares);
+        assertEq(alpha, 99_700_000_000, "the holder bears the 0.3-alpha loss");
+    }
 }

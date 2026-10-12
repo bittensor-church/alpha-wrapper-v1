@@ -5,7 +5,8 @@ import { VaultMath } from "src/libraries/VaultMath.sol";
 import { Test } from "forge-std/Test.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
-import { requireExpectedRevert, unwrapForTaoErrors } from "./helpers/BackingCampaign.sol";
+import { requireExpectedRevert } from "./helpers/BackingCampaign.sol";
+import { WithdrawTooSmall, ZeroAmount } from "src/VaultErrors.sol";
 
 contract ClaimableTaoHandler is Test {
     AlphaVault public immutable vault;
@@ -95,12 +96,16 @@ contract ClaimableTaoHandler is Test {
         vm.prank(actor);
         try vault.unwrapForTao(tokenId, shares, 0) { }
         catch (bytes memory reason) {
-            requireExpectedRevert(reason, unwrapForTaoErrors());
+            // No swaps, strays or losses here: only a burn too small to sell can fail.
+            bytes4[] memory expected = new bytes4[](2);
+            expected[0] = ZeroAmount.selector;
+            expected[1] = WithdrawTooSmall.selector;
+            requireExpectedRevert(reason, expected);
         }
     }
 
     function movePrice(uint256 priceSeed) external countAction {
-        harness.setPrice(bound(priceSeed, 1e6, 2e8) * 1e9);
+        harness.movePrice(priceSeed);
     }
 }
 
@@ -137,8 +142,8 @@ contract ClaimableTaoInvariantTest is AlphaVaultTestBase {
         return _claimQuotedAmount(user, TOKEN1);
     }
 
-    function setPrice(uint256 alphaPriceE18) external {
-        _setAlphaPrice(NETUID1, alphaPriceE18);
+    function movePrice(uint256 priceSeed) external {
+        _setAlphaPrice(NETUID1, _wholeRaoPrice(priceSeed));
     }
 
     function invariant_CloneBalanceCoversReservedTao() public view {

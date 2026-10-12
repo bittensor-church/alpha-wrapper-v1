@@ -18,7 +18,7 @@ contract ClaimableTaoRoundingTest is AlphaVaultTestBase {
         _sell(alice, vault.balanceOf(alice, TOKEN1) - 1);
         _donateToClone(clone, 96e9);
         _sell(carol, vault.balanceOf(carol, TOKEN1) - 2);
-        // The sale leaves 0.40000002 alpha on the last slot to stay off the dust threshold, so this exit
+        // The sale leaves 0.40000002 alpha on the first slot to stay off the dust threshold, so this exit
         // also mints refund shares.
         _sell(bob, vault.balanceOf(bob, TOKEN1) - 2);
         _transfer(alice, carol, 1);

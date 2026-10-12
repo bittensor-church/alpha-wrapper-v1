@@ -155,6 +155,4 @@ contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
         vm.prank(alice);
         vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
     }
-
-    receive() external payable { }
 }

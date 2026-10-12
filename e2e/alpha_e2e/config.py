@@ -14,6 +14,9 @@ NETUID_BITS = 16
 ALPHA_PRICE_SCALE = 10**18
 RAO_PER_TAO = 10**9
 RAO_PER_ALPHA = 10**9
+# The vault's share math adds these to supply and to backing, so an empty position mints 1e9 shares per RAO.
+VIRTUAL_SHARES = 10**9
+VIRTUAL_ASSETS = 1
 # Native TAO on the EVM side moves in whole RAO, so every balance is a multiple of this.
 WEI_PER_RAO = 10**9
 

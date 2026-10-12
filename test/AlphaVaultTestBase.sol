@@ -391,6 +391,17 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         _setAlphaPrice(netuid, 0.5e9);
     }
 
+    /// @dev The slots among `keys` whose whole balance would sell for nothing. The pool refuses such a sale and burns
+    ///      the forwarded gas, so a TAO exit excludes them, as its callers are told to.
+    function _zeroPaySlots(bytes32[] memory keys, uint256 netuid) internal view returns (uint256 excluded) {
+        MockStaking staking = MockStaking(STAKING_PRECOMPILE);
+        bytes32 coldkey = _subnetColdkey(netuid);
+        for (uint256 i; i < keys.length; ++i) {
+            uint256 held = staking.getStake(keys[i], coldkey, netuid);
+            if (held != 0 && staking.quoteTaoOut(uint16(netuid), held) == 0) excluded |= 1 << i;
+        }
+    }
+
     /// @dev A refused precompile dispatch returns no data, unlike every vault error.
     function _expectChainRefusal() internal {
         vm.expectRevert(bytes(""));

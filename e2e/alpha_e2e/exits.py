@@ -1,9 +1,10 @@
 """Vault exits measured against the chain.
 
 Each exit lands in a block with no epoch on its subnet, so the stake read at that block
-and the one before differs only by what the exit moved: an alpha exit must deliver
-exactly what the clone gave up, and a TAO exit must pay for exactly what the seller's
-stake lost. Pass every hotkey either side holds stake under on the subnet.
+and the one before differs only by what the exit moved: an alpha exit must burn the
+shares asked, deliver their share of the clone's stake and deliver exactly what the
+clone gave up, and a TAO exit must pay for exactly what the seller's stake lost. Pass
+every hotkey either side holds stake under on the subnet.
 """
 from typing import List, Optional, Tuple
 
@@ -19,7 +20,8 @@ def unwrap(
 ) -> Tuple[dict, int]:
     """Alpha exit to `coldkey` (default: the wrapper user's); returns (receipt, alpha RAO
     delivered). `tolerance` covers the chain's per-move rounding; an exit that consolidates
-    rotated-out stake makes more moves."""
+    rotated-out stake makes more moves. `hotkeys` must not hold clone stake outside the
+    backing, or the entitlement check overstates what the shares are owed."""
     netuid = netuid_of(token_id)
     coldkey = coldkey or env.wrapper_substrate_coldkey
     receipt = env.vault_send_between_epochs(
@@ -27,8 +29,17 @@ def unwrap(
         token_id, shares, coldkey, 1, private_key=private_key, label=label,
     )
     block = chain.receipt_block_number(receipt, message)
+    supply = env.vault_total_supply(token_id, block=block - 1)
+    burned = supply - env.vault_total_supply(token_id, block=block)
+    assert burned == shares, f"{message}: burned {burned} shares for an exit of {shares}"
+    clone_coldkey = env.clone_coldkey(token_id)
+    backing = env.total_stake_across(clone_coldkey, netuid, hotkeys, block - 1)
+    owed = shares * (backing + config.VIRTUAL_ASSETS) // (supply + config.VIRTUAL_SHARES)
     delivered = env.stake_change(coldkey, netuid, hotkeys, block)
-    released = -env.stake_change(env.clone_coldkey(token_id), netuid, hotkeys, block)
+    assert abs(delivered - owed) <= tolerance, (
+        f"{message}: delivered {delivered} alpha RAO for {shares} of {supply} shares backed by {backing} RAO"
+    )
+    released = -env.stake_change(clone_coldkey, netuid, hotkeys, block)
     assert abs(released - delivered) <= tolerance, (
         f"{message}: delivered {delivered} alpha RAO while the clone released {released}"
     )

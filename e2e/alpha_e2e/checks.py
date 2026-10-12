@@ -48,7 +48,7 @@ def assert_gas_within(receipt: dict, bound: int, message: str) -> None:
 
 def assert_first_deposit_shares(shares: int, deposited_rao: int, message: str) -> None:
     """A deposit into an empty position mints exactly 1e9 shares per alpha RAO."""
-    expected = deposited_rao * 10**9
+    expected = deposited_rao * config.VIRTUAL_SHARES
     assert shares == expected, (
         f"{message}: minted {shares} shares for a first deposit of {deposited_rao} RAO; expected "
         f"{deposited_rao} * (0 supply + 1e9 virtual shares) / (0 stake + 1 virtual asset) = {expected}"

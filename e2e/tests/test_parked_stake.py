@@ -14,7 +14,7 @@ the successor while the registry still names the old key.
 """
 import pytest
 
-from alpha_e2e import chain, config, exits, extrinsics, substrate
+from alpha_e2e import config, exits, extrinsics, substrate
 
 
 @pytest.mark.scenario
@@ -71,17 +71,10 @@ def test_holder_exits_after_owner_replaces_the_ownerless_name(env):
     # The same exit, now paid: the vault claims the abandoned key, rolls the stake onto the
     # successor and delivers to the holder's own coldkey.
     delivery_keys = hotkeys + [successor_pubkey]
-    receipt, delivered = exits.unwrap(
+    exits.unwrap(
         env, token_id, exit_shares, "Parked: the exit should succeed once the owner replaced the name",
         hotkeys=delivery_keys, gas_limit=4_000_000, label="unwrap [claims the abandoned key]",
         tolerance=config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO,
-    )
-    backing_before_exit = env.total_stake_across(
-        clone_coldkey, netuid, delivery_keys, chain.receipt_block_number(receipt, "Parked exit") - 1,
-    )
-    # The roll onto the successor rounds away a little before the half is sized.
-    assert abs(delivered - backing_before_exit // 2) <= config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO, (
-        f"Parked: the retry paid {delivered} RAO for half of a {backing_before_exit} RAO position"
     )
     assert env.vault_shares(token_id) == shares - exit_shares, "the exit burned the wrong shares"
     assert extrinsics.hotkey_owner(hotkey_ss58) == substrate.h160_to_ss58(env.vault_address), (

@@ -204,32 +204,13 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), LARGE_POSITION, "full deposit backs the shares");
     }
 
-    function test_UnwrapForTao_TailWaitsWhenPriceReadsZero() public {
-        _depositAndWrap(alice, NETUID1, 2 * LARGE_POSITION);
-        _plantVaultStakes(NETUID1, LARGE_POSITION, 0, LARGE_POSITION);
-        _setAlphaPriceReadsZero(NETUID1);
-
-        // Supply 2e24 on 2e15 RAO makes each 1e9 shares worth one RAO: the burn takes 1e15 + 1e6 RAO.
-        uint256 burn = (LARGE_POSITION + 1e6) * 1e9;
-        vm.prank(alice);
-        vault.unwrapForTao(TOKEN1, burn, 0);
-
-        // The full 1M-alpha slot sells at 5e-10 TAO/alpha; the 1e6-RAO partial tail cannot be priced.
-        assertEq(alice.balance, 500_000 * VaultMath.TAO_NATIVE_QUANTUM, "only the full-drain slot sold");
-        assertEq(_getVaultStake(hotkey1, NETUID1), 0, "full drain sold");
-        assertEq(_getVaultStake(hotkey3, NETUID1), LARGE_POSITION, "partial remainder left in the pool at price 0");
-        // Refund: 1e6 * (1e24 - 1e15 + 1e9) / (1e15 - 1e6 + 1) = 1e15 shares, worth the waiting tail.
-        assertEq(vault.balanceOf(alice, TOKEN1), 1e24, "the waiting tail came back as shares");
-    }
-
-    function test_UnwrapForTao_FullSlotExitWhenPriceReadsZero() public {
+    /// @dev The pool refuses every sale at or below its 1e-6 TAO/alpha minimum, so a full slot cannot drain.
+    function test_RevertWhen_ATaoExitSellsBelowThePoolsMinimumPrice() public {
         _setAlphaPriceReadsZero(NETUID1);
         uint256 shares = _depositAndWrap(alice, NETUID1, LARGE_POSITION);
 
         vm.prank(alice);
+        _expectChainRefusal();
         vault.unwrapForTao(TOKEN1, shares, 0);
-
-        assertEq(alice.balance, 500_000 * VaultMath.TAO_NATIVE_QUANTUM, "1M alpha at 5e-10 TAO/alpha");
-        assertEq(lens.totalStake(TOKEN1), 0);
     }
 }

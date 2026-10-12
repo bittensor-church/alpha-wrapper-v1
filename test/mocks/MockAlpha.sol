@@ -7,6 +7,9 @@ import { MockStaking } from "./MockStaking.sol";
 /// @dev 0.05 TAO per alpha, a round price inside the chain's usual range.
 uint256 constant DEFAULT_ALPHA_PRICE_E18 = 0.05e18;
 
+/// @dev The swap's minimum price, 1e-6 TAO per alpha: it refuses any sale at or below it.
+uint256 constant MIN_SELL_PRICE_E18 = 1e12;
+
 contract MockAlpha {
     uint256 private constant PRICE_QUANTUM_E18 = 1e9;
 
@@ -32,11 +35,21 @@ contract MockAlpha {
     }
 
     bool public simSwapReverts;
+    mapping(uint64 => bool) private _simRefused;
     mapping(uint64 => uint256) private _simQuoteOverride;
     mapping(uint64 => bool) private _simQuoteSet;
 
     function setSimSwapReverts(bool v) external {
         simSwapReverts = v;
+    }
+
+    /// @dev Refuses the quote for one exact input, as a pool too shallow for it would.
+    function setSimSwapRefused(uint64 alpha, bool refused) external {
+        _simRefused[alpha] = refused;
+    }
+
+    function sellable(uint16 netuid) public view returns (bool) {
+        return chainAlphaPrice(netuid) > MIN_SELL_PRICE_E18;
     }
 
     /// @dev Exact-input overrides model price impact absent from the default linear rate.
@@ -45,14 +58,15 @@ contract MockAlpha {
         _simQuoteSet[alpha] = true;
     }
 
-    /// @dev A refused simulation consumes every unit of forwarded gas, as on chain.
-    function simSwapAlphaForTao(uint16 netuid, uint64 alpha) external view returns (uint256) {
-        if (simSwapReverts) {
+    /// @dev A refused simulation consumes every unit of forwarded gas, as on chain. The swap refuses a sale at or below
+    ///      its minimum price and an input that would pay nothing.
+    function simSwapAlphaForTao(uint16 netuid, uint64 alpha) external view returns (uint256 taoOut) {
+        taoOut =
+            _simQuoteSet[alpha] ? _simQuoteOverride[alpha] : MockStaking(STAKING_PRECOMPILE).quoteTaoOut(netuid, alpha);
+        if (simSwapReverts || _simRefused[alpha] || !sellable(netuid) || taoOut == 0) {
             assembly {
                 invalid()
             }
         }
-        if (_simQuoteSet[alpha]) return _simQuoteOverride[alpha];
-        return MockStaking(STAKING_PRECOMPILE).quoteTaoOut(netuid, alpha);
     }
 }

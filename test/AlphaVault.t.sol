@@ -1353,6 +1353,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         boundBps = bound(boundBps, 0, VaultMath.BPS_BASE);
         _simulateAlphaDepositHotkey(alice, NETUID1, depositAlpha, hotkey1);
         uint256 quoted = lens.previewWrap(TOKEN1, depositAlpha);
+        assertEq(quoted, depositAlpha * 1e9, "a first deposit is quoted 1e9 shares per RAO");
         uint256 minSharesOut = (quoted * boundBps) / VaultMath.BPS_BASE;
 
         vm.prank(alice);

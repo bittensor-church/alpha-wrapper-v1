@@ -106,6 +106,9 @@ contract AlphaVaultRoundingTest is AlphaVaultTestBase {
 
         (uint256 alphaQuote, uint256 taoQuote) = lens.previewUnwrap(TOKEN1, shares);
         assertEq(alphaQuote, 0);
+        // A first deposit mints 1e9 shares per RAO; dissolved exits pay a plain pro-rata share in whole RAO.
+        uint256 owed = pot * shares / (deposit * 1e9);
+        assertEq(taoQuote, owed - owed % VaultMath.TAO_NATIVE_QUANTUM, "the quote is the burn's share of the pot");
 
         vm.prank(alice);
         if (taoQuote == 0) {

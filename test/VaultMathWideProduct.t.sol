@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
+import { StakeOps } from "src/libraries/StakeOps.sol";
 import { VaultMath } from "src/libraries/VaultMath.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 
@@ -26,5 +27,18 @@ contract VaultMathWideProductTest is AlphaVaultTestBase {
         _donateToClone(vault.subnetClone(TOKEN1), TAO);
         // Bob holds all but one of 5.000000005e23 + 1 shares: 999,999,999,999,999,999 wei, paid in whole RAO.
         assertEq(_claimQuotedAmount(bob, TOKEN1), TAO - VaultMath.TAO_NATIVE_QUANTUM);
+    }
+
+    /// @dev Each product below passes 2^256; the narrow form would revert.
+    function test_AssetsFor_ReturnsTheExactQuotientPastTheNarrowProduct() public pure {
+        assertEq(VaultMath.assetsFor(1 << 200, (1 << 200) - VaultMath.VIRTUAL_SHARES, 1 << 200), (1 << 200) + 1);
+    }
+
+    function test_ProRata_ReturnsTheExactQuotientPastTheNarrowProduct() public pure {
+        assertEq(VaultMath.proRata(1 << 200, 1 << 100, 1 << 100), 1 << 200);
+    }
+
+    function test_TaoValue_ReturnsTheExactQuotientPastTheNarrowProduct() public pure {
+        assertEq(StakeOps.taoValue(1 << 200, 1e18 << 40), 1 << 240);
     }
 }

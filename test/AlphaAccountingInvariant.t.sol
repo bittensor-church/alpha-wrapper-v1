@@ -11,6 +11,8 @@ import { CHAIN_MIN_STAKE } from "./mocks/MockStaking.sol";
 /// @dev Healthy chain campaign: one owned validator, no losses and no sweep threshold, with a moving price and
 ///      emissions. These preconditions make adequately sized exits mandatory, so failures must never be caught.
 contract AlphaAccountingHandler is Test {
+    uint256 private constant VIRTUAL_SHARES = 1e9;
+
     AlphaVault public immutable vault;
     AlphaVaultLens public immutable lens;
     AlphaAccountingInvariantTest public immutable harness;
@@ -21,8 +23,8 @@ contract AlphaAccountingHandler is Test {
     uint256 public alphaDelivered;
     uint256 public alphaSold;
     uint256 public shareConversions;
-    /// @dev The 1e9 virtual shares keep their slice of a position whose last holder leaves for alpha; a full
-    ///      TAO exit sells the whole backing.
+    /// @dev The 1e9 virtual shares keep their slice of a position whose last holder leaves for alpha, and all of
+    ///      what emissions add while nobody holds a share; a full TAO exit sells the whole backing.
     uint256 public virtualShareSlice;
 
     constructor(
@@ -45,8 +47,10 @@ contract AlphaAccountingHandler is Test {
 
     function _deposit(address actor, uint256 amount) private {
         uint256 sharesBefore = vault.balanceOf(actor, tokenId);
+        uint256 owed = amount * (vault.totalSupply(tokenId) + VIRTUAL_SHARES) / (harness.chainBacking() + 1);
         harness.depositFor(actor, amount);
-        assertGt(vault.balanceOf(actor, tokenId), sharesBefore, "a healthy deposit gives the depositor shares");
+        assertGt(owed, 0, "a healthy deposit is worth a share");
+        assertEq(vault.balanceOf(actor, tokenId) - sharesBefore, owed, "a deposit buys its share at the current rate");
         deposited += amount;
         ++shareConversions;
     }
@@ -74,12 +78,14 @@ contract AlphaAccountingHandler is Test {
         }
         uint256 backingBefore = harness.chainBacking();
         uint256 supply = vault.totalSupply(tokenId);
+        uint256 owed = shares * (backingBefore + 1) / (supply + VIRTUAL_SHARES);
         virtualShareSlice = 0;
         if (forTao) {
             uint256 balanceBefore = actor.balance;
             vm.prank(actor);
             vault.unwrapForTao(tokenId, shares, 0);
             uint256 sold = backingBefore - harness.chainBacking();
+            assertEq(sold, shares == supply ? backingBefore : owed, "a TAO exit sells the holder's share");
             uint256 paid = actor.balance - balanceBefore;
             assertEq(
                 paid,
@@ -92,10 +98,11 @@ contract AlphaAccountingHandler is Test {
             vm.prank(actor);
             vault.unwrap(tokenId, shares, keccak256(abi.encodePacked("evm:", actor)), 0);
             uint256 delivered = harness.recipientStake(actor) - stakeBefore;
+            assertEq(delivered, owed, "an alpha exit delivers the holder's share");
             assertEq(backingBefore - harness.chainBacking(), delivered, "alpha reaches the caller's destination");
             alphaDelivered += delivered;
             if (shares == supply) {
-                virtualShareSlice = backingBefore * VaultMath.VIRTUAL_SHARES / (supply + VaultMath.VIRTUAL_SHARES) + 1;
+                virtualShareSlice = backingBefore * VIRTUAL_SHARES / (supply + VIRTUAL_SHARES) + 1;
             }
         }
         assertEq(vault.balanceOf(actor, tokenId), 0, "a healthy full exit retires the holder's shares");
@@ -103,15 +110,14 @@ contract AlphaAccountingHandler is Test {
     }
 
     function movePrice(uint256 priceSeed) external {
-        harness.setPrice(bound(priceSeed, 1e6, 2e8) * 1e9);
+        harness.movePrice(priceSeed);
     }
 
-    /// @dev Emissions reward holders; a position nobody holds has no one to accrue to.
     function accrueEmissions(uint256 amount) external {
-        if (vault.totalSupply(tokenId) == 0) return;
         uint256 emission = bound(amount, 1, 300) * 1e9;
         harness.accrueEmissions(emission);
         emitted += emission;
+        if (vault.totalSupply(tokenId) == 0) virtualShareSlice += emission;
     }
 
     function closeAllPositions() external {
@@ -152,8 +158,8 @@ contract AlphaAccountingInvariantTest is AlphaVaultTestBase {
         return _alphaPriceRead(NETUID1);
     }
 
-    function setPrice(uint256 alphaPriceE18) external {
-        _setAlphaPrice(NETUID1, alphaPriceE18);
+    function movePrice(uint256 priceSeed) external {
+        _setAlphaPrice(NETUID1, _wholeRaoPrice(priceSeed));
     }
 
     function accrueEmissions(uint256 amount) external {

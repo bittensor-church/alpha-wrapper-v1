@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import {
-    BackingCampaignHandler,
-    BackingCampaignHarness,
-    requireExpectedRevert,
-    recoverErrors
-} from "./helpers/BackingCampaign.sol";
+import { Attempt, BackingCampaignHandler, BackingCampaignHarness, recoverErrors } from "./helpers/BackingCampaign.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
@@ -80,7 +75,7 @@ contract BackingHandler is BackingCampaignHandler {
                 "recovery discarded part of the obligation"
             );
         } catch (bytes memory reason) {
-            requireExpectedRevert(reason, recoverErrors());
+            _requireJustifiedRevert(reason, recoverErrors(), Attempt(0, 0, 0, source, false));
         }
     }
 
@@ -134,8 +129,8 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
         covered = new bool[](slots.length);
         bytes32 coldkey = _subnetColdkey(NETUID1);
         for (uint256 i; i < slots.length; ++i) {
-            covered[i] =
-                VaultReads.coversTracked(_getStakeForColdkey(slots[i].active, coldkey, NETUID1), slots[i].tracked);
+            uint256 held = _getStakeForColdkey(slots[i].active, coldkey, NETUID1);
+            covered[i] = held >= slots[i].tracked || slots[i].tracked - held <= BACKING_SLACK_RAO;
         }
     }
 
@@ -164,6 +159,10 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
 contract BackingInvariantTest is BackingCampaignSetup {
     function invariant_TotalTrackedBackingIsBoundedByCurrentChainHoldings() public view {
         _assertTrackedBackingWithinChainHoldings();
+    }
+
+    function invariant_ReportedBackingNeverExceedsWhatTheChainHolds() public view {
+        _assertReportedBackingWithinChainHoldings();
     }
 
     function invariant_NoTwoSlotsAnswerForOneKey() public view {

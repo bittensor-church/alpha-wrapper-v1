@@ -2,9 +2,9 @@
 pragma solidity 0.8.36;
 
 import {
+    Attempt,
     BackingCampaignHandler,
     BackingCampaignHarness,
-    requireExpectedRevert,
     unwrapForTaoErrors
 } from "./helpers/BackingCampaign.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
@@ -43,7 +43,8 @@ contract HotkeySwapHandler is BackingCampaignHandler {
         uint256 slot = bound(slotSeed, 0, slots.length - 1);
         uint256 held = _swaps().vaultStakeAt(slots[slot].active);
         uint256 located = _swaps().locatedStake();
-        if (held == 0 || located == 0) return;
+        // The pool refuses a sale that would pay nothing.
+        if (located == 0 || MockStaking(STAKING_PRECOMPILE).quoteTaoOut(uint16(netuid), held) == 0) return;
         uint256 shares = (vault.totalSupply(tokenId) * (held + DRAIN_MARGIN_RAO)) / located + 1;
         if (shares > balance) return;
         uint256 keepOthers = ((1 << slots.length) - 1) ^ (1 << slot);
@@ -51,7 +52,7 @@ contract HotkeySwapHandler is BackingCampaignHandler {
         try vault.unwrapForTao(tokenId, shares, 0, keepOthers) {
             if (_swaps().vaultStakeAt(slots[slot].active) == 0) ++drains;
         } catch (bytes memory reason) {
-            requireExpectedRevert(reason, unwrapForTaoErrors());
+            _requireJustifiedRevert(reason, unwrapForTaoErrors(), Attempt(0, shares, keepOthers, bytes32(0), true));
         }
     }
 
@@ -181,6 +182,10 @@ abstract contract HotkeySwapCampaignSetup is BackingCampaignHarness {
 contract HotkeySwapInvariantTest is HotkeySwapCampaignSetup {
     function invariant_TotalTrackedBackingIsBoundedByCurrentChainHoldings() public view {
         _assertTrackedBackingWithinChainHoldings();
+    }
+
+    function invariant_ReportedBackingNeverExceedsWhatTheChainHolds() public view {
+        _assertReportedBackingWithinChainHoldings();
     }
 
     function invariant_NoTwoSlotsAnswerForOneKey() public view {

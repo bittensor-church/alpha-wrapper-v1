@@ -89,12 +89,14 @@ contract MockStaking {
         delete slots[member][netuid];
     }
 
-    /// @dev Dissolution deletes every alpha position on the subnet.
+    /// @dev Dissolution deletes every alpha position and lock on the subnet.
     function clearPositions(bytes32 coldkey, uint256 netuid) external {
         bytes32[] memory hotkeys = _positions[coldkey][netuid];
         for (uint256 i; i < hotkeys.length; ++i) {
             _writeStake(hotkeys[i], coldkey, netuid, 0);
         }
+        delete lockedAlpha[coldkey][netuid];
+        delete lockHotkey[coldkey][netuid];
     }
 
     function _addStake(bytes32 hotkey, bytes32 coldkey, uint256 netuid, uint256 amount) private {
@@ -108,6 +110,16 @@ contract MockStaking {
     /// @dev The precompile saturates amounts to u64.
     function _u64(uint256 amount) private pure returns (uint256) {
         return amount > type(uint64).max ? type(uint64).max : amount;
+    }
+
+    /// @dev Moves and transfers read the saturated u64::MAX as the whole live position.
+    function _requestedAlpha(bytes32 hotkey, bytes32 coldkey, uint256 netuid, uint256 amount)
+        private
+        view
+        returns (uint256)
+    {
+        amount = _u64(amount);
+        return amount == type(uint64).max ? _stakes[hotkey][coldkey][netuid] : amount;
     }
 
     // Chain minimums use full-precision prices even when the EVM reader rounds to zero.
@@ -128,9 +140,13 @@ contract MockStaking {
         return _chainMinStakeTao;
     }
 
-    /// @dev Every stake operation needs a live subnet.
+    /// @dev Every stake operation needs a live subnet. Dissolution removes the subnet when it starts, while its
+    ///      registration block survives until cleanup.
     function _requireStakingOpen(uint256 netuid) private view {
-        if (MockSubnetPrecompile(SUBNET_PRECOMPILE).getNetworkRegistrationBlock(uint16(netuid)) == 0) _fail();
+        MockSubnetPrecompile subnet = MockSubnetPrecompile(SUBNET_PRECOMPILE);
+        if (subnet.getNetworkRegistrationBlock(uint16(netuid)) == 0 || subnet.isSubnetDissolving(uint16(netuid))) {
+            _fail();
+        }
     }
 
     function _requireTransfersEnabled(uint256 netuid) private view {
@@ -215,9 +231,10 @@ contract MockStaking {
         uint256 destination_netuid,
         uint256 amount
     ) external payable {
-        amount = _u64(amount);
         if (transferStakeReverts) _fail();
         bytes32 origin = _senderColdkey();
+        amount = _requestedAlpha(hotkey, origin, origin_netuid, amount);
+        if (destination_coldkey == origin && origin_netuid == destination_netuid) _fail();
         _requireMovable(hotkey, hotkey, origin, origin_netuid, amount);
         _requireTransfersEnabled(origin_netuid);
         uint256 carriedLock = _carriedLock(origin, origin_netuid, amount);
@@ -260,9 +277,10 @@ contract MockStaking {
         uint256 destination_netuid,
         uint256 amount
     ) external payable {
-        amount = _u64(amount);
         if (moveStakeReverts) _fail();
         bytes32 coldkey = _senderColdkey();
+        amount = _requestedAlpha(origin_hotkey, coldkey, origin_netuid, amount);
+        if (origin_hotkey == destination_hotkey && origin_netuid == destination_netuid) _fail();
         _requireMovable(origin_hotkey, destination_hotkey, coldkey, origin_netuid, amount);
         uint256 moved = amount > moveStakeResidual ? amount - moveStakeResidual : 0;
         _writeStake(origin_hotkey, coldkey, origin_netuid, _stakes[origin_hotkey][coldkey][origin_netuid] - moved);
@@ -273,13 +291,14 @@ contract MockStaking {
         return _stakes[hotkey][coldkey][netuid];
     }
 
-    /// @dev A chain hotkey swap moves every coldkey's position on `netuid` from one hotkey to the other.
+    /// @dev A chain hotkey swap moves every coldkey's position and lock on `netuid` from one hotkey to the other.
     function moveHotkeyPositions(bytes32 fromHotkey, bytes32 toHotkey, uint256 netuid) external {
         bytes32[] memory stakers = _stakers[fromHotkey][netuid];
         for (uint256 i; i < stakers.length; ++i) {
             uint256 amount = _stakes[fromHotkey][stakers[i]][netuid];
             _writeStake(fromHotkey, stakers[i], netuid, 0);
             _addStake(toHotkey, stakers[i], netuid, amount);
+            if (lockHotkey[stakers[i]][netuid] == fromHotkey) lockHotkey[stakers[i]][netuid] = toHotkey;
         }
     }
 
@@ -441,8 +460,11 @@ contract MockStaking {
     bool public removeStakeReverts;
     mapping(bytes32 => bool) public removeStakeRevertsFor;
     uint256 public nominatorMinRequiredStake;
-    /// @dev Zero means uncapped.
+    /// @dev A sale the pool stops short of the request, at its minimum price; the unsold alpha stays staked.
+    ///      Zero means uncapped.
     uint256 public removeStakeCap;
+    /// @dev Where one sale leaves the chain price, zero for no move; applied once.
+    mapping(uint256 => uint256) public postSalePrice;
 
     function setNominatorMinRequiredStake(uint256 thresholdTao) external {
         nominatorMinRequiredStake = thresholdTao;
@@ -475,6 +497,10 @@ contract MockStaking {
         removeStakeCap = maxAlpha;
     }
 
+    function setPostSalePrice(uint256 netuid, uint256 alphaPriceE18) external {
+        postSalePrice[netuid] = alphaPriceE18;
+    }
+
     function removeStake(bytes32 hotkey, uint256 alphaAmount, uint256 netuid) external payable {
         if (removeStakeReverts || removeStakeRevertsFor[hotkey]) _fail();
         bytes32 coldkey = _senderColdkey();
@@ -485,18 +511,38 @@ contract MockStaking {
         uint256 locked = lockedAlpha[coldkey][netuid];
         uint256 total = coldkeyAlpha[coldkey][netuid];
         if (alphaAmount > (total > locked ? total - locked : 0)) _fail();
-        if (alphaAmount != staked && _simulatedSale(uint16(netuid), alphaAmount) < _chainMinStakeTao) _fail();
+        // Every sale is simulated first; only a full drain skips the minimum output.
+        uint256 simulated = _simulatedSale(uint16(netuid), alphaAmount);
+        if (alphaAmount != staked && simulated < _chainMinStakeTao) _fail();
         uint256 consumed = removeStakeCap != 0 && alphaAmount > removeStakeCap ? removeStakeCap : alphaAmount;
         uint256 taoOut = quoteTaoOut(uint16(netuid), consumed);
-        uint256 remainder = staked - consumed;
-        if (_isSmallNomination(hotkey, coldkey, netuid, remainder)) {
-            taoOut += quoteTaoOut(uint16(netuid), remainder);
-            _reduceLock(coldkey, netuid, remainder);
-            remainder = 0;
+        _writeStake(hotkey, coldkey, netuid, staked - consumed);
+        if (postSalePrice[netuid] != 0) {
+            MockAlpha(ALPHA_PRECOMPILE).setAlphaPrice(uint16(netuid), postSalePrice[netuid]);
+            delete postSalePrice[netuid];
         }
-        _writeStake(hotkey, coldkey, netuid, remainder);
-        (bool ok,) = msg.sender.call{ value: taoOut * VaultMath.TAO_NATIVE_QUANTUM }("");
+        taoOut += _clearSmallNomination(hotkey, coldkey, netuid);
+        _creditTao(msg.sender, taoOut);
+    }
+
+    /// @dev The chain's network-wide sweep of small nominations, which pays any proceeds to the holder.
+    function sweepSmallNomination(bytes32 hotkey, address holder, uint256 netuid) external {
+        _creditTao(holder, _clearSmallNomination(hotkey, keccak256(abi.encodePacked("evm:", holder)), netuid));
+    }
+
+    function _creditTao(address to, uint256 taoRao) private {
+        (bool ok,) = to.call{ value: taoRao * VaultMath.TAO_NATIVE_QUANTUM }("");
         require(ok, "MockStaking: TAO credit failed");
+    }
+
+    /// @dev The chain force-sells a non-owner's remainder below the nominator minimum, at the price after any sale
+    ///      that left it. When that sale fails the remainder is deleted unpaid.
+    function _clearSmallNomination(bytes32 hotkey, bytes32 coldkey, uint256 netuid) private returns (uint256 taoOut) {
+        uint256 remainder = _stakes[hotkey][coldkey][netuid];
+        if (!_isSmallNomination(hotkey, coldkey, netuid, remainder)) return 0;
+        if (MockAlpha(ALPHA_PRECOMPILE).sellable(uint16(netuid))) taoOut = quoteTaoOut(uint16(netuid), remainder);
+        _reduceLock(coldkey, netuid, remainder);
+        _writeStake(hotkey, coldkey, netuid, 0);
     }
 
     /// @dev A refused simulation refuses the sale.
@@ -508,7 +554,7 @@ contract MockStaking {
         }
     }
 
-    /// @dev The chain force-sells a non-owner's remainder below the nominator minimum, in alpha at the price.
+    /// @dev A non-owner's position below the nominator minimum, converted to alpha at the chain price.
     function _isSmallNomination(bytes32 hotkey, bytes32 coldkey, uint256 netuid, uint256 remainder)
         private
         view
