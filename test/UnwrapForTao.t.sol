@@ -41,7 +41,7 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
     }
 
     function _unwrapForTaoCall(uint256 shares) internal returns (bool ok, bytes memory ret) {
-        uint256 excluded = _zeroPaySlots(_lastSeen(TOKEN1), NETUID1);
+        uint256 excluded = _zeroPaySlots(_recordedKeys(TOKEN1), NETUID1);
         vm.prank(alice);
         (ok, ret) = address(vault)
             .call(abi.encodeWithSignature("unwrapForTao(uint256,uint256,uint256,uint256)", TOKEN1, shares, 0, excluded));
@@ -721,14 +721,23 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         uint256 aliceShares = _depositForAlice(30 * ALPHA);
         _depositAndWrap(bob, NETUID1, 30 * ALPHA);
         _plantVaultStakes(NETUID1, a, b, c);
-        _setAlphaPrice(NETUID1, _wholeRaoPrice(priceRao));
+        uint256 priceE18 = _wholeRaoPrice(priceRao);
+        _setAlphaPrice(NETUID1, priceE18);
         _setRemoveStakeCap(sellCap);
         uint256 bobValueBefore = _positionValue(bob);
+        uint256 shares = aliceShares * shareBps / BPS_BASE;
+        // 60 alpha minted 6e19 shares; the planted layout backs them.
+        uint256 assets = shares * (a + b + c + 1) / (6e19 + 1e9);
+        bytes32[] memory keys = _recordedKeys(TOKEN1);
+        // The first sale takes a paying slot or chunk, cut to the cap: it pays unless the cap itself is worth nothing.
+        bool pays = _taoExitSellsWithin(keys, assets, _zeroPaySlots(keys, NETUID1), NETUID1)
+            && (sellCap == 0 || sellCap * priceE18 / 1e18 != 0);
 
-        (bool ok, bytes memory ret) = _unwrapForTaoCall(aliceShares * shareBps / BPS_BASE);
+        (bool ok, bytes memory ret) = _unwrapForTaoCall(shares);
 
         if (!ok) {
             assertEq(bytes4(ret), WithdrawTooSmall.selector, "only the nothing-sold revert may fire");
+            assertFalse(pays, "refused an exit whose first sale pays");
             return;
         }
         // Share and asset rounding moves the stayer's quote by at most a RAO each way.
@@ -905,6 +914,30 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(WithdrawTooSmall.selector);
         vault.unwrapForTao(TOKEN1, 2e17, 0);
+    }
+
+    /// @dev At 0.05 TAO/alpha the sweep-safe leftover is ceil(20,000,001e18 / 5e16) = 400,000,020 RAO. A 440,000,020-RAO
+    ///      slot can sell 0.04 alpha, worth exactly the 2,000,000-RAO minimum stake.
+    function test_UnwrapForTao_PartialSellKeepsExactlyTheSweepSafeLeftover() public {
+        _depositForAlice(440_000_020);
+        _plantVaultStakes(NETUID1, 440_000_020, 0, 0);
+
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        vault.unwrapForTao(TOKEN1, 4e16, 0);
+
+        assertEq(alice.balance - before, 2_000_000 * 1e9, "0.04 alpha pays the minimum stake");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 400_000_020, "the slot keeps exactly the sweep-safe leftover");
+    }
+
+    /// @dev One RAO less leaves room for 39,999,999 RAO, worth 1,999,999 TAO RAO: below the minimum stake.
+    function test_RevertWhen_PartialSellIsOneRaoShortOfTheMinimum() public {
+        _depositForAlice(440_000_019);
+        _plantVaultStakes(NETUID1, 440_000_019, 0, 0);
+
+        vm.prank(alice);
+        vm.expectRevert(WithdrawTooSmall.selector);
+        vault.unwrapForTao(TOKEN1, 4e16, 0);
     }
 
     function testFuzz_PartialSell_NeverLeavesSweepableRemainder(uint256 balance, uint256 assets, uint256 priceRao)

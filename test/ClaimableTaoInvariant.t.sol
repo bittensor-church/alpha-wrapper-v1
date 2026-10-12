@@ -101,6 +101,9 @@ contract ClaimableTaoHandler is Test {
             expected[0] = ZeroAmount.selector;
             expected[1] = WithdrawTooSmall.selector;
             requireExpectedRevert(reason, expected);
+            uint256 assets = harness.taoExitAssets(shares);
+            if (bytes4(reason) == ZeroAmount.selector) assertEq(assets, 0, "refused shares worth a RAO");
+            else assertFalse(harness.taoExitSells(assets), "refused a TAO exit that sells");
         }
     }
 
@@ -144,6 +147,17 @@ contract ClaimableTaoInvariantTest is AlphaVaultTestBase {
 
     function movePrice(uint256 priceSeed) external {
         _setAlphaPrice(NETUID1, _wholeRaoPrice(priceSeed));
+    }
+
+    /// @dev Nothing here moves stake off the recorded keys, so the backing is the clone's stake on them.
+    function taoExitAssets(uint256 shares) external view returns (uint256) {
+        uint256 backing = _vaultStakeAcross(_recordedKeys(TOKEN1), NETUID1);
+        uint256 supply = vault.totalSupply(TOKEN1);
+        return shares == supply ? backing : shares * (backing + 1) / (supply + 1e9);
+    }
+
+    function taoExitSells(uint256 assets) external view returns (bool) {
+        return _taoExitSellsWithin(_recordedKeys(TOKEN1), assets, 0, NETUID1);
     }
 
     function invariant_CloneBalanceCoversReservedTao() public view {

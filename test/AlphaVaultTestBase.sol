@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { VaultMath } from "src/libraries/VaultMath.sol";
 import { Vm } from "forge-std/Test.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
@@ -383,12 +384,37 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     }
 
     /// @dev The most a partial TAO sale can take from a slot: the request, capped to keep a leftover worth more than the
-    ///      nominator minimum at `priceE18`, plus one RAO for rounding.
+    ///      nominator minimum at `priceE18`.
     function _sweepSafeChunk(uint256 balance, uint256 request, uint256 priceE18) internal pure returns (uint256) {
         if (priceE18 == 0) return 0;
-        uint256 leftover = (DUST_THRESHOLD + 1) * 1e18 / priceE18 + 1;
+        uint256 leftover = Math.ceilDiv((DUST_THRESHOLD + 1) * 1e18, priceE18);
         if (balance <= leftover) return 0;
         return balance - leftover < request ? balance - leftover : request;
+    }
+
+    function _recordedKeys(uint256 tokenId) internal view returns (bytes32[] memory keys) {
+        VaultReads.Slot[] memory slots = vault.recordedSlots(tokenId);
+        keys = new bytes32[](slots.length);
+        for (uint256 i; i < slots.length; ++i) {
+            keys[i] = slots[i].active;
+        }
+    }
+
+    /// @dev Whether a TAO exit of `assets` sells something from the clone's stake on `keys`: some eligible slot drains
+    ///      within `assets`, or sells a sweep-safe chunk of them that clears the minimum stake at the read price.
+    function _taoExitSellsWithin(bytes32[] memory keys, uint256 assets, uint256 excludedSlots, uint256 netuid)
+        internal
+        view
+        returns (bool)
+    {
+        uint256 price = _alphaPriceRead(netuid);
+        for (uint256 i; i < keys.length; ++i) {
+            uint256 balance = (excludedSlots >> i) & 1 == 0 ? _getVaultStake(keys[i], netuid) : 0;
+            if (balance == 0) continue;
+            if (balance <= assets) return true;
+            if (_sweepSafeChunk(balance, assets, price) * price / 1e18 >= CHAIN_MIN_STAKE) return true;
+        }
+        return false;
     }
 
     function _alphaPriceRead(uint256 netuid) internal view returns (uint256) {

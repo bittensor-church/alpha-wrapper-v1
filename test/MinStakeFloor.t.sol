@@ -308,27 +308,55 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
         a = bound(a, 0, deposit);
         b = bound(b, 0, deposit - a);
         shareBps = bound(shareBps, 1, BPS_BASE);
+        uint256 price = _wholeRaoPrice(priceRao);
         uint256 supply = _depositAndWrap(alice, NETUID1, deposit);
         _plantVaultStakes(NETUID1, a, b, deposit - a - b);
-        _setAlphaPrice(NETUID1, _wholeRaoPrice(priceRao));
+        _setAlphaPrice(NETUID1, price);
         uint256 shares = supply * shareBps / BPS_BASE;
         // `deposit * 1e9` shares back `deposit` RAO, so a burn is worth shares / 1e9 RAO.
         uint256 expected = shares / 1e9;
+        uint256 largest = a > b ? a : b;
+        if (deposit - a - b > largest) largest = deposit - a - b;
+        bool belowFloor = expected * price / 1e18 < CHAIN_MIN_STAKE;
+        // Gathering starts from the largest slot, refused when even the highest price the read can hide leaves it
+        // below the floor.
+        bool cannotGather = expected > largest && largest * (price + 1e9) / 1e18 < CHAIN_MIN_STAKE;
 
         vm.prank(alice);
         (bool ok, bytes memory ret) =
             address(vault).call(abi.encodeCall(vault.unwrap, (TOKEN1, shares, _toSubstrate(alice), expected)));
 
-        if (!ok) {
-            bytes4 selector = bytes4(ret);
-            assertTrue(
-                selector == WithdrawTooSmall.selector || selector == IAlphaVaultAbi.GatherBelowFloor.selector,
-                "only floor-classed reverts are legitimate"
+        if (belowFloor) {
+            assertEq(ret, abi.encodeWithSelector(WithdrawTooSmall.selector), "an exit below the floor is refused");
+            return;
+        }
+        if (cannotGather) {
+            assertEq(
+                ret, abi.encodeWithSelector(IAlphaVaultAbi.GatherBelowFloor.selector), "an unmovable pile is refused"
             );
             return;
         }
+        assertTrue(ok, "an exit above the floor with a movable pile pays");
         assertEq(_userStakeAcrossHotkeys(alice, NETUID1), expected, "delivery is exact");
         assertEq(lens.totalStake(TOKEN1), deposit - expected, "only the delivered alpha left the vault");
+    }
+
+    /// @dev The recorded 1-alpha slot is below the 2-alpha floor at 0.001 TAO/alpha, but the newly attested key already
+    ///      holds 10 alpha the record does not know about: consolidation rolls that pile through the dropped slot.
+    function test_Unwrap_ANewValidatorsPileCarriesASubFloorSlot() public {
+        _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
+        uint256 shares = _depositAndWrap(alice, NETUID1, ALPHA);
+        _setValidators(NETUID1, _hotkeys(hotkey2), _weights(BPS_BASE));
+        MockStaking(STAKING_PRECOMPILE).setStake(hotkey2, _subnetColdkey(NETUID1), NETUID1, 10 * ALPHA);
+        _setAlphaPrice(NETUID1, 0.001e18);
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
+
+        // 5e17 * (11e9 + 1) / (1e18 + 1e9), floored.
+        assertEq(_getStake(hotkey2, alice, NETUID1), 5_499_999_995, "half of the 11 alpha on the new key");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 0, "the dropped slot was consolidated");
+        assertEq(_getVaultStake(hotkey2, NETUID1), 11 * ALPHA - 5_499_999_995, "the rest stays on the new key");
     }
 
     // The pile reads as 1,999,999 TAO RAO, under the floor; the price read drops half a RAO, so its true

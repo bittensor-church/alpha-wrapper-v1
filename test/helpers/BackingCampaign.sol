@@ -405,25 +405,16 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         return shares == vault.totalSupply(TOKEN1) ? resolvedBacking() : leastAssetsFor(shares);
     }
 
-    /// @dev Some eligible slot either drains within `assets` or sells a sweep-safe chunk of them that clears the
-    ///      minimum stake at the read price. Either sale pays, so the exit cannot end with nothing sold.
     function sellsASlotWithin(uint256 assets, uint256 excludedSlots) external view returns (bool) {
-        (, uint256[] memory balances,) = resolvedSlots();
-        uint256 price = _alphaPriceRead(NETUID1);
-        for (uint256 i; i < balances.length; ++i) {
-            uint256 balance = (excludedSlots >> i) & 1 == 0 ? balances[i] : 0;
-            if (balance == 0) continue;
-            if (balance <= assets) return true;
-            if (taoValueAtRead(_sweepSafeChunk(balance, assets, price)) >= CHAIN_MIN_STAKE) return true;
-        }
-        return false;
+        (bytes32[] memory keys,,) = resolvedSlots();
+        return _taoExitSellsWithin(keys, assets, excludedSlots, NETUID1);
     }
 
     function taoValueAtRead(uint256 alpha) public view returns (uint256) {
         return alpha * _alphaPriceRead(NETUID1) / 1e18;
     }
 
-    function parked() external view returns (bool) {
+    function parked() public view returns (bool) {
         (, uint256 parkedAtNonce) = vault.recovery(TOKEN1);
         return parkedAtNonce != 0 && registry.nonces(NETUID1) == parkedAtNonce;
     }
@@ -513,15 +504,46 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         return stray != 0 && _belowFloorAtAnyPrice(stray > home ? stray : home);
     }
 
-    /// @dev An alpha exit refuses to gather only when even the largest resolved pile is below the floor at any price:
-    ///      consolidation only adds to the keys it pays from.
+    /// @dev An alpha exit refuses to gather only when even the largest pile it pays from, after consolidation, is below
+    ///      the floor at any price.
     function gatherBelowFloor() external view returns (bool) {
-        (, uint256[] memory balances,) = resolvedSlots();
+        uint256[] memory piles = _pilesAfterConsolidation();
         uint256 largest;
-        for (uint256 i; i < balances.length; ++i) {
-            if (balances[i] > largest) largest = balances[i];
+        for (uint256 i; i < piles.length; ++i) {
+            if (piles[i] > largest) largest = piles[i];
         }
         return _belowFloorAtAnyPrice(largest);
+    }
+
+    /// @dev A parked exit pays from the resolved slots as they are. Otherwise consolidation rolls every dropped key's
+    ///      stake onto the first assigned key, starting from an assigned key's pile when no dropped pile is richer, so
+    ///      that pile ends there too. Assigned keys count stake the record does not know about.
+    function _pilesAfterConsolidation() private view returns (uint256[] memory piles) {
+        (bytes32[] memory keys, uint256[] memory balances,) = resolvedSlots();
+        if (parked()) return balances;
+        (, bytes32[] memory actives,,) = attestedAssignment();
+        piles = new uint256[](actives.length);
+        for (uint256 i; i < actives.length; ++i) {
+            piles[i] = _getVaultStake(actives[i], NETUID1);
+        }
+        uint256 droppedTotal;
+        uint256 richestDropped;
+        for (uint256 i; i < keys.length; ++i) {
+            if (_contains(actives, keys[i])) continue;
+            droppedTotal += balances[i];
+            if (balances[i] > richestDropped) richestDropped = balances[i];
+        }
+        if (droppedTotal == 0) return piles;
+        uint256 richest;
+        uint256 richestIndex;
+        for (uint256 i; i < piles.length; ++i) {
+            if (piles[i] > richest) (richest, richestIndex) = (piles[i], i);
+        }
+        if (richest >= richestDropped && richestIndex != 0) {
+            piles[0] += piles[richestIndex];
+            piles[richestIndex] = 0;
+        }
+        piles[0] += droppedTotal;
     }
 
     /// @dev An open recovery stays unchanged only while parking does not cover the obligation and the sync has nothing
