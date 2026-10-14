@@ -28,6 +28,7 @@ interface IAlphaVaultAbi {
     /// @dev Loss falls on holders at write-off; later recovery belongs to holders at recovery time.
     event BackingWrittenOff(uint256 indexed tokenId, uint256 expected, uint256 located);
     /// @dev The position rests on the parking hotkey until an attestation newer than `registryNonce` lands.
+    ///      A zero `registryNonce` means no shares remained, so deposits stay open.
     event BackingParked(uint256 indexed tokenId, uint256 backing, uint256 registryNonce);
     event BackingRecovered(uint256 indexed tokenId, bytes32 indexed hotkey, uint256 amount);
 

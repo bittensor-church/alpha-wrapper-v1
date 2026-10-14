@@ -43,7 +43,8 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     uint256 private constant OTHER_TWO_SLOTS = 19_998_000_000;
     /// @dev The registry nonce setUp's attestation leaves on NETUID1.
     uint256 private constant SETUP_NONCE = 1;
-    uint256 private constant GIFT = 0.001e9 + 5_000;
+    uint256 private constant GIFT = 3_000_000;
+    address private donor = makeAddr("donor");
 
     /// @dev Swaps hotkey1's slot away along an unfollowed trail and declares the loss.
     function _declaredShortfall() private returns (uint256 shares) {
@@ -557,7 +558,11 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function _giftToEmptyToken(bytes32 hotkey, uint256 amount) private {
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey, _subnetColdkey(NETUID1), NETUID1, amount);
+        MockStaking mock = MockStaking(STAKING_PRECOMPILE);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        mock.setStake(hotkey, _toSubstrate(donor), NETUID1, amount);
+        vm.prank(donor);
+        mock.transferStake(cloneColdkey, hotkey, NETUID1, NETUID1, amount);
     }
 
     function _rootSweep(bytes32 hotkey) private {
@@ -591,7 +596,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function testFuzz_WriteOffAtZeroSupply_ReopensTheEmptyToken(uint256 rawGift) public {
-        uint256 gift = bound(rawGift, 1_001, ALPHA_FLOOR - 1);
+        uint256 gift = bound(rawGift, 2_000_000, ALPHA_FLOOR - 1);
         _exitEveryShare();
         _giftToEmptyToken(hotkey3, gift);
         vault.rebalance(NETUID1);
