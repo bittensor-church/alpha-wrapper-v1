@@ -97,7 +97,7 @@ can bring the dust home. Other collection failures revert without changing the
 clock or obligation; persistent chain restrictions can still delay recovery.
 A native precompile refusal consumes forwarded gas, even though state rolls back.
 
-The conservative floor uses `DefaultMinStake`: 0.002 TAO in [Subtensor `14cde6410`](https://github.com/opentensor/subtensor/blob/14cde6410fe8ec81a940e290c56f94a632a0988d/runtime/src/lib.rs#L841),
+The conservative floor uses `DefaultMinStake`: 0.002 TAO on Subtensor runtime 478,
 20 times its 0.0001 TAO same-subnet transfer minimum. Thus some chain-movable
 balances can be skipped and written off. Ten skipped locations expose less than
 0.02 TAO at the floor check's price, not at a future price. Using the lower

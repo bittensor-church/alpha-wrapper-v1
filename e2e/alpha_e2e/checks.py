@@ -68,12 +68,13 @@ def assert_value_per_share_kept(
 def reconstructed_payout(
     balance_before_wei: int, balance_after_wei: int, receipt: dict, message: str,
 ) -> int:
-    """The caller's balance delta plus the gas it paid (fixed localnet gas
-    price): dust-scale payouts are smaller than gas, so the raw delta alone
-    proves nothing."""
+    """The caller's balance delta plus the gas it paid, at the base fee going
+    into its block: dust-scale payouts are smaller than gas, so the raw delta
+    alone proves nothing."""
     gas_used = chain.receipt_gas_used(receipt)
     assert gas_used is not None, f"{message}: could not parse gasUsed for payout reconstruction"
-    return balance_after_wei - balance_before_wei + gas_used * config.LOCALNET_GAS_PRICE_WEI
+    gas_price_wei = chain.cast_base_fee_wei(chain.receipt_block_number(receipt, message) - 1)
+    return balance_after_wei - balance_before_wei + gas_used * gas_price_wei
 
 
 @dataclass(frozen=True)

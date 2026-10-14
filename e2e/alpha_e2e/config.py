@@ -86,9 +86,6 @@ EVM_TX_FLAGS = ["--legacy", "--gas-price", "10000000000"]
 # AlphaVault's runtime is ~22.8 KB, so code deposit alone is ~4.6M gas; the ceiling clears that
 # plus constructor and intrinsic while staying well under the block gas limit.
 FORGE_CREATE_FLAGS = EVM_TX_FLAGS + ["--gas-limit", "8000000", "--broadcast"]
-# The localnet charges a fixed gas price, which payout reconstruction relies on.
-LOCALNET_GAS_PRICE_WEI = 10**10
-
 # --- Gas budgets ---------------------------------------------------------------
 # A rejected precompile dispatch consumes all forwarded gas, so a call staying far
 # under its limit separates a designed pre-check revert (or a healthy call) from an

@@ -405,9 +405,8 @@ def swap_hotkey_keep_stake(
 ) -> str:
     """Move a hotkey's identity across every subnet while its stake stays behind.
 
-    The old hotkey is left with no recorded owner, which is the state the chain
-    refuses to move stake out of. Signed by Alice, who owns the registered
-    validator hotkeys."""
+    The old hotkey keeps its owner record and its stake. Signed by Alice, who
+    owns the registered validator hotkeys."""
     with _connect(chain_endpoint) as client:
         return _submit(client, _sdk().calls.SubtensorModule.swap_hotkey_v2(
             hotkey=hotkey_ss58, new_hotkey=new_hotkey_ss58, netuid=None, keep_stake=True,
