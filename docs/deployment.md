@@ -98,6 +98,7 @@ provide each function below and honor the rule next to it.
 | Staking `0x0805` | `moveStake` | A same-subnet move enforces the chain's transfer minimum, which is the lower of the two minimums. | `6b86ebf30d3fb83f9d43ed4ce713c43204394e67` |
 | Staking `0x0805` | `transferStake` | Delivers alpha to another coldkey on the same subnet; the chain's transfer minimum applies. | `6b86ebf30d3fb83f9d43ed4ce713c43204394e67` |
 | Staking `0x0805` | `removeStake` | A partial unstake enforces the default minimum stake; a full drain of a position clears it. | `b61dd30202ff6e970a18b5a5231b62183b6ba972` |
+| Staking `0x0805` | `removeStake` | A partial unstake lowers the caller's `getStake` by at most the requested amount. | `487e4dced1b680ed747ab476661755dce34be72c` |
 | Subnet `0x0803` | `getNetworkRegistrationBlock` | Zero while a netuid is unregistered. | `06032d518fbaead1ddc2039e9e6aa55715026364` |
 | Subnet `0x0803` | `getRegisteredSubnetCounter` | Steps on every registration and survives dissolution, so it tells subnet generations apart. | `d3f40e44bda9019c606aeb0c907bb52ba7fe386c` |
 | Subnet `0x0803` | `isSubnetDissolving` | Reports a subnet whose dissolution is under way. | `9c8e26e7fccc76327ab5204f7978aa2e4d86efd6` |
@@ -113,7 +114,7 @@ subnet clones clean, and a rejected precompile call consumes all forwarded gas,
 which is why the vault checks conditions before calling.
 
 The behavior above is tested against Subtensor source commit
-`14cde6410fe8ec81a940e290c56f94a632a0988d`.
+`850f2755bb05a3851f948489f0ab27b0645cebce`.
 A runtime that breaks any rule above is unsuitable for deployment.
 
 ## Deployed artifacts
