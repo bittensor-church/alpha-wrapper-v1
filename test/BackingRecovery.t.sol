@@ -43,6 +43,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     uint256 private constant OTHER_TWO_SLOTS = 19_998_000_000;
     /// @dev The registry nonce setUp's attestation leaves on NETUID1.
     uint256 private constant SETUP_NONCE = 1;
+    uint256 private constant GIFT = 0.001e9 + 5_000;
 
     /// @dev Swaps hotkey1's slot away along an unfollowed trail and declares the loss.
     function _declaredShortfall() private returns (uint256 shares) {
@@ -546,6 +547,104 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
         _depositAndWrap(bob, NETUID1, 5 * ALPHA);
         assertEq(lens.totalStake(TOKEN1), 5 * ALPHA, "and the next depositor starts a fresh position");
+    }
+
+    function _exitEveryShare() private {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
+        assertEq(vault.totalSupply(TOKEN1), 0, "nobody holds the token");
+    }
+
+    function _giftToEmptyToken(bytes32 hotkey, uint256 amount) private {
+        MockStaking(STAKING_PRECOMPILE).setStake(hotkey, _subnetColdkey(NETUID1), NETUID1, amount);
+    }
+
+    function _rootSweep(bytes32 hotkey) private {
+        MockStaking(STAKING_PRECOMPILE).sweepSmallNomination(hotkey, vault.subnetClone(TOKEN1), NETUID1);
+    }
+
+    function _declareAndWriteOff() private {
+        vault.syncBacking(TOKEN1);
+        vm.warp(lens.writeOffDeadline(TOKEN1));
+        vault.syncBacking(TOKEN1);
+    }
+
+    function test_WriteOffAtZeroSupply_ReopensDepositsWithoutRegistryAction() public {
+        _exitEveryShare();
+        _giftToEmptyToken(hotkey3, GIFT);
+        vault.rebalance(NETUID1);
+        assertEq(vault.recordedSlots(TOKEN1)[2].tracked, GIFT, "the gift is recorded");
+
+        _rootSweep(hotkey3);
+        _declareAndWriteOff();
+        assertFalse(vault.awaitingAttestation(TOKEN1), "nobody holds a share to protect");
+        assertEq(vault.totalSupply(TOKEN1), 0);
+
+        _simulateAlphaDeposit(bob, NETUID1, 10 * ALPHA);
+        vm.prank(bob);
+        vault.wrap(NETUID1, hotkey1, 0);
+        assertEq(vault.balanceOf(bob, TOKEN1), 10e18, "deposits reopen without a registry update");
+        vault.rebalance(NETUID1);
+        vm.expectRevert(BackingUnchanged.selector);
+        vault.syncBacking(TOKEN1);
+    }
+
+    function testFuzz_WriteOffAtZeroSupply_ReopensTheEmptyToken(uint256 rawGift) public {
+        uint256 gift = bound(rawGift, 1_001, ALPHA_FLOOR - 1);
+        _exitEveryShare();
+        _giftToEmptyToken(hotkey3, gift);
+        vault.rebalance(NETUID1);
+        assertEq(vault.recordedSlots(TOKEN1)[2].tracked, gift, "the gift is recorded");
+
+        _rootSweep(hotkey3);
+        vault.syncBacking(TOKEN1);
+        assertEq(lens.writeOffDeadline(TOKEN1), block.timestamp + RECOVERY_WINDOW, "the loss is declared");
+        _simulateAlphaDeposit(bob, NETUID1, 5 * ALPHA);
+        vm.prank(bob);
+        vm.expectRevert(ShortfallOnFile.selector);
+        vault.wrap(NETUID1, hotkey1, 0);
+
+        vm.warp(lens.writeOffDeadline(TOKEN1));
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit BackingWrittenOff(TOKEN1, gift, 0);
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit BackingParked(TOKEN1, 0, 0);
+        vault.syncBacking(TOKEN1);
+
+        assertFalse(vault.awaitingAttestation(TOKEN1), "nobody holds a share to protect");
+        assertEq(lens.totalStake(TOKEN1), 0, "nothing was located");
+        _wrap(bob, NETUID1);
+        assertEq(vault.balanceOf(bob, TOKEN1), 5e18, "the next depositor starts a fresh position");
+        assertEq(lens.totalStake(TOKEN1), 5 * ALPHA, "backed by the deposit alone");
+    }
+
+    function test_WriteOffAtZeroSupply_KeepsTheLocatedAlphaForTheNextDepositor() public {
+        _exitEveryShare();
+        _giftToEmptyToken(hotkey1, 50_000_000);
+        _giftToEmptyToken(hotkey3, 30_000_000);
+        vault.rebalance(NETUID1);
+        assertEq(lens.totalStake(TOKEN1), 80_000_000, "the vault records stake nobody holds shares for");
+
+        _buildSwapTrail(NETUID1, hotkey3, 2);
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit BackingShortfallDeclared(TOKEN1, 80_000_000, 50_000_000);
+        vault.syncBacking(TOKEN1);
+        vm.warp(lens.writeOffDeadline(TOKEN1));
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit BackingWrittenOff(TOKEN1, 80_000_000, 50_000_000);
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit BackingParked(TOKEN1, 50_000_000, 0);
+        vault.syncBacking(TOKEN1);
+
+        assertFalse(vault.awaitingAttestation(TOKEN1), "nobody holds a share to protect");
+        assertEq(_parkedStake(NETUID1), 50_000_000, "the located alpha rests on the parking hotkey");
+        assertEq(lens.writeOffDeadline(TOKEN1), 0, "the clock is gone");
+
+        _depositAndWrap(bob, NETUID1, 5 * ALPHA);
+        assertEq(lens.totalStake(TOKEN1), 5_050_000_000, "the deposit carries the parked alpha onto the attested set");
+        assertEq(_parkedStake(NETUID1), 0, "leaving the parking hotkey empty");
+        assertEq(vault.recordedSlots(TOKEN1).length, 3, "on a record of the attested set");
     }
 
     function test_SubFloorBacking_DeclaresWritesOffAndRemainsRecoverable() public {

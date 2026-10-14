@@ -31,7 +31,7 @@ import {
 
 /// @notice ERC-1155 shares of staked alpha, isolated by subnet registration in vault-controlled clones.
 /// @dev No vault admin. Registry signers choose weights; watchers handle unresolved swaps.
-///      Missing backing parks the position on the vault's own hotkey until the registry publishes a
+///      Missing backing parks a position with holders on the vault's own hotkey until the registry publishes a
 ///      newer set. See docs/hotkey-swaps.md for the exit restrictions and recovery policy.
 contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @dev One shortfall clock per token. A parked position rests on `parkingHotkey` until the
@@ -489,7 +489,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         VaultReads.Slot[] storage slots = _slots[tokenId];
         _writeSlot(slots, 0, parkingHotkey, parkingHotkey, parked);
         while (slots.length > 1) slots.pop();
-        uint256 nonce = validatorRegistry.nonces(VaultMath.netuidOf(tokenId));
+        uint256 nonce = totalSupply(tokenId) == 0 ? 0 : validatorRegistry.nonces(VaultMath.netuidOf(tokenId));
         recovery[tokenId] = Recovery({ shortSince: 0, parkedAtNonce: nonce });
         emit BackingParked(tokenId, parked, nonce);
     }
