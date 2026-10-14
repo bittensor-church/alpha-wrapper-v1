@@ -70,9 +70,10 @@ Scenario files in `tests/` cover:
   position's loss is written off once a short recovery window expires.
 - `test_empty_token_write_off.py`: a gift to an emptied token is swept and written off;
   the token stays open and the next deposit wraps without a registry update.
-- `test_parked_stake.py`: a funded hotkey left without an owner, where partial exits
-  wait for the owner to replace the name and the vault then claims the key; and a
-  rename that carries the stake, which exits follow before the registry changes.
+- `test_parked_stake.py`: a rename that leaves the stake and the owner record behind,
+  where exits keep paying from the old name and follow the successor once the owner
+  names it; and a rename that carries the stake, which exits follow before the registry
+  changes.
 - `test_parked_recovery.py`: a stranger cuts the trail behind a rename; the watcher
   parks the position, exits pay from the parking hotkey, an owner update releases.
 - `test_parking_isolation.py`: two subnets park on the one parking hotkey; each keeps

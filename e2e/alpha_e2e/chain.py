@@ -259,6 +259,11 @@ def cast_chain_id(rpc: str = config.RPC_URL) -> int:
     return int(run(["cast", "chain-id", "--rpc-url", rpc], timeout=_READ_TIMEOUT).stdout.strip())
 
 
+def cast_base_fee_wei(block: Union[int, str] = "latest", rpc: str = config.RPC_URL) -> int:
+    """The base fee (wei per gas) `block` reports: what a legacy transaction in the next block pays."""
+    return int(run(["cast", "base-fee", str(block), "--rpc-url", rpc], timeout=_READ_TIMEOUT).stdout.strip())
+
+
 def cast_balance_wei(address: str, rpc: str = config.RPC_URL) -> int:
     """Native balance in raw wei (int) -- the balance form all deltas must use."""
     return int(run(["cast", "balance", address, "--rpc-url", rpc], timeout=_READ_TIMEOUT).stdout.strip())

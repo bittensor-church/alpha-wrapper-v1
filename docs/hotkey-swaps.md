@@ -14,8 +14,8 @@ A hotkey is an identifier. It does not disappear when Subtensor removes its
 stake operations. It is separate from ownership of delegated alpha: the vault's
 alpha stays under the vault clone's coldkey.
 
-An all-subnet swap removes the old hotkey's owner record; a per-subnet swap
-retains it. A swap can move stake to the successor or leave it under the old key.
+An all-subnet swap that carries the stake removes the old hotkey's owner record;
+a per-subnet swap, or one that leaves the stake under the old key, retains it.
 In these docs, “ownerless” means the record is absent, not that the identifier
 or its stake no longer exists.
 

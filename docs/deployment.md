@@ -87,7 +87,7 @@ provide each function below and honor the rule next to it.
 | Precompile | Function | Rule relied on | Known minimum source commit |
 | --- | --- | --- | --- |
 | Staking `0x0805` | `getStake` | Returns the alpha held by a (hotkey, coldkey, netuid) triple, a chain u64 encoded as ABI uint256. | `b61dd30202ff6e970a18b5a5231b62183b6ba972` |
-| Staking `0x0805` | `getHotkeyOwner` | Reports no owner record once an all-subnet hotkey swap removes it, and stake operations require that record. | `d3f40e44bda9019c606aeb0c907bb52ba7fe386c` |
+| Staking `0x0805` | `getHotkeyOwner` | Reports no owner record once an all-subnet hotkey swap carries the stake away, and stake operations require that record. | `d3f40e44bda9019c606aeb0c907bb52ba7fe386c` |
 | Staking `0x0805` | `getHotkeySuccessor` | Names the key a swap carried a hotkey's stake to. | `d3f40e44bda9019c606aeb0c907bb52ba7fe386c` |
 | Staking `0x0805` | `getColdkeyLock` | Reports the conviction-locked alpha an account holds on a subnet. | `cda8fd76ad2a7014cac632933237abf1ddaa9b30` |
 | Staking `0x0805` | `getRejectLockedAlpha` | Accounts reject incoming locked alpha by default, and this flag reports that setting. | `cda8fd76ad2a7014cac632933237abf1ddaa9b30` |
