@@ -113,7 +113,7 @@ including any dust still outside parking. The dust exposure is per skipped
 location, valued at the floor check's price; it is not a bound on future alpha
 value. A movable pile gathers smaller balances too. Late dust recovery requires
 explicit source keys and belongs to holders at that later time.
-Full recovery or write-off leaves the position parked pending a newer registry update.
+Full recovery or write-off leaves the position parked pending a newer registry update, unless no shares remain.
 
 Write-off chooses repricing over indefinite waiting for missing alpha. It is a
 real loss of accounted backing for holders at finalization, not proof the alpha

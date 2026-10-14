@@ -118,9 +118,9 @@ any shortfall or recovery clock.
    returns at recorded locations. Partial recovery never extends the deadline.
    At expiry, sync collects returns before writing off the remaining deficit.
    After collecting full coverage, call sync again to finalize recovery.
-   Full recovery or write-off leaves the position parked. Alpha recovered later
+   Full recovery or write-off leaves the position parked unless no shares remain. Alpha recovered later
    belongs to the holders at that time.
-5. After completion, registry governance publishes a newer set even if all backing returned.
+5. After completion with shares outstanding, registry governance publishes a newer set even if all backing returned.
    Remove any lost or captured name, naming the intended successor. The next wrap
    or `rebalance(netuid)` releases the parked position onto it.
 

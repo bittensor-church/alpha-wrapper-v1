@@ -68,6 +68,8 @@ Scenario files in `tests/` cover:
   minimums, top-ups, dust and repeated position changes.
 - `test_claimable_tao.py`: forced-sale proceeds become claimable, and the swept
   position's loss is written off once a short recovery window expires.
+- `test_empty_token_write_off.py`: a gift to an emptied token is swept and written off;
+  the token stays open and the next deposit wraps without a registry update.
 - `test_parked_stake.py`: a funded hotkey left without an owner, where partial exits
   wait for the owner to replace the name and the vault then claims the key; and a
   rename that carries the stake, which exits follow before the registry changes.
