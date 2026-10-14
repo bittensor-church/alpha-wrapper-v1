@@ -46,12 +46,15 @@ def test_write_off_at_zero_supply_reopens_deposits_without_registry_action(env):
     _, floor_boundary_alpha = env.floor_boundary(netuid, env.chain_min_stake_tao())
     gift = floor_boundary_alpha * 3 // 2
     extrinsics.transfer_stake(substrate.h160_to_ss58(env.clone_address(token_id)), attested_ss58, netuid, gift)
-    env.vault_send(
-        4_000_000, "Empty write-off: the recording rebalance failed", "rebalance(uint256)", netuid,
+    rebalance_receipt = env.vault_send_between_epochs(
+        netuid, 4_000_000, "Empty write-off: the recording rebalance failed", "rebalance(uint256)", netuid,
         label="rebalance [record gift]",
     )
-    recorded = env.vault_total_stake(token_id)
-    assert abs(recorded - gift) <= config.ROUNDING_DUST_TOTAL_RAO, (
+    # Emissions between the transfer and the rebalance only add to what the record stores.
+    recorded = env.total_stake_across(
+        clone_coldkey, netuid, hotkeys, chain.receipt_block_number(rebalance_receipt, "Empty write-off: rebalance"),
+    )
+    assert recorded >= gift - config.ROUNDING_DUST_TOTAL_RAO, (
         f"the vault recorded {recorded} RAO against a gift of {gift}"
     )
 
@@ -106,7 +109,9 @@ def test_write_off_at_zero_supply_reopens_deposits_without_registry_action(env):
     )
     assert registry_nonce() == nonce_before, "the registry published nothing in this scenario"
     deposited = env.deposited(wrap_receipt, netuid, attested_hotkey)
-    backing = env.vault_total_stake(token_id)
+    backing = env.total_stake_across(
+        clone_coldkey, netuid, hotkeys, chain.receipt_block_number(wrap_receipt, "Empty write-off: wrap"),
+    )
     assert abs(backing - deposited) <= config.ROUNDING_DUST_TOTAL_RAO, (
         f"the fresh position holds {backing} RAO against a deposit of {deposited}"
     )
