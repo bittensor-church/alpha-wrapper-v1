@@ -33,7 +33,6 @@ def test_backing_and_deposits_on_hotkey_zero_are_reachable(env):
     attested_hotkey, attested_ss58 = hotkeys[0], env.hotkey_ss58s[0]
     clone_coldkey = env.clone_coldkey(token_id)
 
-    # As on mainnet: hotkey 0x0 has an owner record, and it is not the vault's.
     extrinsics.associate_hotkey(ZERO_HOTKEY_SS58)
     owner_exists, owner = chain.cast_call_lines(
         config.STAKING_PRECOMPILE, "getHotkeyOwner(bytes32)(bool,bytes32)", ZERO_HOTKEY,
@@ -46,7 +45,6 @@ def test_backing_and_deposits_on_hotkey_zero_are_reachable(env):
     )
     backing_before = env.total_stake_across(clone_coldkey, netuid, hotkeys)
 
-    # --- A gift to the vault on hotkey 0x0 is collected into live backing ---------------
     gift = _stake_alice_on_zero_hotkey(env, netuid)
     extrinsics.transfer_stake(h160_to_ss58(env.clone_address(token_id)), ZERO_HOTKEY_SS58, netuid, gift)
     assert env.stake(ZERO_HOTKEY, clone_coldkey, netuid) >= gift - config.ROUNDING_DUST_SLOT_RAO, (
@@ -72,7 +70,6 @@ def test_backing_and_deposits_on_hotkey_zero_are_reachable(env):
         env, token_id, env.vault_shares(token_id), "Zero hotkey: the full exit failed", hotkeys=hotkeys,
     )
 
-    # --- A mailbox deposit on hotkey 0x0 cannot be wrapped but can be reclaimed ------------
     mailbox_ss58 = h160_to_ss58(env.mailbox_address(netuid))
     mailbox_coldkey = env.mailbox_coldkey(netuid)
 
