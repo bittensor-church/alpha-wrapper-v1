@@ -364,7 +364,6 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @dev Unlike wrapping, reclaim accepts hotkeys outside the current registry set. A locked mailbox
     ///      empties only into a coldkey that accepts locked alpha; the lock moves with the alpha.
     function reclaimAlphaFromMailbox(uint256 netuid, bytes32 hotkey, bytes32 destSubstrateColdkey) external nonReentrant {
-        if (hotkey == bytes32(0)) revert ZeroHotkey();
         if (destSubstrateColdkey == bytes32(0)) revert ZeroColdkey();
 
         address mailbox = _requireMailbox(msg.sender, netuid); bytes32 mailboxColdkey = VaultReads.coldkeyOf(mailbox);
@@ -384,7 +383,6 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @param minTaoOut Minimum native TAO in EVM wei.
     function reclaimMailboxAlphaAsTao(uint256 netuid, bytes32 hotkey, uint256 minTaoOut) external nonReentrant {
         if (netuid > type(uint16).max) revert NetuidOutOfRange();
-        if (hotkey == bytes32(0)) revert ZeroHotkey();
         address mailbox = _requireMailbox(msg.sender, netuid); bytes32 mailboxColdkey = VaultReads.coldkeyOf(mailbox);
         uint256 amount = IStaking(STAKING_PRECOMPILE).getStake(hotkey, mailboxColdkey, netuid);
         if (amount == 0) revert ZeroAmount();
@@ -427,7 +425,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (clone == address(0)) revert NothingToUnwrap();
         uint16 netuid = VaultMath.netuidOf(tokenId);
         if (VaultReads.isDissolved(tokenId)) revert NothingToRecover();
-        if (_slots[tokenId].length == 0 || source == bytes32(0)) revert NothingToRecover();
+        if (_slots[tokenId].length == 0) revert NothingToRecover();
         bytes32 coldkey = VaultReads.coldkeyOf(clone);
         bytes32[] memory sources = new bytes32[](1); sources[0] = source;
         if (recovery[tokenId].shortSince == 0) {
@@ -460,7 +458,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         // Defensive invariant: a successful collection must drain exposed backing within slack.
         uint256 exposed;
         for (uint256 i; i < keys.length;) {
-            if (keys[i] != bytes32(0) && keys[i] != parkingHotkey) {
+            if (keys[i] != parkingHotkey) {
                 exposed += IStaking(STAKING_PRECOMPILE).getStake(keys[i], coldkey, netuid);
             }
             unchecked { ++i; }
@@ -474,7 +472,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         _writeSlot(slots, 0, parkingHotkey, parkingHotkey, expected);
         uint256 count = 1;
         for (uint256 i; i < keys.length;) {
-            if (keys[i] != bytes32(0) && keys[i] != parkingHotkey) {
+            if (keys[i] != parkingHotkey) {
                 _writeSlot(slots, count, keys[i], keys[i], 0);
                 unchecked { ++count; }
             }

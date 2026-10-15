@@ -524,13 +524,6 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey4, aliceSub, NETUID1), 10 * ALPHA);
     }
 
-    function test_RevertWhen_ReclaimAlphaFromMailboxZeroHotkey() public {
-        bytes32 aliceSub = _toSubstrate(alice);
-        vm.prank(alice);
-        vm.expectRevert(ZeroHotkey.selector);
-        vault.reclaimAlphaFromMailbox(NETUID1, bytes32(0), aliceSub);
-    }
-
     function test_RevertWhen_ReclaimAlphaFromMailboxNoStake() public {
         _prepareMailbox(alice, NETUID1);
         bytes32 aliceSub = _toSubstrate(alice);
