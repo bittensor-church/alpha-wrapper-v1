@@ -18,6 +18,8 @@ class ChainError(RuntimeError):
     pass
 
 
+# A read answers in one round trip, a send waits for inclusion, a build compiles
+# the whole tree, so each class of command gets its own deadline.
 _READ_TIMEOUT = config.CALL_TIMEOUT_SECONDS
 _SEND_TIMEOUT = config.COMMAND_TIMEOUT_SECONDS
 _BUILD_TIMEOUT = config.DEPLOY_TIMEOUT_SECONDS
@@ -36,7 +38,8 @@ def run(
     input: Optional[str] = None, timeout: Optional[float] = config.COMMAND_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess:
     env = dict(os.environ)
-    # A missing optional mixHash field only triggers a benign receipt-poller diagnostic.
+    # An omitted optional mixHash field causes a benign receipt-poller diagnostic.
+    # Silence that module; transaction failures still surface through receipts/errors.
     env.setdefault("RUST_LOG", "error,alloy_provider::blocks=off")
     try:
         completed = subprocess.run(
@@ -115,6 +118,7 @@ def cast_send(
         ) from error
     if not isinstance(receipt, dict) or receipt.get("status") not in ("0x0", "0x1"):
         raise ChainError(f"cast send returned an invalid transaction receipt: {receipt!r}")
+    # A transport, signing, or submission failure is not an executed EVM revert.
     if (
         not receipt.get("transactionHash")
         or receipt.get("blockNumber") is None
@@ -124,7 +128,8 @@ def cast_send(
     return receipt
 
 
-# CI greps these lines for the real precompile cost of each vault entry point.
+# Printed once per on-chain call so a CI log can be grepped for the real cost of every
+# vault entry point: mock gas says nothing about the precompiles, which dominate here.
 GAS_LOG_PREFIX = "GAS |"
 
 

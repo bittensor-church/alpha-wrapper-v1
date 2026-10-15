@@ -13,6 +13,7 @@ from . import config
 _SS58_ALPHABET = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 _H160_HEX = re.compile(r"[0-9a-fA-F]{40}")
 _ACCOUNT_ID_BYTES = 32
+# Every chain the suite talks to uses the generic substrate prefix.
 _SS58_PREFIX = 42
 
 
@@ -20,7 +21,8 @@ def h160_to_account_id(h160: str) -> bytes:
     """blake2b("evm:" + h160_bytes, 32) -- Frontier's HashedAddressMapping. This is
     the coldkey the staking precompile sees for an EVM-owned account."""
     body = h160.removeprefix("0x")
-    # The mapping hashes exactly 20 bytes; any other length derives an account nobody controls.
+    # The mapping hashes exactly 20 bytes, so a shorter or longer input silently
+    # derives an account nobody controls.
     if not _H160_HEX.fullmatch(body):
         raise ValueError(
             f"an EVM address must be 40 hex characters, optionally 0x-prefixed: {h160!r}"

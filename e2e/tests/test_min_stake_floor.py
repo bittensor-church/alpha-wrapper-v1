@@ -11,8 +11,11 @@ def test_min_stake_floor(env):
     chain_min_stake = env.chain_min_stake_tao()
     print(f"  chain minimum stake = {chain_min_stake} RAO")
 
-    # The vault applies the chain's readable unstake floor to deposits, which the chain moves at a lower bar;
-    # this leg checks the refusal is cheap and labelled, not that a chain call was avoided.
+    # --- Leg 1: the wrap gate refuses a sub-floor deposit up front ---------------
+    # The chain floors moving a deposit onward far below what it floors an unstake at, and exposes
+    # no getter for the lower bar, so the vault applies the readable one everywhere and refuses
+    # deposits the chain would in fact have taken. What this leg tests is that the refusal is cheap
+    # and correctly labelled - not that a doomed chain call was avoided.
     gate_netuid = env.netuids[0]
     gate_hotkey_pubkey = env.hotkey_pubkeys[0]
     gate_hotkey_ss58 = env.hotkey_ss58s[0]
@@ -55,6 +58,9 @@ def test_min_stake_floor(env):
     )
     print("  wrap accepted the deposit once it cleared the minimum")
 
+    # --- Leg 2: rotated-out dust is consolidated by the next wrap ------------------
+    # The next wrap's fresh deposit starts the roller, so deposit and dust roll over the
+    # chain floor in one transaction - no keeper, no forfeiture.
     dust_netuid = env.netuids[2]
     dust_token_id = env.token_ids[2]
     dust_hotkeys = env.subnet_hotkey_pubkeys(2)

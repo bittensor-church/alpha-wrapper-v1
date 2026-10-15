@@ -7,6 +7,7 @@ from alpha_e2e import chain, checks, config, exits, extrinsics
 from alpha_e2e.checks import run_observability_script
 from alpha_e2e.substrate import h160_to_ss58
 
+# What a caller gives up against the lens quote when bounding a wrap.
 WRAP_SLIPPAGE_TOLERANCE_PCT = 1
 # Long enough for at least two epochs at tempo 10.
 EMISSION_WAIT_BLOCKS = 30
@@ -14,6 +15,7 @@ EMISSION_WAIT_BLOCKS = 30
 
 @pytest.mark.scenario
 def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
+    # --- Phase 6: transfer alpha to each subnet's configured validator ---
     for subnet_index, netuid in enumerate(env.netuids):
         mailbox = env.mailbox_address(netuid)
         print(f"  netuid {netuid} mailbox: {mailbox} ({h160_to_ss58(mailbox)})")
@@ -23,10 +25,14 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
             config.DEPOSIT_RAO,
         )
         mailbox_stake = env.stake(hotkey_pubkey, env.mailbox_coldkey(netuid), netuid)
+        # Emissions only add, and an epoch may land before the read.
         assert mailbox_stake >= config.DEPOSIT_RAO - config.ROUNDING_DUST_SLOT_RAO, (
             f"mailbox {mailbox} holds {mailbox_stake} RAO after a {config.DEPOSIT_RAO} RAO transfer"
         )
 
+    # --- Phase 7: process deposits (one wrap per validator) --------------------
+    # The first deposit doubles as the mint slippage-guard leg: quote it on the lens,
+    # show a bound above the quote is refused, then wrap under a caller's tolerance.
     wrap_receipts = []
     for subnet_index, netuid in enumerate(env.netuids):
         hotkey_pubkey = env.subnet_hotkey_pubkeys(subnet_index)[0]
@@ -48,6 +54,7 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
             min_shares_out=min_shares_out,
         ))
 
+    # --- Phase 8: verify deposits ----------------------------------------------
     for subnet_index, netuid in enumerate(env.netuids):
         token_id = env.token_ids[subnet_index]
         hotkeys = env.subnet_hotkey_pubkeys(subnet_index)
@@ -62,6 +69,7 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
             f"netuid {netuid}: the clone gained {landed} RAO from a {deposited} RAO deposit"
         )
 
+    # --- Phase 9: unwrap all shares -> the alpha comes back -----------------------
     for subnet_index, netuid in enumerate(env.netuids):
         token_id = env.token_ids[subnet_index]
         hotkeys = env.subnet_hotkey_pubkeys(subnet_index)
@@ -72,6 +80,7 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
         exits.assert_drained(env, token_id, hotkeys, receipt, f"netuid {netuid}: full unwrap")
         print(f"  netuid {netuid}: received {received} RAO")
 
+    # --- Phase 10: observability scripts -----------------------------------------
     block_end = chain.cast_block_number()
     print(f"  Block range: [{env.observation_block_start}, {block_end}]")
 
@@ -113,7 +122,9 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
         column_positive=["alpha_out_rao", "shares"],
     )
 
-    # Each netuid emits 0 or 1 row, depending on whether the post-drain leftover clears the TAO floor.
+    # Per netuid: 0 or 1 emission depending on whether the post-drain leftover
+    # (emissions accrued between deposit and unwrap) clears the vault's tao stake
+    # floor. Assert membership only.
     checks.assert_csv(
         run_observability_script(
             "get_rebalances",
@@ -199,6 +210,7 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
             },
         )
 
+    # --- Phase 11: reclaim mailbox alpha as TAO ------------------------------------
     reclaim_netuid = env.netuids[0]
     reclaim_hotkey_pubkey = env.hotkey_pubkeys[0]
     reclaim_hotkey_ss58 = env.hotkey_ss58s[0]
@@ -208,6 +220,7 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
     )
     exits.reclaim_mailbox_alpha_as_tao(env, reclaim_netuid, reclaim_hotkey_pubkey, "mailbox sale")
 
+    # --- Phase 12: reclaim mailbox alpha back to the user's own coldkey --------------
     extrinsics.transfer_stake(
         h160_to_ss58(env.mailbox_address(reclaim_netuid)), reclaim_hotkey_ss58, reclaim_netuid, config.DEPOSIT_RAO,
     )
@@ -229,6 +242,7 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
     leftover = env.stake(reclaim_hotkey_pubkey, mailbox_coldkey, reclaim_netuid, reclaim_block)
     assert leftover <= config.ROUNDING_DUST_SLOT_RAO, f"the mailbox still holds {leftover} RAO after the reclaim"
 
+    # --- Phase 13: planned TAO exit (scripts/plan_tao_exit.py + the masked unwrapForTao) --
     tao_exit_netuid = env.netuids[1]
     tao_exit_token_id = env.token_ids[1]
     tao_exit_hotkeys = env.subnet_hotkey_pubkeys(1)
@@ -285,6 +299,7 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
         ],
     )
 
+    # --- Phase 14: emission accrual -> the holder unwraps the gain (alpha rail) ------
     emission_netuid = env.netuids[0]
     emission_token_id = env.token_ids[0]
     emission_hotkeys = env.subnet_hotkey_pubkeys(0)
@@ -314,6 +329,7 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
     )
     print(f"  User unwrapped {emission_received} RAO > deposited {emission_deposited}")
 
+    # --- Phase 15: rotation leaves rotated-out stake -> unwrap consolidates it -------
     rotation_netuid = env.netuids[1]
     rotation_token_id = env.token_ids[1]
     rotation_hotkeys = env.subnet_hotkey_pubkeys(1)
@@ -328,6 +344,7 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
     rotated_out_stake = env.stake(rotated_out_hotkey, rotation_clone_coldkey, rotation_netuid)
     assert rotated_out_stake != 0, "Phase 15: no stake under the validator to rotate out"
 
+    # Registry updates leave stake in place until a vault call moves it.
     env.set_validator(rotation_netuid, new_target)
 
     _, rotation_received = exits.unwrap(
@@ -342,6 +359,7 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
         f"Phase 15: the rotated-out validator still holds {rotated_out_stake_after} RAO"
     )
 
+    # --- Phase 16: unwrapForTao slippage guard against the real alpha->TAO price -----
     slippage_netuid = env.netuids[2]
     slippage_token_id = env.token_ids[2]
     slippage_hotkeys = env.subnet_hotkey_pubkeys(2)

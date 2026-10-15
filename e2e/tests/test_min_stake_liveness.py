@@ -25,6 +25,7 @@ class ChurnLedger:
         self.deposited_alpha_total = 0
         self.delivered_alpha_total = 0
         self.sold_alpha_total = 0
+        # The chain may round away up to this much across the calls made so far.
         self.rounding_allowance = 0
         self._clone_coldkey = None
 
@@ -134,6 +135,7 @@ def test_holders_can_exit_after_two_cycles_of_dust_and_validator_rotation(env):
         [hotkey_a_pubkey, hotkey_b_pubkey, hotkey_c_pubkey],
     )
 
+    # --- Fixture position ---------------------------------------------------------
     ledger.deposit_step(
         "Bootstrap deposit", hotkey_a_pubkey, hotkey_a_ss58,
         ledger.floor_boundary_alpha() * 3 // 2,
@@ -146,6 +148,7 @@ def test_holders_can_exit_after_two_cycles_of_dust_and_validator_rotation(env):
         2, hotkey_b_pubkey, hotkey_b_ss58, hotkey_c_pubkey, hotkey_c_ss58,
     )
 
+    # --- Full exit and closing ledger ------------------------------------------------
     ledger.unwrap_for_tao_step("Closing", 100)
     assert env.vault_shares(token_id) == 0, "Closing: shares not fully burned"
     leftover_stake = ledger.backing()
@@ -153,6 +156,8 @@ def test_holders_can_exit_after_two_cycles_of_dust_and_validator_rotation(env):
         f"Closing: stake left behind after the full exit ({leftover_stake} RAO)"
     )
 
+    # Emissions only add to the clone, so everything deposited came back out, delivered or
+    # sold, less the dust left behind and what the chain rounded away.
     paid_out = ledger.delivered_alpha_total + ledger.sold_alpha_total
     assert paid_out >= ledger.deposited_alpha_total - leftover_stake - ledger.rounding_allowance, (
         f"Closing: ledger shortfall (delivered {ledger.delivered_alpha_total} + sold "

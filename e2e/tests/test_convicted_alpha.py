@@ -18,7 +18,7 @@ import pytest
 from alpha_e2e import checks, config, exits, extrinsics, substrate
 from alpha_e2e.substrate import h160_to_ss58, h160_to_substrate_b32
 
-UNLOCKED_MARGIN_RAO = 30_000_000_000
+UNLOCKED_MARGIN_RAO = 30_000_000_000  # 30 alpha
 
 
 def _alice_locked_alpha(netuid: int, hotkey_ss58: str) -> int:
@@ -41,13 +41,15 @@ def test_convicted_alpha(env):
     )
 
     def alice_subnet_alpha() -> int:
-        # Locks bind Alice's subnet-wide alpha across all her hotkeys, and the subnet-wide getter
-        # returns TAO value, not the alpha the lock is denominated in.
+        # Locks bind Alice's subnet-wide alpha across ALL her hotkeys, including
+        # the subnet-owner hotkey. The subnet-wide TAO-value getter cannot size
+        # the lock: it returns TAO value, not the alpha the lock is denominated in.
         return env.total_stake_across(
             config.ALICE_COLDKEY_PUBKEY, test_netuid,
             [alice_owner_hotkey_pubkey, *subnet_hotkeys],
         )
 
+    # --- Phase 6: Alice locks all but the movable margin of her subnet stake ------
     alice_subnet_alpha_before_lock = alice_subnet_alpha()
     assert alice_subnet_alpha_before_lock >= 2 * UNLOCKED_MARGIN_RAO, (
         "Alice's subnet stake too small to lock meaningfully"
@@ -65,7 +67,9 @@ def test_convicted_alpha(env):
     print(f"  Lock live on chain: {initial_locked_alpha} RAO locked "
           f"(movable margin ~ {UNLOCKED_MARGIN_RAO} RAO + emissions)")
 
-    # The refused transfer must exceed the movable amount, which emissions keep raising.
+    # --- Phase 7: depositing MORE than the movable amount is refused by the chain --
+    # The chain clamps: a transfer within the movable amount passes legitimately,
+    # so the refused transfer must exceed movable (which keeps growing with emissions).
     over_movable_amount = env.stake(test_hotkey_pubkey, config.ALICE_COLDKEY_PUBKEY, test_netuid)
     alice_movable_alpha = max(
         0, alice_subnet_alpha() - _alice_locked_alpha(test_netuid, test_hotkey_ss58),
@@ -97,6 +101,7 @@ def test_convicted_alpha(env):
         "wrap(uint256,bytes32,uint256)", test_netuid, test_hotkey_pubkey, 0,
     )
 
+    # --- Phase 8: the movable portion of the locked wallet wraps normally ----------
     movable_deposit_rao = UNLOCKED_MARGIN_RAO // 2
     receipt = env.deposit_and_wrap(
         test_netuid, test_hotkey_pubkey, test_hotkey_ss58, movable_deposit_rao,
@@ -107,7 +112,8 @@ def test_convicted_alpha(env):
         "movable-portion wrap",
     )
     locked_alpha_after_movable_wrap = _alice_locked_alpha(test_netuid, test_hotkey_ss58)
-    # Reading the lock re-persists its lazily decayed amount, about one part in a million per block.
+    # Touching the lock re-persists its lazily-decayed locked amount (the decay is
+    # about one part in a million per block); 99% is a generous floor here.
     assert locked_alpha_after_movable_wrap >= initial_locked_alpha // 100 * 99, (
         "Alice's lock shrank from a free-portion transfer"
     )
@@ -115,6 +121,7 @@ def test_convicted_alpha(env):
         "Alice's lock grew during a free-portion wrap (a lock migrated unexpectedly)"
     )
 
+    # --- Phase 9: unwrap pays out to a coldkey that HOLDS an active lock -----------
     half_shares = env.vault_shares(test_token_id) // 2
     _, alice_received_alpha = exits.unwrap(
         env, test_token_id, half_shares, "unwrap to a lock-holding coldkey failed",
@@ -129,6 +136,7 @@ def test_convicted_alpha(env):
     )
     print(f"  Locked coldkey received {alice_received_alpha} RAO unlocked alpha; lock intact")
 
+    # --- Phase 10: unwrapForTao works while a large lock exists on the subnet -------
     receipt, sold_alpha = exits.unwrap_for_tao(
         env, test_token_id, env.vault_shares(test_token_id), "unwrapForTao on a subnet with active locks",
         hotkeys=subnet_hotkeys,

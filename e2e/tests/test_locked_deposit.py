@@ -79,6 +79,7 @@ def test_locked_deposit(env, recovery_window):
         extrinsics.lock_stake(hotkey_ss58, netuid, alpha, signer_uri=uri)
         extrinsics.set_perpetual_lock(netuid, True, signer_uri=uri)
 
+    # Before deployment: a gift with a differently named conviction cannot become backing.
     poisoned_uid = _uid()
     poisoned_clone, _ = _candidates(factory, token_id, netuid, poisoned_uid)
     _swap_into(CLONE_DONOR, poisoned_clone)
@@ -88,6 +89,7 @@ def test_locked_deposit(env, recovery_window):
         "createMailbox(uint256,bytes32)", netuid, poisoned_uid,
     )
 
+    # A poisoned mailbox candidate is refused as well, though its clone candidate is clean.
     mailbox_uid = _uid()
     _, poisoned_mailbox = _candidates(factory, token_id, netuid, mailbox_uid)
     _swap_into(MAILBOX_DONOR, poisoned_mailbox)
@@ -114,11 +116,13 @@ def test_locked_deposit(env, recovery_window):
     assert env.clone_address(token_id) == clone
     assert env.mailbox_address(netuid) == mailbox
 
+    # After deployment, even an empty, TAO-only subnet clone rejects a coldkey swap.
     extrinsics.fund_account(h160_to_ss58(clone), 10**9)
     with pytest.raises(extrinsics.ExtrinsicError) as refused:
         _swap_into(SWAP_DONOR, clone)
     assert any(reason in str(refused.value) for reason in SWAP_REFUSALS), str(refused.value)
 
+    # Locked alpha cannot be transferred into either accepted clone.
     locked_alpha = env.stake(gift_hotkey, extrinsics.keypair_pubkey(LOCKED_HOLDER), netuid)
     for destination in (mailbox, clone):
         with pytest.raises(extrinsics.ExtrinsicError) as refused:

@@ -17,7 +17,8 @@ import pytest
 
 from alpha_e2e import chain, checks, config, extrinsics
 
-# Threshold = 0.002 TAO * factor / 1e6 = 0.02 TAO, far above the position left on the validator.
+# The mainnet factor: threshold = 0.002 TAO * factor / 1e6 = 0.02 TAO, far above
+# the position the deposit below leaves on its validator.
 RAISED_THRESHOLD_FACTOR = 10_000_000
 WRITE_OFF_WINDOW_SECONDS = 120
 
@@ -33,6 +34,7 @@ def test_root_sweep_tao_becomes_claimable_and_the_loss_is_written_off(env):
     token_id = env.token_ids[0]
     hotkeys = env.subnet_hotkey_pubkeys(0)
 
+    # A deposit sized far below the raised threshold, but comfortably above the deposit floor.
     _, floor_boundary_alpha = env.floor_boundary(netuid, env.chain_min_stake_tao())
     wrap_receipt = env.deposit_and_wrap(
         netuid, hotkeys[0], env.hotkey_ss58s[0], floor_boundary_alpha * 3 // 2, 1_500_000, "Sweep: wrap failed",
@@ -57,7 +59,8 @@ def test_root_sweep_tao_becomes_claimable_and_the_loss_is_written_off(env):
         print(f"  Clearing pass stranded {stranded} wei on the subnet clone")
         assert stranded > 0, "expected the clearing pass to strand TAO on the clone"
 
-        # The view quotes whole RAO, so it can sit one RAO below the raw stranded amount.
+        # The view quotes at RAO granularity, so it can sit up to one RAO below the raw
+        # stranded amount (index flooring plus the RAO floor of the quote).
         claimable = claimable_tao()
         assert claimable % config.WEI_PER_RAO == 0, f"claimable {claimable} is not RAO-granular"
         assert 0 <= stranded - claimable <= config.WEI_PER_RAO, (
@@ -72,6 +75,8 @@ def test_root_sweep_tao_becomes_claimable_and_the_loss_is_written_off(env):
         delivered = checks.reconstructed_payout(
             user_balance_before, env.user_tao_wei(), receipt, "Sweep: claim payout",
         )
+        # The quote is a commitment: the claim delivers exactly what the view promised, and the
+        # sub-RAO remainder stays reserved for the claimant below the quote's one-RAO floor.
         assert delivered == claimable, f"delivered {delivered} != quoted {claimable}"
         remaining = claimable_tao()
         assert remaining == 0, f"quote not cleared after claim: {remaining}"
@@ -82,12 +87,14 @@ def test_root_sweep_tao_becomes_claimable_and_the_loss_is_written_off(env):
         except Exception as restore_error:  # noqa: BLE001
             print(f"  WARNING: dust threshold not restored to {previous_factor}: {restore_error}")
 
-    # A share remainder of the sold nomination can grow back to dust with later emissions.
+    # The clearing pass sold the whole nomination, so the record expects alpha that is gone; a share
+    # remainder can grow back to dust with later emissions.
     assert env.total_stake_across(clone_coldkey, netuid, hotkeys) <= config.ROUNDING_DUST_TOTAL_RAO, (
         "the clearing pass left clone stake"
     )
     assert not env.backing_intact(token_id), "the swept position must read short"
 
+    # Any caller can put the loss on file; the window runs from that block.
     declare_receipt = env.sync_backing(token_id, label="syncBacking [declare]")
     declared_at = chain.block_timestamp(chain.receipt_block_number(declare_receipt, "Sweep: declare"))
     deadline = env.write_off_deadline(token_id)
@@ -111,6 +118,7 @@ def test_root_sweep_tao_becomes_claimable_and_the_loss_is_written_off(env):
     assert env.awaiting_attestation(token_id), "the written-off position should rest on the parking hotkey"
     assert env.write_off_deadline(token_id) == 0, "nothing should be on file after the write-off"
 
+    # With nothing left to deliver, a zero floor burns the shares and closes the position.
     env.vault_send(
         2_000_000, "Sweep: the holder could not retire written-off shares",
         "unwrap(uint256,uint256,bytes32,uint256)", token_id, all_shares, env.wrapper_substrate_coldkey, 0,

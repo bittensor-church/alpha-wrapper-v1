@@ -42,6 +42,7 @@ class Environment:
     registry_block_start: int
     registry_block_end: int
 
+    # --- On-chain getters -----------------------------------------------------
     def subnet_hotkey_pubkeys(self, subnet_index: int) -> List[str]:
         """The three validator hotkeys registered on the subnet at `subnet_index`."""
         start = subnet_index * config.VALIDATORS_PER_SUBNET
@@ -260,6 +261,7 @@ class Environment:
         """The wrapper user's native TAO balance, in wei."""
         return chain.cast_balance_wei(config.WRAPPER_USER_ADDRESS)
 
+    # --- Vault transactions -----------------------------------------------------
     @staticmethod
     def _gas_label(signature: str, message: str, label: Optional[str]) -> str:
         """What a call's gas is reported under: an explicit label, else the function
@@ -293,6 +295,7 @@ class Environment:
             gas_limit, signature, *args,
             private_key=private_key, label=self._gas_label(signature, message, label),
         )
+        # Composed lazily: the replay only runs when the assertion is already failing.
         assert chain.receipt_ok(receipt), self._revert_detail(message, receipt, signature, args)
         return receipt
 
@@ -347,6 +350,7 @@ class Environment:
         assert receipt.get("status") == "0x0", f"{message}: {receipt}"
         return receipt
 
+    # --- Scenario actions -------------------------------------------------------
     def create_mailbox(self, netuid: int, private_key: Optional[str] = None) -> dict:
         """Prepare the caller's protected mailbox (and the subnet clone, for the first caller)
         under a fresh random UID."""
