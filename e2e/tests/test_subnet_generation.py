@@ -54,7 +54,6 @@ def test_token_follows_the_registration_counter_not_the_block(env):
     assert env.registration_counter(netuid) == registrations + 1, "the counter stepped with the registration"
     assert env.current_token_id(netuid) == netuid | ((registrations + 1) << config.NETUID_BITS), "so the new subnet has a new token"
 
-    # The sole holder's slice of the refund is all of it, floored to whole RAO.
     old_clone = env.clone_address(token_id)
     expected_refund = chain.cast_balance_wei(old_clone) // config.WEI_PER_RAO * config.WEI_PER_RAO
     assert expected_refund > 0, "the old token's clone received no dissolution refund"

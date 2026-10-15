@@ -12,7 +12,7 @@ import pytest
 
 from alpha_e2e import chain, config, exits, extrinsics, substrate
 
-# The mainnet factor: threshold = 0.002 TAO * factor / 1e6 = 0.02 TAO, far above the gift.
+# Threshold = 0.002 TAO * factor / 1e6 = 0.02 TAO, far above the gift.
 RAISED_THRESHOLD_FACTOR = 10_000_000
 WRITE_OFF_WINDOW_SECONDS = 120
 
@@ -50,7 +50,6 @@ def test_write_off_at_zero_supply_reopens_deposits_without_registry_action(env):
         netuid, 4_000_000, "Empty write-off: the recording rebalance failed", "rebalance(uint256)", netuid,
         label="rebalance [record gift]",
     )
-    # Emissions between the transfer and the rebalance only add to what the record stores.
     recorded = env.total_stake_across(
         clone_coldkey, netuid, hotkeys, chain.receipt_block_number(rebalance_receipt, "Empty write-off: rebalance"),
     )
@@ -101,7 +100,6 @@ def test_write_off_at_zero_supply_reopens_deposits_without_registry_action(env):
     assert env.write_off_deadline(token_id) == 0, "nothing should be on file after the write-off"
     assert env.backing_intact(token_id), "the written-off record accounts for itself"
 
-    # Deposits resume on the same attestation.
     deposit = config.DEPOSIT_RAO // 10
     wrap_receipt = env.deposit_and_wrap(
         netuid, attested_hotkey, attested_ss58, deposit, 1_500_000,
