@@ -126,8 +126,7 @@ def main() -> None:
     print(f"planning at block {block}", file=sys.stderr)
     vault = w3.eth.contract(address=w3.to_checksum_address(args.vault_address), abi=load_abi("AlphaVault"))
     lens = w3.eth.contract(address=w3.to_checksum_address(args.lens_address), abi=load_abi("AlphaVaultLens"))
-    # A plan built from a mismatched pair would mask one vault's slots on another's backing.
-    # This catches the wrong lens, not a dishonest one: the address still has to be trusted.
+    # Catches a lens for another vault, not a dishonest one.
     lens_vault = lens.functions.vault().call(block_identifier=block)
     if lens_vault != w3.to_checksum_address(args.vault_address):
         sys.exit(f"lens {args.lens_address} reads vault {lens_vault}, not {args.vault_address}")
@@ -153,8 +152,7 @@ def main() -> None:
     masked_exit = vault.get_function_by_signature("unwrapForTao(uint256,uint256,uint256,uint256)")
     exit_call = masked_exit(token_id, args.shares, args.min_tao_out, plan.mask)
     holder = w3.to_checksum_address(args.holder)
-    # The plan is pinned to one block; the exit itself would run against the head, so
-    # both answers matter and a disagreement is the state moving underneath it.
+    # The plan is pinned to one block but the exit runs at the head; a disagreement is the state moving.
     outcomes = {
         f"block {block}": dry_run(exit_call, holder, block, vault.abi),
         "latest": dry_run(exit_call, holder, "latest", vault.abi),

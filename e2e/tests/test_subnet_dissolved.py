@@ -26,15 +26,13 @@ from alpha_e2e.substrate import h160_to_ss58, h160_to_substrate_b32
 
 @pytest.mark.scenario
 def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subnets(env):
-    # --- Phase 6: two users wrap positions on the soon-dissolved subnet ---------
     dissolved_netuid = env.netuids[0]
     dissolved_token_id = env.token_ids[0]
     dissolved_hotkey_pubkey = env.hotkey_pubkeys[0]
     dissolved_hotkey_ss58 = env.hotkey_ss58s[0]
     volume_block_start = chain.cast_block_number()
 
-    # The deployer key doubles as a second share-holder so the dissolved payout
-    # splits pro-rata.
+    # The deployer key is the second holder, so the refund splits pro-rata.
     second_user_address = config.DEPLOYER_ADDRESS
     second_user_private_key = config.DEPLOYER_PRIVATE_KEY
 
@@ -61,7 +59,6 @@ def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subne
           f"user1 {first_user_shares} + user2 {second_user_shares} shares, "
           f"clone {dissolved_clone} backed by alpha")
 
-    # --- Phase 7: park raw alpha in a never-wrapped mailbox on a second subnet ---
     parked_netuid = env.netuids[2]
     parked_hotkey_pubkey = env.hotkey_pubkeys[6]
     parked_hotkey_ss58 = env.hotkey_ss58s[6]
@@ -76,7 +73,6 @@ def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subne
     assert parked_alpha > 0, "mailbox has zero alpha after seeding"
     print(f"  Mailbox stake: {parked_alpha} RAO under {parked_hotkey_pubkey[:18]}...")
 
-    # --- Phase 8: seed a control position on a subnet that will NOT be dissolved --
     surviving_netuid = env.netuids[1]
     surviving_token_id = env.token_ids[1]
     surviving_hotkeys = env.subnet_hotkey_pubkeys(1)
@@ -90,14 +86,11 @@ def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subne
     print(f"  netuid {surviving_netuid} (tokenId {surviving_token_id}): "
           f"{surviving_shares} shares")
 
-    # --- Phase 9: dissolve both the position's subnet and the mailbox's subnet ----
     extrinsics.dissolve_network(dissolved_netuid)
     extrinsics.dissolve_network(parked_netuid)
     env.wait_for_dissolution_cleanup(dissolved_netuid)
     env.wait_for_dissolution_cleanup(parked_netuid)
 
-    # Dissolution returns the position's and mailbox's alpha as native TAO to
-    # their addresses, so those balances turn positive as the alpha is wiped.
     dissolved_clone_tao = chain.cast_balance_wei(dissolved_clone)
     parked_mailbox_tao = chain.cast_balance_wei(parked_mailbox)
     assert dissolved_clone_tao >= 1, "position clone received no TAO refund after dissolution"
@@ -112,7 +105,6 @@ def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subne
     print(f"  Dissolved: position clone holds {dissolved_clone_tao} wei, mailbox "
           f"{parked_mailbox_tao} wei; alpha zeroed, sharePrice reverts")
 
-    # --- Phase 10: alpha-selling exits revert - dissolution left no alpha to sell --
     env.assert_vault_reverts_with(
         "NothingToUnwrap()", 2_000_000, "unwrapForTao did NOT revert as NothingToUnwrap on the dissolved subnet",
         "unwrapForTao(uint256,uint256,uint256)", dissolved_token_id, first_user_shares, 0,
@@ -123,7 +115,6 @@ def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subne
         parked_netuid, parked_hotkey_pubkey, 0,
     )
 
-    # --- Phase 11: both users recover their pro-rata slice as native TAO ----------
     clone_tao_before = chain.cast_balance_wei(dissolved_clone)
     total_shares = first_user_shares + second_user_shares
     _, previewed_tao = env.preview_unwrap(dissolved_token_id, first_user_shares)
@@ -199,7 +190,6 @@ def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subne
     )
     print("  get_volumes reports dissolved TAO separately from live alpha volume")
 
-    # --- Phase 12: recover the never-wrapped mailbox as native TAO -----------------
     parked_mailbox_tao_before = chain.cast_balance_wei(parked_mailbox)
     user_tao_before = env.user_tao_wei()
     mailbox_receipt = env.vault_send(
@@ -217,7 +207,6 @@ def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subne
     print(f"  Never-wrapped mailbox recovered ({parked_mailbox_tao_before} wei): "
           f"user net +{gained} wei, mailbox drained to 0")
 
-    # --- Phase 13: the untouched subnet still exits normally -----------------------
     receipt, sold_alpha = exits.unwrap_for_tao(
         env, surviving_token_id, surviving_shares, "unwrapForTao on the surviving subnet", hotkeys=surviving_hotkeys,
     )

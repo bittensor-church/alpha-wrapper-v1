@@ -30,8 +30,6 @@ class Deployment(NamedTuple):
     lens_address: str
     validator_registry_address: str
     token_ids: List[int]
-    # Event windows the observability scripts read: everything since deployment, and the
-    # registry's initial validator updates.
     observation_block_start: int
     registry_block_start: int
     registry_block_end: int
@@ -40,8 +38,6 @@ class Deployment(NamedTuple):
 def _log(message: str) -> None:
     print(f"\n=== {message} ===", flush=True)
 
-
-# --- Chain ops shared with the scenarios ---------------------------------------
 
 def create_subnet() -> int:
     """Create a subnet and return the netuid the chain assigned it."""
@@ -55,8 +51,7 @@ def create_subnet() -> int:
     return int(netuid)
 
 
-# A repeat registration is turned away for the hotkey already holding a slot,
-# which is exactly the state this function is asked to reach.
+# This refusal means the hotkey already holds the slot the call was asked to reach.
 _ALREADY_REGISTERED = "HotKeyAlreadyRegisteredInSubNet"
 
 
@@ -91,8 +86,6 @@ def register_hotkey(netuid: int, hotkey_name: str) -> Tuple[str, str]:
     )
 
 
-# --- Pre-flight -----------------------------------------------------------------
-
 def _check_repo_root() -> None:
     if not (os.path.isdir("src") and os.path.isdir("e2e")):
         raise RuntimeError("Run from the repo root (CWD must contain e2e/ and src/).")
@@ -117,8 +110,6 @@ def _ensure_alice_wallet() -> None:
     if os.path.isfile(coldkey_file):
         with open(coldkey_file) as coldkey_pub_file:
             content = coldkey_pub_file.read()
-        # Keys here may be an operator's own, and a regeneration would overwrite
-        # them, so a foreign wallet stops the run instead.
         if config.ALICE_COLDKEY_SS58 not in content:
             raise RuntimeError(f"{wallet_dir} holds a coldkey that is not the dev Alice. {move_aside}")
         print("  Alice coldkey is the dev Alice")
@@ -148,8 +139,6 @@ def _ensure_alice_wallet() -> None:
     print("  Alice wallet ready")
 
 
-# --- Phase 0/5: fund the EVM test accounts from Alice ------------------------------
-
 def _ensure_evm_account_funded(
     label: str, address: str, ss58: str, minimum_tao: int, transfer_tao: int,
 ) -> None:
@@ -161,8 +150,6 @@ def _ensure_evm_account_funded(
         print(f"  {label} already funded: {balance_wei} wei (>= {minimum_tao} TAO, skipping transfer)")
 
 
-# --- Phase 1: subnets, freeze window, emissions -----------------------------------
-
 def _create_subnets() -> List[int]:
     _log("Phase 1: Create 3 subnets")
     netuids = []
@@ -172,7 +159,6 @@ def _create_subnets() -> List[int]:
         netuids.append(netuid)
         print(f"  netuid {netuid}")
 
-    # Let scenario setup change administrative settings without waiting for an epoch.
     _log("Disable admin freeze window (deterministic sudo hyperparameter writes)")
     extrinsics.set_admin_freeze_window(0)
     print("  AdminFreezeWindow -> 0")
@@ -191,8 +177,6 @@ def _create_subnets() -> List[int]:
     return netuids
 
 
-# --- Phase 2: hotkeys + validator registration -------------------------------------
-
 def _register_validators(netuids: List[int]) -> Tuple[List[str], List[str]]:
     _log("Phase 2: Hotkeys & validators (3 per subnet)")
     hotkey_pubkeys: List[str] = []
@@ -208,8 +192,6 @@ def _register_validators(netuids: List[int]) -> Tuple[List[str], List[str]]:
 
     return hotkey_pubkeys, hotkey_ss58s
 
-
-# --- Phase 3: stake TAO per validator, ratio 3:2:1 ----------------------------------
 
 def _stake_validators(
     netuids: List[int], hotkey_pubkeys: List[str], hotkey_ss58s: List[str],
@@ -228,8 +210,6 @@ def _stake_validators(
                 )
             print(f"  netuid {netuid} {hotkey_pubkey[:18]}...: {amount_tao} TAO -> {stake} RAO")
 
-
-# --- Phase 4: deploy contracts -------------------------------------------------------
 
 def _deploy_registry() -> str:
     address = chain.forge_create(
@@ -269,8 +249,6 @@ def deploy_contracts(
     allocation_address = chain.forge_create(allocation_library, private_key=config.DEPLOYER_PRIVATE_KEY)
     print(f"  VaultAllocation: {allocation_address}")
 
-    # The vault claims this account id for its own coldkey; a fresh one keeps repeated
-    # bootstraps against the same chain from colliding.
     parking_hotkey = "0x" + secrets.token_hex(32)
     vault_address = chain.forge_create(
         "src/AlphaVault.sol:AlphaVault", private_key=config.DEPLOYER_PRIVATE_KEY,
@@ -315,8 +293,6 @@ def deploy_contracts(
         registry_block_end=registry_block_end,
     )
 
-
-# --- Composition -------------------------------------------------------------------------
 
 def build_environment(*, recovery_window: int) -> Environment:
     _check_repo_root()

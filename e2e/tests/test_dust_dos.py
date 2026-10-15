@@ -38,9 +38,6 @@ def test_rotated_out_dust_cannot_lock_the_vault(env):
         1_500_000, "Rotated-out dust: wrap failed",
     )
 
-    # Burn 5/6 of the shares, then rotate: the leftover is sub-floor dust on a
-    # rotated-out hotkey and there is no fresh deposit to consolidate it - the
-    # worst stranded state the vault can reach.
     clone_coldkey = env.clone_coldkey(token_id)
     exits.unwrap(
         env, token_id, env.vault_shares(token_id) * 5 // 6, "Rotated-out dust: partial unwrap failed",
@@ -64,8 +61,6 @@ def test_rotated_out_dust_cannot_lock_the_vault(env):
         refusal_receipt, config.REVERT_GAS_BOUND, "Rotated-out dust: alpha-exit refusal",
     )
 
-    # The TAO exit needs no consolidation and full drains are floor-exempt on the
-    # chain: it must pay out even from this state.
     position_alpha = env.total_stake_across(clone_coldkey, netuid, hotkeys)
     tao_exit_receipt, _ = exits.unwrap_for_tao(
         env, token_id, remaining_shares, "Rotated-out dust: TAO exit from the dust state", hotkeys=hotkeys,
@@ -75,7 +70,6 @@ def test_rotated_out_dust_cannot_lock_the_vault(env):
     exits.assert_drained(env, token_id, hotkeys, tao_exit_receipt, "Rotated-out dust: TAO exit")
     print("  TAO exit drained the dust in full and paid out per the chain quote")
 
-    # The token stays fully usable after the episode.
     _, floor_boundary_alpha = env.floor_boundary(netuid, chain_min_stake)
     env.deposit_and_wrap(
         netuid, kept_hotkey_b_pubkey, env.hotkey_ss58s[1], floor_boundary_alpha * 3 // 2, 1_500_000,
@@ -100,8 +94,7 @@ def test_price_crash_cannot_lock_exits(env):
     sell_hotkey_ss58 = env.hotkey_ss58s[4]
 
     crash_price, floor_boundary_alpha = env.floor_boundary(netuid, chain_min_stake)
-    # Just above the floor, so a sell that roughly halves the price (the crash
-    # helper's reach) drops the whole position well under it.
+    # Just above the floor, so the crash helper's roughly halved price drops the whole position under it.
     env.deposit_and_wrap(
         netuid, position_hotkey_pubkey, position_hotkey_ss58, floor_boundary_alpha * 12 // 10, 1_500_000,
         "Price crash: wrap failed",
@@ -109,8 +102,6 @@ def test_price_crash_cannot_lock_exits(env):
     clone_coldkey = env.clone_coldkey(token_id)
     print(f"  Healthy position wrapped at price {crash_price}")
 
-    # Alice dumps alpha until the whole position is worth less than the floor -
-    # devalued by the market alone, with no stake moved.
     env.crash_price_until_below(
         netuid, sell_hotkey_pubkey, sell_hotkey_ss58,
         env.total_stake_across(clone_coldkey, netuid, hotkeys), chain_min_stake * 9 // 10, "Price crash",
@@ -134,7 +125,6 @@ def test_price_crash_cannot_lock_exits(env):
     exits.assert_drained(env, token_id, hotkeys, tao_exit_receipt, "Price crash: TAO exit")
     print("  TAO exit paid out the devalued position in full")
 
-    # Deposits and alpha exits keep working at the crashed price.
     _, floor_boundary_alpha = env.floor_boundary(netuid, chain_min_stake)
     env.deposit_and_wrap(
         netuid, position_hotkey_pubkey, position_hotkey_ss58, floor_boundary_alpha * 3 // 2, 1_500_000,
@@ -174,10 +164,7 @@ def test_sub_floor_co_holder_cannot_be_locked_in_or_leak_the_other_holder(env):
     clone_coldkey = env.clone_coldkey(token_id)
     print(f"  Two holders wrapped: large {large_deposit}, small {small_deposit} alpha RAO")
 
-    # Selling most of a healthy position leaves the seller with a slice worth less than
-    # the chain will move or sell. The large co-holder's stake deepens the pool, so a
-    # market sell could not devalue the slice this far; a share sale gets there without
-    # touching the price.
+    # A share sale gets under the floor without moving the price; the pool is too deep for a market sell.
     small_holder_shares_before = env.vault_shares(token_id, config.SECOND_HOLDER_ADDRESS)
     env.transfer_shares(
         token_id, config.SECOND_HOLDER_ADDRESS, config.WRAPPER_USER_ADDRESS,
@@ -199,8 +186,6 @@ def test_sub_floor_co_holder_cannot_be_locked_in_or_leak_the_other_holder(env):
         f"Co-holder: large holder not clear of the floor ({large_holder_value} RAO)"
     )
 
-    # Both rails refuse the sub-floor slice: the chain cannot move or sell that
-    # little, and force-selling it would sweep value out of the co-holder's backing.
     small_holder_shares = env.vault_shares(token_id, config.SECOND_HOLDER_ADDRESS)
     alpha_refusal_receipt = env.assert_vault_reverts_with(
         "WithdrawTooSmall()", 1_500_000,
@@ -222,7 +207,6 @@ def test_sub_floor_co_holder_cannot_be_locked_in_or_leak_the_other_holder(env):
     )
     print("  Both exits refused the sub-floor slice cleanly")
 
-    # Escape: topping up past the floor unlocks a full exit on the alpha rail.
     _, floor_boundary_alpha = env.floor_boundary(netuid, chain_min_stake)
     env.deposit_and_wrap(
         netuid, position_hotkey_pubkey, position_hotkey_ss58, floor_boundary_alpha * 2, 1_500_000,

@@ -39,14 +39,12 @@ def test_watcher_parks_a_position_whose_trail_a_stranger_cut(env):
         "rebalance(uint256)", netuid,
     )
 
-    # Sync declares the loss, recovery collects the successor, and a final sync clears it.
     parked = incidents.park(env, token_id, stranding, "Parked recovery")
     assert env.total_stake_across(clone_coldkey, netuid, hotkeys + [successor_pubkey]) <= (
         config.ROUNDING_DUST_TOTAL_RAO
     ), "alpha stayed behind on validator keys after parking"
     assert env.vault_total_stake(token_id) == parked, "the quote prices the parked alpha"
 
-    # Deposits and alignment wait; exits do not.
     env.assert_vault_reverts_with(
         "Parked()", 1_500_000,
         "Parked recovery: a deposit should be refused while parked",
@@ -58,7 +56,6 @@ def test_watcher_parks_a_position_whose_trail_a_stranger_cut(env):
     )
     assert env.awaiting_attestation(token_id), "an exit does not release the position"
 
-    # The owner replaces the vacated name with the successor; the next rebalance releases the position.
     env.set_validator(netuid, successor_pubkey)
     assert not env.awaiting_attestation(token_id), "a newer attestation lifts the hold"
     env.vault_send(

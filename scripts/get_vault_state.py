@@ -46,7 +46,6 @@ def main() -> None:
     args = parser.parse_args()
 
     w3 = get_web3_connection(args.rpc_url)
-    # Every read is pinned to one block, so the row is a single consistent snapshot.
     block = resolve_block(w3, args.block)
     vault = w3.eth.contract(
         address=w3.to_checksum_address(args.vault_address),
@@ -56,8 +55,7 @@ def main() -> None:
         address=w3.to_checksum_address(args.lens_address),
         abi=load_abi("AlphaVaultLens"),
     )
-    # A row assembled from a mismatched pair would mix one vault's supply with another's backing.
-    # This catches the wrong lens, not a dishonest one: the address still has to be trusted.
+    # Catches a lens for another vault, not a dishonest one.
     lens_vault = lens.functions.vault().call(block_identifier=block)
     if lens_vault != w3.to_checksum_address(args.vault_address):
         sys.exit(f"lens {args.lens_address} reads vault {lens_vault}, not {args.vault_address}")
@@ -81,8 +79,7 @@ def main() -> None:
         share_price = ""
         share_price_error = extract_error_name(e, lens.abi)
 
-    # A token holding backing it cannot account for refuses to be valued; what it can locate is
-    # still readable, and the error names why the two are not the same number.
+    # A token that cannot account for its backing refuses a value; what it can locate is still readable.
     try:
         total_stake = lens.functions.totalStake(token_id).call(block_identifier=block)
         total_stake_error = ""
