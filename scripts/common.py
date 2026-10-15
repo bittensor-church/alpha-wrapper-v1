@@ -14,8 +14,7 @@ from web3 import Web3
 from web3.contract import Contract
 from web3.exceptions import ContractLogicError
 
-# A node caps how much history one eth_getLogs may cover, so a long range is read
-# in windows of this many blocks.
+# A node caps the history one eth_getLogs may cover.
 DEFAULT_CHUNK_SIZE = 10_000
 
 

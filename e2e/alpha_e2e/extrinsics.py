@@ -213,8 +213,7 @@ def toggle_transfer(
         ))
         for attempt in range(attempts):
             block_hash = _submit(client, call)
-            # Sudo reports success even when the inner call reverts, so trust the
-            # chain state rather than the result: read the toggle back and check it stuck.
+            # Sudo reports success even when the inner call reverts; read the toggle back instead.
             current = client.query(_sdk().storage.SubtensorModule.TransferToggle, [netuid])
             if current == enabled:
                 return block_hash
@@ -299,7 +298,7 @@ def dissolve_network(
         block_hash = _submit(client, _sudo(
             client, _sdk().calls.SubtensorModule.root_dissolve_network(netuid=netuid),
         ))
-        # Sudo reports success even when the inner call reverts, so trust chain state.
+        # Sudo reports success even when the inner call reverts.
         still_registered = client.query(
             _sdk().storage.SubtensorModule.NetworksAdded, [netuid],
         )
@@ -462,7 +461,7 @@ def hotkey_is_registered(
     return bool(value)
 
 
-# An unowned hotkey returns the zero account rather than an absent value; normalize it to an empty owner.
+# The Owner map answers the zero account for a hotkey nobody owns.
 UNOWNED_ACCOUNT = "5C4hrfjw9DjXZTzV3MwzrrAr9P1MJhSrvWGWqi1eSuyUpnhM"
 
 

@@ -4,9 +4,8 @@ from dataclasses import dataclass
 from . import config, extrinsics
 from .environment import Environment
 
-# A dev account with no role in the vault, the subnets, or the swaps.
 STRANGER_URI = "//Bob"
-# Enough for one association, one per-subnet rename fee and transaction fees.
+# One association, one per-subnet swap fee and transaction fees.
 STRANGER_FUNDING_RAO = 2_000_000_000
 
 

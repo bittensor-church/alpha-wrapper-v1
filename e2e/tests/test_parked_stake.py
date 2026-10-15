@@ -32,8 +32,7 @@ def test_holder_exits_across_a_rename_that_leaves_the_stake_behind(env):
     shares = env.vault_shares(token_id)
     assert shares != 0, "no shares minted by the setup wrap"
 
-    # A live subnet emits, so the position only ever grows between reads; the
-    # comparisons below are floors rather than equalities for that reason.
+    # A live subnet emits, so the position only grows between reads; the comparisons are floors.
     clone_coldkey = env.clone_coldkey(token_id)
     kept = env.stake(hotkey_pubkey, clone_coldkey, netuid)
     assert kept > 0, "the setup left no stake on the hotkey about to be renamed"
@@ -42,7 +41,6 @@ def test_holder_exits_across_a_rename_that_leaves_the_stake_behind(env):
     successor_pubkey = extrinsics.keypair_pubkey("//ParkedSuccessor")
     extrinsics.swap_hotkey_keep_stake(hotkey_ss58, successor_ss58)
 
-    # The identity moved; the owner record and the alpha stayed with the old name.
     assert extrinsics.hotkey_owner(hotkey_ss58) == owner_ss58, "the swap should keep the old hotkey's owner"
     assert not extrinsics.hotkey_is_registered(hotkey_ss58, netuid), (
         "the old hotkey should no longer be registered after its identity moved"
@@ -54,7 +52,6 @@ def test_holder_exits_across_a_rename_that_leaves_the_stake_behind(env):
     assert env.write_off_deadline(token_id) == 0, "an intact position must not be holding anything shut"
     assert env.vault_total_stake(token_id) > 0, "the vault stopped counting the kept alpha"
 
-    # The attested name still answers to its owner, so a partial exit pays from it.
     exit_shares = shares // 2
     exits.unwrap(
         env, token_id, exit_shares, "Kept stake: a partial exit should pay from the renamed key",
@@ -62,10 +59,8 @@ def test_holder_exits_across_a_rename_that_leaves_the_stake_behind(env):
     )
     assert env.vault_shares(token_id) == shares - exit_shares, "the exit burned the wrong shares"
 
-    # The owner names the successor in place of the renamed key.
     env.set_validator(netuid, successor_pubkey)
 
-    # The next exit rolls the stake onto the successor without claiming the old key.
     delivery_keys = hotkeys + [successor_pubkey]
     exits.unwrap(
         env, token_id, exit_shares // 2, "Kept stake: the exit should follow the successor once named",
@@ -102,7 +97,6 @@ def test_exits_follow_a_renamed_validator_before_the_registry_catches_up(env):
     )
     assert env.backing_intact(token_id), "the vault should follow the chain's rename edge"
 
-    # The registry still names the old key; the vault pays from the successor its owner holds.
     delivery_keys = hotkeys + [successor_pubkey]
     exits.unwrap(
         env, token_id, shares // 2, "Followed rename: a partial exit should pay from the successor",
