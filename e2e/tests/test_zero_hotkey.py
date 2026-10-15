@@ -82,7 +82,7 @@ def test_backing_and_deposits_on_hotkey_zero_are_reachable(env):
         "the deposit did not reach the mailbox on hotkey 0"
     )
     env.assert_vault_reverts_with(
-        "ZeroHotkey()", config.REVERT_GAS_BOUND, "Zero hotkey: a wrap must not name hotkey 0",
+        "ZeroHotkey()", 1_500_000, "Zero hotkey: a wrap must not name hotkey 0",
         "wrap(uint256,bytes32,uint256)", netuid, ZERO_HOTKEY, 0,
     )
     exits.reclaim_mailbox_alpha_as_tao(env, netuid, ZERO_HOTKEY, "Zero hotkey: the mailbox sale from hotkey 0")
