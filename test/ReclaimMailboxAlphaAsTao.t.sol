@@ -2,14 +2,7 @@
 pragma solidity 0.8.36;
 
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
-import {
-    LockedDeposit,
-    MailboxNotPrepared,
-    NetuidOutOfRange,
-    SlippageExceeded,
-    ZeroAmount,
-    ZeroHotkey
-} from "src/VaultErrors.sol";
+import { LockedDeposit, MailboxNotPrepared, NetuidOutOfRange, SlippageExceeded, ZeroAmount } from "src/VaultErrors.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { ReentrantReceiver, RevertingReceiver } from "./helpers/TaoRailReceivers.sol";
@@ -64,12 +57,6 @@ contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(NetuidOutOfRange.selector);
         vault.reclaimMailboxAlphaAsTao(uint256(type(uint16).max) + 1, hotkey1, 0);
-    }
-
-    function test_RevertWhen_HotkeyIsZero() public {
-        vm.prank(alice);
-        vm.expectRevert(ZeroHotkey.selector);
-        vault.reclaimMailboxAlphaAsTao(NETUID1, bytes32(0), 0);
     }
 
     function test_RevertWhen_NoMailboxPrepared() public {

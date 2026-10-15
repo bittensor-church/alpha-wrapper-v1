@@ -70,6 +70,8 @@ Scenario files in `tests/` cover:
   position's loss is written off once a short recovery window expires.
 - `test_empty_token_write_off.py`: a gift to an emptied token is swept and written off;
   the token stays open and the next deposit wraps without a registry update.
+- `test_zero_hotkey.py`: alpha the vault or a mailbox holds on hotkey 0x0 is collected with
+  `recoverStray` and reclaimed like under any other hotkey; a wrap still cannot name it.
 - `test_parked_stake.py`: a rename that leaves the stake and the owner record behind,
   where exits keep paying from the old name and follow the successor once the owner
   names it; and a rename that carries the stake, which exits follow before the registry

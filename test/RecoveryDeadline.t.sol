@@ -251,7 +251,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertEq(lens.writeOffDeadline(TOKEN1), 0);
     }
 
-    function test_RevertWhen_RecoveringFromZeroOrParkingHotkey() public {
+    function test_RevertWhen_RecoveringFromAnEmptyHotkeyOrParking() public {
         _twoLosses();
         vm.expectRevert(NothingToRecover.selector);
         vault.recoverStray(TOKEN1, bytes32(0));

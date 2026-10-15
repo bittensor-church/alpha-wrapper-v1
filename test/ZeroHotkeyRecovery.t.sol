@@ -1,0 +1,127 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.36;
+
+import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
+import { MockStaking } from "./mocks/MockStaking.sol";
+import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+
+contract ZeroHotkeyRecoveryTest is AlphaVaultTestBase {
+    bytes32 private constant ZERO = bytes32(0);
+    uint256 private constant VICTIMS_DEPOSIT = 600 * ALPHA;
+    uint256 private constant GIFT = 1 * ALPHA;
+    address private donor = makeAddr("donor");
+
+    MockStaking private staking;
+
+    function setUp() public override {
+        super.setUp();
+        staking = MockStaking(STAKING_PRECOMPILE);
+        _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
+    }
+
+    function _victimsDeposit() private returns (uint256 backing) {
+        _depositAndWrap(alice, NETUID1, VICTIMS_DEPOSIT);
+        backing = _getVaultStake(hotkey1, NETUID1);
+    }
+
+    function _validatorSwapsInto(bytes32 from, bytes32 to) private {
+        _simulatePerSubnetSwap(NETUID1, from, to);
+    }
+
+    function _parkFromZeroHotkey(uint256 backing) private {
+        vault.syncBacking(TOKEN1);
+        assertEq(_parkedStake(NETUID1), 0, "nothing is located at declaration");
+
+        vm.expectEmit(true, true, false, true, address(vault));
+        emit BackingRecovered(TOKEN1, vault.parkingHotkey(), backing);
+        vault.recoverStray(TOKEN1, ZERO);
+
+        assertEq(_parkedStake(NETUID1), backing, "the watcher parks the whole backing from hotkey 0");
+        assertEq(_getVaultStake(ZERO, NETUID1), 0);
+        assertEq(lens.missingStake(TOKEN1), 0);
+
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit BackingParked(TOKEN1, backing, registry.nonces(NETUID1));
+        vault.syncBacking(TOKEN1);
+        assertEq(lens.totalStake(TOKEN1), backing, "nothing is written off");
+        assertEq(lens.writeOffDeadline(TOKEN1), 0);
+    }
+
+    function test_P3LB01_SwapIntoZeroHotkey_IsParkedAndReleasedOntoTheNextAttestation() public {
+        uint256 backing = _victimsDeposit();
+        uint256 aliceShares = vault.balanceOf(alice, TOKEN1);
+
+        _validatorSwapsInto(hotkey1, ZERO);
+        (bool hasEdge, bytes32 edge) = staking.getHotkeySuccessor(hotkey1, uint16(NETUID1));
+        assertTrue(hasEdge && edge == ZERO, "chain edge hotkey1 -> 0x0 exists");
+        assertEq(_getVaultStake(ZERO, NETUID1), backing, "the clone's alpha now sits on hotkey 0");
+        assertFalse(lens.isBackingIntact(TOKEN1), "a zero successor is not followed");
+
+        _parkFromZeroHotkey(backing);
+        assertTrue(vault.awaitingAttestation(TOKEN1));
+
+        _setValidators(NETUID1, _hotkeys(hotkey2), _weights(BPS_BASE));
+        vault.rebalance(NETUID1);
+        assertEq(_getVaultStake(hotkey2, NETUID1), backing, "the republish releases parking onto the new validator");
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, aliceShares, _toSubstrate(alice), 0);
+        assertEq(vault.totalSupply(TOKEN1), 0);
+        assertEq(_getStakeForColdkey(hotkey2, _toSubstrate(alice), NETUID1), backing, "holders exit in full");
+    }
+
+    function testFuzz_SwapIntoZeroHotkey_IsParkedInFull(uint256 deposit) public {
+        deposit = bound(deposit, ALPHA, MAX_SUBNET_ALPHA);
+        _depositAndWrap(alice, NETUID1, deposit);
+        uint256 backing = _getVaultStake(hotkey1, NETUID1);
+
+        _validatorSwapsInto(hotkey1, ZERO);
+        _parkFromZeroHotkey(backing);
+    }
+
+    function test_RecoverStray_AnnexesAGiftOnZeroHotkeyIntoLiveBacking() public {
+        uint256 backing = _victimsDeposit();
+        staking.setHotkeyOwned(ZERO, true);
+        staking.setStake(ZERO, _toSubstrate(donor), NETUID1, GIFT);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        vm.prank(donor);
+        staking.transferStake(cloneColdkey, ZERO, NETUID1, NETUID1, GIFT);
+
+        vm.expectEmit(true, true, false, true, address(vault));
+        emit BackingRecovered(TOKEN1, hotkey1, GIFT);
+        vault.recoverStray(TOKEN1, ZERO);
+
+        assertEq(_getVaultStake(ZERO, NETUID1), 0);
+        assertEq(lens.totalStake(TOKEN1), backing + GIFT, "the gift joins live backing");
+        assertTrue(lens.isBackingIntact(TOKEN1));
+    }
+
+    function _mailboxDepositSwappedOntoZeroHotkey() private returns (bytes32 mailboxColdkey) {
+        _simulateAlphaDepositHotkey(alice, NETUID1, 100 * ALPHA, hotkey1);
+        _validatorSwapsInto(hotkey1, ZERO);
+        mailboxColdkey = _mailboxColdkey(alice, NETUID1);
+        assertEq(_getStakeForColdkey(ZERO, mailboxColdkey, NETUID1), 100 * ALPHA, "the deposit moved with the swap");
+    }
+
+    function test_ReclaimAlphaFromMailbox_ReturnsADepositSwappedOntoZeroHotkey() public {
+        bytes32 mailboxColdkey = _mailboxDepositSwappedOntoZeroHotkey();
+        bytes32 destination = _toSubstrate(alice);
+
+        vm.prank(alice);
+        vault.reclaimAlphaFromMailbox(NETUID1, ZERO, destination);
+
+        assertEq(_getStakeForColdkey(ZERO, destination, NETUID1), 100 * ALPHA, "the whole deposit arrives");
+        assertEq(_getStakeForColdkey(ZERO, mailboxColdkey, NETUID1), 0, "the mailbox is empty");
+    }
+
+    function test_ReclaimMailboxAlphaAsTao_SellsADepositSwappedOntoZeroHotkey() public {
+        bytes32 mailboxColdkey = _mailboxDepositSwappedOntoZeroHotkey();
+
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        vault.reclaimMailboxAlphaAsTao(NETUID1, ZERO, 0);
+
+        assertEq(alice.balance - before, 5 * TAO, "100 alpha at 0.05 TAO per alpha");
+        assertEq(_getStakeForColdkey(ZERO, mailboxColdkey, NETUID1), 0);
+    }
+}
