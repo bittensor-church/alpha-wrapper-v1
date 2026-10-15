@@ -31,6 +31,9 @@ Suppose the registry names A and the vault holds 100 alpha there:
 For an empty slot the vault prefers the attested name, then the recorded key,
 then that key's one-hop successor, each only while the attested owner holds it,
 subject to collision checks. Funded slots stay at their resolved location.
+After a per-subnet swap the name keeps its owner record, so an emptied slot
+returns to the name and earns nothing there until the registry owner publishes
+the successor.
 
 ## Automatic handling has limits
 
@@ -104,6 +107,9 @@ any shortfall or recovery clock.
    status and `awaitingAttestation`. Include empty entries and newly attested
    keys with no recorded slot. If the vault resolves a successor after a swap,
    call `syncBacking(tokenId)` before the old key is re-registered to record it.
+   Watch the chain's hotkey swap events for attested names. After any swap of
+   an attested name, publish the successor at once: until then an emptied slot
+   re-stakes under the old name, which earns nothing on that subnet.
 2. For missing backing, call `syncBacking(tokenId)`. It secures all located
    backing on `parkingHotkey` before starting one fixed recovery window, except
    below-floor piles. Other collection failures revert without changing the clock
