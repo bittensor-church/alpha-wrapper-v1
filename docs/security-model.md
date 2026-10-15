@@ -158,7 +158,7 @@ them; accrued TAO survives either way.
   vault still needs. After an all-subnet swap, anyone paying the burn can register
   that ownerless key on the affected token's subnet if registration is open; see the
   [watcher runbook](hotkey-swaps.md#watcher-runbook).
-- A name renamed on one subnet keeps its owner, so an emptied slot re-stakes
+- A name swapped on one subnet keeps its owner, so an emptied slot re-stakes
   under it and earns nothing there until the registry owner publishes the
   successor; see the [watcher runbook](hotkey-swaps.md#watcher-runbook).
 - Clone protection relies on the chain refusing coldkey swaps into existing
