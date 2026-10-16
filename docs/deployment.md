@@ -81,40 +81,38 @@ rebuilt library means a new vault as well.
 
 ## Runtime compatibility
 
-The vault reads and writes chain state through precompiles. A runtime must
-provide each function below and honor the rule next to it.
+The vault reads and writes chain state through precompiles. It requires a
+chain fully compatible with Subtensor runtime 478 for the precompile functions
+below, honoring the rule next to each, with no breaking change to those
+functions introduced since.
 
-| Precompile | Function | Rule relied on | Known minimum runtime |
-| --- | --- | --- | --- |
-| Staking `0x0805` | `getStake` | Returns the alpha held by a (hotkey, coldkey, netuid) triple, a chain u64 encoded as ABI uint256. | 252 |
-| Staking `0x0805` | `getHotkeyOwner` | Reports no owner record once an all-subnet hotkey swap carries the stake away, and stake operations require that record. | 445 |
-| Staking `0x0805` | `getHotkeySuccessor` | Names the key a swap carried a hotkey's stake to. | 445 |
-| Staking `0x0805` | `getColdkeyLock` | Reports the conviction-locked alpha an account holds on a subnet. | 439 |
-| Staking `0x0805` | `getRejectLockedAlpha` | Accounts reject incoming locked alpha by default, and this flag reports that setting. | 439 |
-| Staking `0x0805` | `getColdkeyRoot` | Reports whether an account carries coldkey-swap history. | 445 |
-| Staking `0x0805` | `getOwnedHotkeys` | Lists the hotkeys an account owns; an uncontaminated clone candidate owns none. | 445 |
-| Staking `0x0805` | `getDefaultMinStake` | The minimum a partial unstake enforces; the vault applies it to every move as its conservative floor. | 438 |
-| Staking `0x0805` | `getNominatorMinRequiredStake` | The minimum a nominator may hold; the chain can sweep smaller positions into TAO. | 297 |
-| Staking `0x0805` | `moveStake` | A same-subnet move enforces the chain's transfer minimum, which is the lower of the two minimums. | 261 |
-| Staking `0x0805` | `transferStake` | Delivers alpha to another coldkey on the same subnet; the chain's transfer minimum applies. | 261 |
-| Staking `0x0805` | `removeStake` | A partial unstake enforces the default minimum stake; a full drain of a position clears it. | 252 |
-| Staking `0x0805` | `removeStake` | A partial unstake lowers the caller's `getStake` by at most the requested amount. | 459 |
-| Subnet `0x0803` | `getNetworkRegistrationBlock` | Zero while a netuid is unregistered. | 423 |
-| Subnet `0x0803` | `getRegisteredSubnetCounter` | Steps on every registration and survives dissolution, so it tells subnet generations apart. | 445 |
-| Subnet `0x0803` | `isSubnetDissolving` | Reports a subnet whose dissolution is under way. | 430 |
-| Subnet `0x0803` | `getSubnetCapacityConfig` | Its tenth field is the owner's alpha-transfer switch. | 445 |
-| Neuron `0x0804` | `tryAssociateHotkey` | Assigns the caller's coldkey as owner only when the hotkey has none, and succeeds silently otherwise. | 445 |
-| Alpha `0x0808` | `getAlphaPrice` | Prices alpha in TAO, scaled by 1e18. | 361 |
-| Alpha `0x0808` | `simSwapAlphaForTao` | Quotes the TAO a sale of a given alpha amount returns. | 283 |
-| Address mapping `0x080C` | `addressMapping` | Returns the substrate coldkey an EVM address controls. | 372 |
+| Precompile | Function | Rule relied on |
+| --- | --- | --- |
+| Staking `0x0805` | `getStake` | Returns the alpha held by a (hotkey, coldkey, netuid) triple, a chain u64 encoded as ABI uint256. |
+| Staking `0x0805` | `getHotkeyOwner` | Reports no owner record once an all-subnet hotkey swap carries the stake away, and stake operations require that record. |
+| Staking `0x0805` | `getHotkeySuccessor` | Names the key a swap carried a hotkey's stake to. |
+| Staking `0x0805` | `getColdkeyLock` | Reports the conviction-locked alpha an account holds on a subnet. |
+| Staking `0x0805` | `getRejectLockedAlpha` | Accounts reject incoming locked alpha by default, and this flag reports that setting. |
+| Staking `0x0805` | `getColdkeyRoot` | Reports whether an account carries coldkey-swap history. |
+| Staking `0x0805` | `getOwnedHotkeys` | Lists the hotkeys an account owns; an uncontaminated clone candidate owns none. |
+| Staking `0x0805` | `getDefaultMinStake` | The minimum a partial unstake enforces; the vault applies it to every move as its conservative floor. |
+| Staking `0x0805` | `getNominatorMinRequiredStake` | The minimum a nominator may hold; the chain can sweep smaller positions into TAO. |
+| Staking `0x0805` | `moveStake` | A same-subnet move enforces the chain's transfer minimum, which is the lower of the two minimums. |
+| Staking `0x0805` | `transferStake` | Delivers alpha to another coldkey on the same subnet; the chain's transfer minimum applies. |
+| Staking `0x0805` | `removeStake` | A partial unstake enforces the default minimum stake and lowers the caller's `getStake` by at most the requested amount; a full drain of a position clears it. |
+| Subnet `0x0803` | `getNetworkRegistrationBlock` | Zero while a netuid is unregistered. |
+| Subnet `0x0803` | `getRegisteredSubnetCounter` | Steps on every registration and survives dissolution, so it tells subnet generations apart. |
+| Subnet `0x0803` | `isSubnetDissolving` | Reports a subnet whose dissolution is under way. |
+| Subnet `0x0803` | `getSubnetCapacityConfig` | Its tenth field is the owner's alpha-transfer switch. |
+| Neuron `0x0804` | `tryAssociateHotkey` | Assigns the caller's coldkey as owner only when the hotkey has none, and succeeds silently otherwise. |
+| Alpha `0x0808` | `getAlphaPrice` | Prices alpha in TAO, scaled by 1e18. |
+| Alpha `0x0808` | `simSwapAlphaForTao` | Quotes the TAO a sale of a given alpha amount returns. |
+| Address mapping `0x080C` | `addressMapping` | Returns the substrate coldkey an EVM address controls. |
 
 Two further rules sit outside any single function: the chain refuses a coldkey
 swap into an account that is itself a hotkey, which is what keeps mailboxes and
 subnet clones clean, and a rejected precompile call consumes all forwarded gas,
 which is why the vault checks conditions before calling.
-
-The behavior above is tested against Subtensor runtime 478.
-A runtime that breaks any rule above is unsuitable for deployment.
 
 ## Deployed artifacts
 
