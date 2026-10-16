@@ -164,14 +164,14 @@ abstract contract HotkeySwapCampaignSetup is BackingCampaignHarness {
     }
 
     function assertAttestedStakeRestsWithItsOwners() external view {
-        (bytes32[] memory names,, bytes32[] memory owners) = registry.getValidators(NETUID1);
+        (bytes32[] memory names,, bytes32[] memory ownerRoots) = registry.getValidators(NETUID1);
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         for (uint256 j; j < names.length; ++j) {
             for (uint256 i; i < slots.length; ++i) {
                 if (slots[i].logical != names[j] || slots[i].tracked == 0) continue;
                 (bool exists, bytes32 owner) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(slots[i].active);
                 assertTrue(exists, "attested stake rests on an ownerless key");
-                assertEq(owner, owners[j], "attested stake rests on a stranger's key");
+                assertEq(VaultReads.lineageRootOf(owner), ownerRoots[j], "attested stake rests on a stranger's key");
             }
         }
     }

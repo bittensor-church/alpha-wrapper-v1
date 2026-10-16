@@ -54,7 +54,7 @@ Holders rely on:
 - Unresolved backing blocks live pricing and exits until the position parks or
   the loss is written off; recovery moves only the vault's own stake, onto a
   hotkey only the vault's coldkey controls.
-- A receiving key is usable only under the coldkey that owned the registry-listed name;
+- A receiving key is usable only under the coldkey lineage that owned the registry-listed name;
   a name claimed by anyone else receives nothing.
 - Alpha exits avoid pool trades. TAO exits are opt-in market sales with fees and
   price impact, including price impact borne by remaining holders.

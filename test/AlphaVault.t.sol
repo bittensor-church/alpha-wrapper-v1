@@ -559,6 +559,15 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vault.reclaimAlphaFromMailbox(NETUID1, hotkey4, _toSubstrate(alice));
     }
 
+    function test_RevertWhen_ReclaimAlphaFromMailboxWhileSubnetIsDissolving() public {
+        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey4);
+        _setDissolving(NETUID1, true);
+
+        vm.prank(alice);
+        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
+        vault.reclaimAlphaFromMailbox(NETUID1, hotkey4, _toSubstrate(alice));
+    }
+
     /// @dev Anyone can park alpha under the clone's coldkey on an attested name; a deposit on that name
     ///      must price only itself and leave the stray for recovery.
     function test_Wrap_LeavesAStrayOnASupersededNameForRecovery() public {

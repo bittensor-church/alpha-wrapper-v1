@@ -23,6 +23,11 @@ contract BasicValidatorRegistryTest is Test {
 
     function _mockHotkeyOwner(bytes32 hotkey, bool exists, bytes32 owner) internal {
         vm.mockCall(STAKING_PRECOMPILE, abi.encodeCall(IStaking.getHotkeyOwner, (hotkey)), abi.encode(exists, owner));
+        _mockColdkeyRoot(owner, false, bytes32(0));
+    }
+
+    function _mockColdkeyRoot(bytes32 coldkey, bool swapped, bytes32 root) internal {
+        vm.mockCall(STAKING_PRECOMPILE, abi.encodeCall(IStaking.getColdkeyRoot, (coldkey)), abi.encode(swapped, root));
     }
 
     function _setValidatorAsOwner(uint256 netuid, bytes32 hotkey) internal {
@@ -67,6 +72,23 @@ contract BasicValidatorRegistryTest is Test {
         emit BasicValidatorRegistry.ValidatorUpdated(NETUID, 1, HOTKEY, HOTKEY_COLDKEY);
         _setValidatorAsOwner(NETUID, HOTKEY);
         _assertValidator(NETUID, HOTKEY, HOTKEY_COLDKEY, 1);
+    }
+
+    function test_SetValidator_RecordsTheOwnersLineageRoot() public {
+        bytes32 root = keccak256("original coldkey");
+        _mockColdkeyRoot(HOTKEY_COLDKEY, true, root);
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit BasicValidatorRegistry.ValidatorUpdated(NETUID, 1, HOTKEY, root);
+        _setValidatorAsOwner(NETUID, HOTKEY);
+        _assertValidator(NETUID, HOTKEY, root, 1);
+    }
+
+    function testFuzz_SetValidator_RecordsTheRootOfASwappedOwner(bytes32 owner, bytes32 root) public {
+        root = bytes32(bound(uint256(root), 1, type(uint256).max));
+        _mockHotkeyOwner(HOTKEY, true, owner);
+        _mockColdkeyRoot(owner, true, root);
+        _setValidatorAsOwner(NETUID, HOTKEY);
+        _assertValidator(NETUID, HOTKEY, root, 1);
     }
 
     function test_SetValidator_ReplacesHotkeyAndOwner() public {

@@ -50,19 +50,20 @@ different operation and does not re-register the key.
 
 ## Who a name answers to
 
-The registry records the coldkey that owned each hotkey when it was attested. A
-receiving key is usable only under that coldkey: the attested name itself, the
-recorded active key, or its one-hop successor, whichever the attested owner
-holds. A validator's own rename keeps its coldkey, so its successor qualifies. A
-vacated name claimed by anyone else reports `AttestedHotkeyRetired` and receives
-nothing; the registry owner retires it by replacing the target.
+The registry records the lineage root of the coldkey that owned each hotkey when
+it was attested: the coldkey itself, or the first coldkey of its swap chain. A
+receiving key is usable only under a coldkey of that lineage: the attested name
+itself, the recorded active key, or its one-hop successor, whichever a coldkey
+of the attested lineage holds. A validator's own hotkey swap keeps its coldkey,
+so its successor qualifies. A validator's coldkey swap keeps its lineage, so its
+hotkeys stay usable without a new attestation. A vacated name claimed by anyone
+else reports `AttestedHotkeyRetired` and receives nothing; the registry owner
+retires it by replacing the target.
 
 The chain refuses to move stake through a hotkey with no owner record. When the
 vault has to move stake off such a key, it claims the key for its own coldkey
 first, then moves. That claim serves the move and is permanent; it does not
-make the key an attested destination. A validator's coldkey swap changes the
-owner of its hotkeys, and the registry owner confirms the new owner by publishing
-again.
+make the key an attested destination.
 
 ## The parking hotkey
 

@@ -25,20 +25,30 @@ library VaultReads {
         return exists && owner == coldkey;
     }
 
+    function lineageRootOf(bytes32 coldkey) internal view returns (bytes32) {
+        (bool swapped, bytes32 root) = IStaking(STAKING_PRECOMPILE).getColdkeyRoot(coldkey);
+        return swapped ? root : coldkey;
+    }
+
+    function heldByLineage(bytes32 hotkey, bytes32 ownerRoot) internal view returns (bool) {
+        (bool exists, bytes32 owner) = IStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey);
+        return exists && lineageRootOf(owner) == ownerRoot;
+    }
+
     function lockedAlphaOf(bytes32 coldkey, uint16 netuid) internal view returns (uint256 lockedAlpha) {
         (,, lockedAlpha,,) = IStaking(STAKING_PRECOMPILE).getColdkeyLock(coldkey, netuid);
     }
 
-    /// @dev One attestation: the target hotkeys, their basis-point weights and the coldkey that owned
-    ///      each name when it was attested.
-    struct ValidatorSet { bytes32[] hotkeys; uint16[] weights; bytes32[] owners; }
+    /// @dev One attestation: the target hotkeys, their basis-point weights and the lineage root of the
+    ///      coldkey that owned each name when it was attested.
+    struct ValidatorSet { bytes32[] hotkeys; uint16[] weights; bytes32[] ownerRoots; }
 
     function resolveValidators(IValidatorRegistry registry, uint16 netuid) internal view returns (ValidatorSet memory set) {
-        (bytes32[] memory hotkeys, uint16[] memory weights, bytes32[] memory owners) = registry.getValidators(netuid);
+        (bytes32[] memory hotkeys, uint16[] memory weights, bytes32[] memory ownerRoots) = registry.getValidators(netuid);
         if (hotkeys.length == 0) revert NoValidatorFound();
         if (hotkeys.length > MAX_VALIDATORS) revert ValidatorSetTooLarge(hotkeys.length);
-        if (hotkeys.length != weights.length || hotkeys.length != owners.length) revert ValidatorSetMalformed();
-        set = ValidatorSet({ hotkeys: hotkeys, weights: weights, owners: owners });
+        if (hotkeys.length != weights.length || hotkeys.length != ownerRoots.length) revert ValidatorSetMalformed();
+        set = ValidatorSet({ hotkeys: hotkeys, weights: weights, ownerRoots: ownerRoots });
     }
 
     function fetchBalances(bytes32[] memory hotkeys, bytes32 coldkey, uint16 netuid) internal view returns (uint256[] memory balances) {

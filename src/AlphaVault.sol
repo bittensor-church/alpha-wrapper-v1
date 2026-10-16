@@ -372,6 +372,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
 
         // forge-lint: disable-next-line(unsafe-typecast)
         uint16 nid = uint16(netuid);
+        VaultReads.requireNotDissolving(nid);
         VaultReads.requireTransfersEnabled(nid);
         // The chain refuses a locked transfer into a rejecting coldkey and burns the forwarded gas.
         if (
@@ -386,13 +387,14 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         address mailbox = _requireMailbox(msg.sender, netuid); bytes32 mailboxColdkey = VaultReads.coldkeyOf(mailbox);
         uint256 amount = IStaking(STAKING_PRECOMPILE).getStake(hotkey, mailboxColdkey, netuid);
         if (amount == 0) revert ZeroAmount();
-        // Locked alpha cannot be sold; the chain would refuse and burn the forwarded gas.
         // forge-lint: disable-next-line(unsafe-typecast)
-        if (VaultReads.lockedAlphaOf(mailboxColdkey, uint16(netuid)) != 0) revert LockedDeposit();
+        uint16 nid = uint16(netuid);
+        VaultReads.requireNotDissolving(nid);
+        // Locked alpha cannot be sold; the chain would refuse and burn the forwarded gas.
+        if (VaultReads.lockedAlphaOf(mailboxColdkey, nid) != 0) revert LockedDeposit();
 
         uint256 balanceBefore = mailbox.balance;
-        // forge-lint: disable-next-line(unsafe-typecast)
-        StakeOps.sell(mailbox, hotkey, uint16(netuid), amount);
+        StakeOps.sell(mailbox, hotkey, nid, amount);
 
         uint256 taoOut = mailbox.balance - balanceBefore;
         if (taoOut < minTaoOut) revert SlippageExceeded(taoOut);
@@ -590,7 +592,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     function _assignActives(VaultReads.Slot[] memory slots, VaultReads.Backing memory backing, VaultReads.ValidatorSet memory set,
         uint16 netuid) private view returns (bytes32[] memory actives, bytes32 retired) {
         return VaultAllocation.assignActives(
-            VaultReads.logicalsOf(slots), backing.keys, backing.balances, set.hotkeys, set.owners, netuid);
+            VaultReads.logicalsOf(slots), backing.keys, backing.balances, set.hotkeys, set.ownerRoots, netuid);
     }
 
     /// @dev Replace the record with actual post-move balances; shortfalls were checked on entry.

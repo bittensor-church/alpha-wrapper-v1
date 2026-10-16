@@ -109,23 +109,23 @@ library VaultAllocation {
         return chunk;
     }
 
-    /// @dev Keep funded slots on resolved keys; empty slots need a receiving key owned by the coldkey
-    ///      that held the attested name. Keys remain exclusive even for empty slots.
+    /// @dev Keep funded slots on resolved keys; empty slots need a receiving key held by the coldkey
+    ///      lineage that held the attested name. Keys remain exclusive even for empty slots.
     ///      Flat arrays cross this boundary: each struct argument would add its own ABI encoder to the
     ///      vault, which has no bytecode to spare. `logicals`, `keys` and `balances` are one record per
-    ///      slot; `currentSet` and `owners` are one entry per attested name.
+    ///      slot; `currentSet` and `ownerRoots` are one entry per attested name.
     function assignActives(bytes32[] memory logicals, bytes32[] memory keys, uint256[] memory balances,
-        bytes32[] memory currentSet, bytes32[] memory owners, uint16 netuid
+        bytes32[] memory currentSet, bytes32[] memory ownerRoots, uint16 netuid
     ) external view returns (bytes32[] memory actives, bytes32 retired) {
         actives = new bytes32[](currentSet.length);
         for (uint256 i; i < currentSet.length;) {
-            bytes32 name = currentSet[i]; bytes32 owner = owners[i];
+            bytes32 name = currentSet[i]; bytes32 ownerRoot = ownerRoots[i];
             uint256 ownSlot = VaultMath.indexOf(logicals, name);
             bytes32 key; bool live;
             if (ownSlot != VaultMath.INDEX_NOT_FOUND && balances[ownSlot] != 0) {
-                key = keys[ownSlot]; live = VaultReads.ownedBy(key, owner);
+                key = keys[ownSlot]; live = VaultReads.heldByLineage(key, ownerRoot);
             } else {
-                (key, live) = _receivingKey(keys, logicals, currentSet, name, owner, ownSlot, netuid);
+                (key, live) = _receivingKey(keys, logicals, currentSet, name, ownerRoot, ownSlot, netuid);
                 if (key != name && VaultMath.contains(actives, key)) { revert IAlphaVaultAbi.SwappedHotkeyStillAttested(); }
             }
             actives[i] = key;
@@ -173,21 +173,21 @@ library VaultAllocation {
     }
 
     /// @dev Prefer the attested name, then the recorded active key, then its one-hop successor, each
-    ///      only under the attested owner. The name is taken only directly, never by a hop, and never
+    ///      only under the attested owner's lineage. The name is taken only directly, never by a hop, and never
     ///      while another attested slot's record holds it, so one key is never counted for two slots.
     ///      Resume from the record: the name's edge may predate swaps already followed.
     function _receivingKey(bytes32[] memory keys, bytes32[] memory logicals, bytes32[] memory currentSet,
-        bytes32 name, bytes32 owner, uint256 ownSlot,
+        bytes32 name, bytes32 ownerRoot, uint256 ownSlot,
         uint16 netuid) private view returns (bytes32 key, bool live) {
         bool nameReserved = _keyHeldElsewhere(keys, logicals, currentSet, name, ownSlot);
         if (nameReserved && ownSlot == VaultMath.INDEX_NOT_FOUND) revert IAlphaVaultAbi.SwappedHotkeyStillAttested();
-        if (!nameReserved && VaultReads.ownedBy(name, owner)) return (name, true);
+        if (!nameReserved && VaultReads.heldByLineage(name, ownerRoot)) return (name, true);
 
         key = ownSlot == VaultMath.INDEX_NOT_FOUND ? name : keys[ownSlot];
-        live = key != name && VaultReads.ownedBy(key, owner);
+        live = key != name && VaultReads.heldByLineage(key, ownerRoot);
         if (!live) {
             bytes32 successor = VaultReads.hotkeySuccessor(key, netuid);
-            if (successor != bytes32(0) && successor != name && VaultReads.ownedBy(successor, owner)) { key = successor; live = true; }
+            if (successor != bytes32(0) && successor != name && VaultReads.heldByLineage(successor, ownerRoot)) { key = successor; live = true; }
         }
         if (
             key != name

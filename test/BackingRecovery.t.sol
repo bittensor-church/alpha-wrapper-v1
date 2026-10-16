@@ -1087,19 +1087,6 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "losing nothing");
     }
 
-    /// @dev A coldkey swap moves every hotkey of the validator to the new coldkey; the attesters confirm it.
-    function test_ValidatorColdkeySwap_RetiresItsSlotUntilReattested() public {
-        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        MockStaking(STAKING_PRECOMPILE).setHotkeyOwner(hotkey1, keccak256("the validator's new coldkey"));
-
-        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
-        vault.rebalance(NETUID1);
-
-        _reattestCurrentSet(NETUID1);
-        vault.rebalance(NETUID1);
-        assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "the position is whole under the new coldkey");
-    }
-
     /// @dev hotkey1's slot returns on hotkey4 short by `missing` RAO and is collected into parking.
     function _firstSlotReturnedShortBy(uint256 missing) private {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-/// @dev The caller's coldkey becomes the owner. A hotkey that already has an owner is left unchanged
-///      and the call still succeeds; read the owner back to confirm the claim.
+/// @dev Excerpt of the Neuron precompile interface published in Subtensor; docs/deployment.md lists the
+///      behavior the vault relies on.
 interface INeuron {
     function tryAssociateHotkey(bytes32 hotkey) external;
 }

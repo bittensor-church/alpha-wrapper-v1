@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-/// @dev Registration block is zero when unregistered, including late dissolution cleanup.
-///      A dissolving netuid cannot be re-registered until asynchronous cleanup completes.
-///      The counter steps on every registration of the netuid and survives dissolution.
+/// @dev Excerpt of the Subnet precompile interface published in Subtensor; docs/deployment.md lists the
+///      behavior the vault relies on.
 interface ISubnet {
     function getNetworkRegistrationBlock(uint16 netuid) external view returns (uint64);
 
@@ -11,7 +10,6 @@ interface ISubnet {
 
     function isSubnetDissolving(uint16 netuid) external view returns (bool);
 
-    /// @dev The subnet's capacity settings; the tenth field is the owner's alpha-transfer switch.
     function getSubnetCapacityConfig(uint16 netuid) external view returns (
         uint16 minAllowedUids, uint16 maxAllowedUids, uint16 maxAllowedValidators,
         uint16 adjustmentInterval, uint16 targetRegistrationsPerInterval, uint16 minNonImmuneUids,

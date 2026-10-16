@@ -2,7 +2,14 @@
 pragma solidity 0.8.36;
 
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
-import { LockedDeposit, MailboxNotPrepared, NetuidOutOfRange, SlippageExceeded, ZeroAmount } from "src/VaultErrors.sol";
+import {
+    LockedDeposit,
+    MailboxNotPrepared,
+    NetuidOutOfRange,
+    SlippageExceeded,
+    SubnetInDissolutionBlackoutPeriod,
+    ZeroAmount
+} from "src/VaultErrors.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { ReentrantReceiver, RevertingReceiver } from "./helpers/TaoRailReceivers.sol";
@@ -69,6 +76,15 @@ contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
         _prepareMailbox(alice, NETUID1);
         vm.prank(alice);
         vm.expectRevert(ZeroAmount.selector);
+        vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
+    }
+
+    function test_RevertWhen_SubnetIsDissolving() public {
+        _seedMailboxAlpha(alice, NETUID1, hotkey1, 100 * ALPHA);
+        _setDissolving(NETUID1, true);
+
+        vm.prank(alice);
+        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
         vault.reclaimMailboxAlphaAsTao(NETUID1, hotkey1, 0);
     }
 
