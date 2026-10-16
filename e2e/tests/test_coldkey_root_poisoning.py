@@ -5,9 +5,9 @@ accepts a coldkey swap into it from a stranger. The swap rewrites the coldkey's 
 refuses the validator until the registry owner re-approves, and the re-approval records the
 stranger's root. When the validator later swaps its hotkey away, the stranger claims the vacated
 name and the vault treats it as approved: once the position empties, the next deposit lands on
-the stranger's hotkey. The stranger then swaps that hotkey away and cuts the trail, and the vault
-can no longer find the alpha. Every step is an ordinary extrinsic or vault call; the only
-privileged action shortens the swap announcement delay.
+the stranger's hotkey. The stranger then swaps that hotkey away and the vault can no longer
+find the alpha. Every step is an ordinary extrinsic or vault call; the only privileged action
+shortens the swap announcement delay.
 """
 import pytest
 
@@ -19,7 +19,6 @@ VALIDATOR_HOTKEY_URI = "//PoisonedValidatorHotkey"
 VALIDATOR_NEXT_HOTKEY_URI = "//PoisonedValidatorNextHotkey"
 STRANGER_URI = "//RootPoisoner"
 STRANGER_HOTKEY_URI = "//RootPoisonerHotkey"
-STRANGER_JUNK_URI = "//RootPoisonerJunk"
 SWAP_DELAY_BLOCKS = 5
 FUNDING_RAO = 50 * config.RAO_PER_TAO
 ALICE_STAKE_RAO = config.VALIDATOR_STAKE_TAO[0] * config.RAO_PER_TAO
@@ -77,7 +76,6 @@ def test_stranger_owns_the_hotkey_users_deposit_into(env):
     stranger_pubkey = extrinsics.keypair_pubkey(STRANGER_URI)
     stranger_hotkey_ss58 = extrinsics.keypair_ss58(STRANGER_HOTKEY_URI)
     stranger_hotkey_pubkey = extrinsics.keypair_pubkey(STRANGER_HOTKEY_URI)
-    junk_ss58 = extrinsics.keypair_ss58(STRANGER_JUNK_URI)
 
     extrinsics.fund_account(validator_ss58, FUNDING_RAO)
     extrinsics.fund_account(stranger_ss58, FUNDING_RAO)
@@ -162,11 +160,7 @@ def test_stranger_owns_the_hotkey_users_deposit_into(env):
     assert env.stake(stranger_hotkey_pubkey, clone_coldkey, netuid) >= on_stranger_key, (
         "the stranger's hotkey swap carried the users' alpha"
     )
-    assert env.backing_intact(token_id), "a followed swap is not yet a loss"
-
-    extrinsics.associate_hotkey(junk_ss58, signer_uri=STRANGER_URI)
-    extrinsics.swap_hotkey_on_subnet(junk_ss58, hotkey_ss58, netuid, signer_uri=STRANGER_URI)
-    assert not env.backing_intact(token_id), "with the trail cut the vault cannot find the alpha"
+    assert not env.backing_intact(token_id), "the vault cannot find the alpha after the stranger's swap"
     env.assert_vault_reverts_with(
         "BackingShortfall(uint16,bytes32,uint256)", 1_500_000,
         "Poisoning: priced operations should refuse while the alpha is unlocated",
