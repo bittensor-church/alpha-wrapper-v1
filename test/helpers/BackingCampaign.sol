@@ -429,8 +429,8 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         view
         returns (bytes32[] memory names, bytes32[] memory actives, bool[] memory live, bool collides)
     {
-        bytes32[] memory owners;
-        (names,, owners) = registry.getValidators(NETUID1);
+        bytes32[] memory ownerRoots;
+        (names,, ownerRoots) = registry.getValidators(NETUID1);
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         (bytes32[] memory keys, uint256[] memory balances,) = resolvedSlots();
         actives = new bytes32[](names.length);
@@ -440,18 +440,18 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
             uint256 slot = _slotOf(slots, name);
             if (slot != type(uint256).max && balances[slot] != 0) {
                 actives[i] = keys[slot];
-                live[i] = _ownedBy(keys[slot], owners[i]);
+                live[i] = _ownedBy(keys[slot], ownerRoots[i]);
                 continue;
             }
             bool nameHeld = _heldByAnotherAttestedSlot(keys, slots, names, name, slot);
             if (nameHeld && slot == type(uint256).max) return (names, actives, live, true);
             bytes32 key = name;
-            live[i] = !nameHeld && _ownedBy(name, owners[i]);
+            live[i] = !nameHeld && _ownedBy(name, ownerRoots[i]);
             if (!live[i]) {
                 if (slot != type(uint256).max) key = keys[slot];
-                live[i] = key != name && _ownedBy(key, owners[i]);
+                live[i] = key != name && _ownedBy(key, ownerRoots[i]);
                 bytes32 successor = _successorOf(key);
-                if (!live[i] && successor != bytes32(0) && successor != name && _ownedBy(successor, owners[i])) {
+                if (!live[i] && successor != bytes32(0) && successor != name && _ownedBy(successor, ownerRoots[i])) {
                     key = successor;
                     live[i] = true;
                 }
@@ -601,9 +601,9 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         return _contains(names, slots[holder].logical);
     }
 
-    function _ownedBy(bytes32 hotkey, bytes32 coldkey) private view returns (bool) {
+    function _ownedBy(bytes32 hotkey, bytes32 ownerRoot) private view returns (bool) {
         (bool exists, bytes32 owner) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey);
-        return exists && owner == coldkey;
+        return exists && VaultReads.lineageRootOf(owner) == ownerRoot;
     }
 
     function _contains(bytes32[] memory keys, bytes32 key) private pure returns (bool) {
