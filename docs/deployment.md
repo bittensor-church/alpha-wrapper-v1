@@ -81,11 +81,9 @@ rebuilt library means a new vault as well.
 
 ## Runtime compatibility
 
-The vault reads and writes chain state through precompiles. A runtime must
-provide each function below and honor the rule next to it. Every rule holds on
-Subtensor runtime 478. A vault runs against whatever runtime mainnet has when
-it is deployed, and the chain keeps upgrading that runtime afterwards; a
-runtime that breaks any rule is unsuitable.
+The vault reads and writes chain state through precompiles. It requires a
+chain fully compatible with Subtensor runtime 478 for the functions below,
+honoring the rule next to each, with no breaking change introduced since.
 
 | Precompile | Function | Rule relied on |
 | --- | --- | --- |
@@ -114,12 +112,6 @@ Two further rules sit outside any single function: the chain refuses a coldkey
 swap into an account that is itself a hotkey, which is what keeps mailboxes and
 subnet clones clean, and a rejected precompile call consumes all forwarded gas,
 which is why the vault checks conditions before calling.
-
-Before deploying, read the target chain's runtime version with
-`state_getRuntimeVersion` and review every rule above against the runtime
-changes since 478. A precompile can keep its signature while the pallet behind
-it changes what the call returns, so the review covers the pallet logic, not
-only the precompile interface.
 
 ## Deployed artifacts
 
