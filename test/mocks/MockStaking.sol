@@ -155,7 +155,6 @@ contract MockStaking {
         if (!transfersEnabled) _fail();
     }
 
-    // --- Conviction locks -------------------------------------------------------------------------
     // The chain keys a lock by hotkey as well; only the coldkey-wide locked mass matters to the vault.
 
     /// @dev Locked mass per (coldkey, netuid) in alpha RAO, and the one hotkey the chain keys it to.

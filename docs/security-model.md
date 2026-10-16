@@ -54,8 +54,8 @@ Holders rely on:
 - Unresolved backing blocks live pricing and exits until the position parks or
   the loss is written off; recovery moves only the vault's own stake, onto a
   hotkey only the vault's coldkey controls.
-- A receiving key is usable only under the coldkey that owned the registry-listed name;
-  a name claimed by anyone else receives nothing.
+- A receiving key needs an owner record; the vault does not check whose. The
+  registry owner replaces a name that answers to a stranger.
 - Alpha exits avoid pool trades. TAO exits are opt-in market sales with fees and
   price impact, including price impact borne by remaining holders.
 - Mailboxes and subnet clones are checked and protected at creation, so locked
@@ -86,8 +86,8 @@ unlocked-alpha and TAO donations remain allowed.
 
 ## Recovery-window tradeoff and late-recovery attack
 
-The [hotkey-swap runbook](hotkey-swaps.md) separates two failures: names that
-answer to the wrong coldkey and unlocated alpha. A registry update repairs the first.
+The [hotkey-swap runbook](hotkey-swaps.md) separates two failures: names with
+no usable key and unlocated alpha. A registry update repairs the first.
 `syncBacking` handles the second: it moves all located backing onto the vault's
 parking hotkey before starting one fixed recovery window, with a dust exception:
 if even the richest source or parking balance is below the conservative movement
@@ -158,11 +158,16 @@ them; accrued TAO survives either way.
   vault still needs. After an all-subnet swap, anyone paying the burn can register
   that ownerless key on the affected token's subnet if registration is open; see the
   [watcher runbook](hotkey-swaps.md#watcher-runbook).
-- A name swapped on one subnet keeps its owner, so an emptied slot re-stakes
-  under it and earns nothing there until the registry owner publishes the
-  successor; see the [watcher runbook](hotkey-swaps.md#watcher-runbook).
+- A name swapped on one subnet keeps its owner, and a name the vault claimed to
+  move stake off gains one, so an emptied slot re-stakes under it and earns
+  nothing there until the registry owner publishes the successor; see the
+  [watcher runbook](hotkey-swaps.md#watcher-runbook).
 - Clone protection relies on the chain refusing coldkey swaps into existing
   hotkeys and rejecting locked-alpha transfers by default. A public UID can be
   front-run into a retry; a poisoned candidate never becomes backing.
+- A vacated attested name that a stranger claims receives an empty slot's
+  allocation until the registry owner publishes the successor. The alpha stays
+  under the vault's coldkey; if the stranger moves it, it is recovered as
+  missing backing.
 
 See [edge cases](edge-cases.md) for dissolution, transfer restrictions and minimums.

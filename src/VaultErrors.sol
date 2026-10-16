@@ -43,6 +43,6 @@ error BackingNotSecured();
 error Parked();
 /// @dev The parking hotkey already belongs to another coldkey; deploy with an unused one.
 error ParkingHotkeyUnavailable();
-/// @dev No owned receiving key was resolved for this attested name.
-///      Restore an owner record or replace the registry entry; the backing timer cannot fix ownership.
+/// @dev No receiving key with an owner record was resolved for this attested name.
+///      Restore an owner record or replace the registry entry; the backing timer cannot fix it.
 error AttestedHotkeyRetired(bytes32 hotkey);

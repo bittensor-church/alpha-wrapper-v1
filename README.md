@@ -73,7 +73,7 @@ who need a different risk model should implement their own registry.
 
 ## Documentation
 
-- [Overview](docs/overview.md): contracts, shares and allocation.
+- [Overview](docs/overview.md): contracts and token ids.
 - [User guide](docs/user-guide.md): deposits, exits and mailbox recovery.
 - [Source flow guide](docs/source-flow-guide.md): position lifecycle and control flow.
 - [Hotkey swaps](docs/hotkey-swaps.md): the empty-slot issue, automatic handling

@@ -60,8 +60,6 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         assertEq(alice.balance - before, 2.5e18, "and the TAO exit still pays for 50 alpha");
     }
 
-    // --- Excluding slots the pool would refuse ------------------------------------------------
-
     /// @dev A refused quote or sale burns every unit of gas it is given; an excluded slot gets neither.
     function test_UnwrapForTao_LeavesExcludedSlotsUntouched() public {
         uint256 shares = _depositForAlice(100 * ALPHA);

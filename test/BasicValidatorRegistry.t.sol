@@ -30,23 +30,20 @@ contract BasicValidatorRegistryTest is Test {
         registry.setValidator(netuid, hotkey);
     }
 
-    function _assertValidator(uint256 netuid, bytes32 hotkey, bytes32 owner, uint256 nonce) internal view {
+    function _assertValidator(uint256 netuid, bytes32 hotkey, uint256 nonce) internal view {
         IValidatorRegistry asInterface = IValidatorRegistry(address(registry));
-        (bytes32[] memory keys, uint16[] memory weights, bytes32[] memory owners) = asInterface.getValidators(netuid);
+        (bytes32[] memory keys, uint16[] memory weights) = asInterface.getValidators(netuid);
         assertEq(keys.length, 1);
         assertEq(weights.length, 1);
-        assertEq(owners.length, 1);
         assertEq(keys[0], hotkey);
         assertEq(weights[0], 10_000);
-        assertEq(owners[0], owner);
         assertEq(asInterface.nonces(netuid), nonce);
     }
 
     function _assertUnconfigured(uint256 netuid) internal view {
-        (bytes32[] memory keys, uint16[] memory weights, bytes32[] memory owners) = registry.getValidators(netuid);
+        (bytes32[] memory keys, uint16[] memory weights) = registry.getValidators(netuid);
         assertEq(keys.length, 0);
         assertEq(weights.length, 0);
-        assertEq(owners.length, 0);
         assertEq(registry.nonces(netuid), 0);
     }
 
@@ -54,7 +51,7 @@ contract BasicValidatorRegistryTest is Test {
         // Subtensor returns the stored AccountId independently of the existence flag.
         _mockHotkeyOwner(HOTKEY, true, 0);
         _setValidatorAsOwner(NETUID, HOTKEY);
-        _assertValidator(NETUID, HOTKEY, 0, 1);
+        _assertValidator(NETUID, HOTKEY, 1);
     }
 
     function test_GetValidators_UnconfiguredSubnetIsEmpty() public view {
@@ -62,39 +59,36 @@ contract BasicValidatorRegistryTest is Test {
         _assertUnconfigured(type(uint256).max);
     }
 
-    function test_SetValidator_ImmediatelyRecordsOwnerAndNonce() public {
+    function test_SetValidator_ImmediatelyRecordsHotkeyAndNonce() public {
         vm.expectEmit(true, false, false, true, address(registry));
-        emit BasicValidatorRegistry.ValidatorUpdated(NETUID, 1, HOTKEY, HOTKEY_COLDKEY);
+        emit BasicValidatorRegistry.ValidatorUpdated(NETUID, 1, HOTKEY);
         _setValidatorAsOwner(NETUID, HOTKEY);
-        _assertValidator(NETUID, HOTKEY, HOTKEY_COLDKEY, 1);
+        _assertValidator(NETUID, HOTKEY, 1);
     }
 
-    function test_SetValidator_ReplacesHotkeyAndOwner() public {
+    function test_SetValidator_ReplacesHotkey() public {
         _setValidatorAsOwner(NETUID, HOTKEY);
         bytes32 nextHotkey = keccak256("next");
-        bytes32 nextOwner = keccak256("nextOwner");
-        _mockHotkeyOwner(nextHotkey, true, nextOwner);
+        _mockHotkeyOwner(nextHotkey, true, keccak256("nextOwner"));
         vm.expectEmit(true, false, false, true, address(registry));
-        emit BasicValidatorRegistry.ValidatorUpdated(NETUID, 2, nextHotkey, nextOwner);
+        emit BasicValidatorRegistry.ValidatorUpdated(NETUID, 2, nextHotkey);
         _setValidatorAsOwner(NETUID, nextHotkey);
-        _assertValidator(NETUID, nextHotkey, nextOwner, 2);
+        _assertValidator(NETUID, nextHotkey, 2);
     }
 
-    function test_SetValidator_SameHotkeyRefreshesOwnerAndNonce() public {
+    function test_SetValidator_SameHotkeyAdvancesTheNonce() public {
         _setValidatorAsOwner(NETUID, HOTKEY);
         _setValidatorAsOwner(NETUID, HOTKEY);
-        _assertValidator(NETUID, HOTKEY, HOTKEY_COLDKEY, 2);
-        bytes32 nextOwner = keccak256("nextOwner");
-        _mockHotkeyOwner(HOTKEY, true, nextOwner);
-        _assertValidator(NETUID, HOTKEY, HOTKEY_COLDKEY, 2);
+        _assertValidator(NETUID, HOTKEY, 2);
+        _mockHotkeyOwner(HOTKEY, true, keccak256("nextOwner"));
         _setValidatorAsOwner(NETUID, HOTKEY);
-        _assertValidator(NETUID, HOTKEY, nextOwner, 3);
+        _assertValidator(NETUID, HOTKEY, 3);
     }
 
-    function test_GetValidators_PreservesOwnerSnapshot() public {
+    function test_GetValidators_KeepsANameThatLostItsOwner() public {
         _setValidatorAsOwner(NETUID, HOTKEY);
         _mockHotkeyOwner(HOTKEY, false, 0);
-        _assertValidator(NETUID, HOTKEY, HOTKEY_COLDKEY, 1);
+        _assertValidator(NETUID, HOTKEY, 1);
     }
 
     function test_SetValidator_SubnetsAreIndependent() public {
@@ -103,16 +97,16 @@ contract BasicValidatorRegistryTest is Test {
         bytes32 nextHotkey = keccak256("next");
         _mockHotkeyOwner(nextHotkey, true, HOTKEY_COLDKEY);
         _setValidatorAsOwner(NETUID, nextHotkey);
-        _assertValidator(NETUID, nextHotkey, HOTKEY_COLDKEY, 2);
-        _assertValidator(2, HOTKEY, HOTKEY_COLDKEY, 1);
+        _assertValidator(NETUID, nextHotkey, 2);
+        _assertValidator(2, HOTKEY, 1);
         _assertUnconfigured(3);
     }
 
     function test_SetValidator_AcceptsNetuidBoundaries() public {
         _setValidatorAsOwner(0, HOTKEY);
         _setValidatorAsOwner(type(uint16).max, HOTKEY);
-        _assertValidator(0, HOTKEY, HOTKEY_COLDKEY, 1);
-        _assertValidator(type(uint16).max, HOTKEY, HOTKEY_COLDKEY, 1);
+        _assertValidator(0, HOTKEY, 1);
+        _assertValidator(type(uint16).max, HOTKEY, 1);
     }
 
     function test_RevertWhen_NetuidIsOutOfRange() public {
@@ -152,7 +146,7 @@ contract BasicValidatorRegistryTest is Test {
         hotkey = bytes32(bound(uint256(hotkey), 1, type(uint256).max));
         _mockHotkeyOwner(hotkey, true, owner);
         _setValidatorAsOwner(netuid, hotkey);
-        _assertValidator(netuid, hotkey, owner, 1);
+        _assertValidator(netuid, hotkey, 1);
     }
 
     function testFuzz_RevertWhen_NetuidIsOutOfRange(uint256 netuid) public {

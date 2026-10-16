@@ -14,7 +14,7 @@ def test_observability_decodes_basic_validator_updates(monkeypatch, capsys):
     def logs(*args, **kwargs):
         calls.append(args)
         event = {"netuid": 7, "nonce": 2}
-        event.update(hotkey="A", owner="owner")
+        event.update(hotkey="A")
         return [({"transactionHash": SimpleNamespace(to_0x_hex=lambda: "0x01"), "blockNumber": 42}, event)]
     monkeypatch.setattr(script, "fetch_event_logs", logs)
     script.main()

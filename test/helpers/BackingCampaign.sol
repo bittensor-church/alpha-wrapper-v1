@@ -243,7 +243,7 @@ abstract contract BackingCampaignHandler is Test {
         } else if (selector == Parked.selector) {
             assertTrue(harness.parked(), "refused as parked after the release");
         } else if (selector == AttestedHotkeyRetired.selector) {
-            assertEq(harness.firstRetiredName(), _firstWord(reason), "refused a name its owner can receive on");
+            assertEq(harness.firstRetiredName(), _firstWord(reason), "refused a name with a usable key");
         } else if (selector == IAlphaVaultAbi.SwappedHotkeyStillAttested.selector) {
             (,,, bool collides) = harness.attestedAssignment();
             assertTrue(collides, "refused an assignment without a collision");
@@ -332,8 +332,6 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         _setAlphaPrice(NETUID1, _wholeRaoPrice(priceSeed));
     }
 
-    // --- Independent reads of the state a refusal claims ------------------------------------------------------
-
     /// @dev Each slot where the record finds it: the recorded key if that covers the slot within slack, else a
     ///      successor that covers it and no other slot holds; a slot neither covers is short.
     function resolvedSlots()
@@ -421,7 +419,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
 
     /// @dev The documented key assignment for the attested set. A funded slot keeps its resolved key. An empty or new
     ///      slot takes the name while no other attested slot holds it, else its slot's key, else that key's successor,
-    ///      each only under the attested owner; `live` marks a key the owner holds. The assignment collides when an
+    ///      each only while it has an owner record; `live` marks such a key. The assignment collides when an
     ///      empty or new slot settles on another attested name, a key another attested slot holds, or a key already
     ///      assigned.
     function attestedAssignment()
@@ -429,8 +427,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         view
         returns (bytes32[] memory names, bytes32[] memory actives, bool[] memory live, bool collides)
     {
-        bytes32[] memory owners;
-        (names,, owners) = registry.getValidators(NETUID1);
+        (names,) = registry.getValidators(NETUID1);
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         (bytes32[] memory keys, uint256[] memory balances,) = resolvedSlots();
         actives = new bytes32[](names.length);
@@ -440,18 +437,18 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
             uint256 slot = _slotOf(slots, name);
             if (slot != type(uint256).max && balances[slot] != 0) {
                 actives[i] = keys[slot];
-                live[i] = _ownedBy(keys[slot], owners[i]);
+                live[i] = _hasOwner(keys[slot]);
                 continue;
             }
             bool nameHeld = _heldByAnotherAttestedSlot(keys, slots, names, name, slot);
             if (nameHeld && slot == type(uint256).max) return (names, actives, live, true);
             bytes32 key = name;
-            live[i] = !nameHeld && _ownedBy(name, owners[i]);
+            live[i] = !nameHeld && _hasOwner(name);
             if (!live[i]) {
                 if (slot != type(uint256).max) key = keys[slot];
-                live[i] = key != name && _ownedBy(key, owners[i]);
+                live[i] = key != name && _hasOwner(key);
                 bytes32 successor = _successorOf(key);
-                if (!live[i] && successor != bytes32(0) && successor != name && _ownedBy(successor, owners[i])) {
+                if (!live[i] && successor != bytes32(0) && successor != name && _hasOwner(successor)) {
                     key = successor;
                     live[i] = true;
                 }
@@ -465,7 +462,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         }
     }
 
-    /// @dev The name a completed assignment reports as retired: the first whose key its owner does not hold.
+    /// @dev The name a completed assignment reports as retired: the first with no usable key.
     function firstRetiredName() external view returns (bytes32) {
         (bytes32[] memory names,, bool[] memory live, bool collides) = attestedAssignment();
         if (collides) return bytes32(0);
@@ -601,9 +598,8 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         return _contains(names, slots[holder].logical);
     }
 
-    function _ownedBy(bytes32 hotkey, bytes32 coldkey) private view returns (bool) {
-        (bool exists, bytes32 owner) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey);
-        return exists && owner == coldkey;
+    function _hasOwner(bytes32 hotkey) private view returns (bool exists) {
+        (exists,) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey);
     }
 
     function _contains(bytes32[] memory keys, bytes32 key) private pure returns (bool) {

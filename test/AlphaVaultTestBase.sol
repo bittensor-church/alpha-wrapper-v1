@@ -202,7 +202,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     }
 
     function _attestedHotkeys(uint256 netuid) internal view returns (bytes32[] memory hotkeys) {
-        (hotkeys,,) = vault.validatorRegistry().getValidators(netuid);
+        (hotkeys,) = vault.validatorRegistry().getValidators(netuid);
     }
 
     function _simulateAlphaDepositHotkey(address user, uint256 netuid, uint256 amount, bytes32 hotkey) internal {
@@ -300,7 +300,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
 
     /// @dev Lands the current set again under a new nonce, releasing a parked position.
     function _reattestCurrentSet(uint256 netuid) internal {
-        (bytes32[] memory hks, uint16[] memory wts,) = registry.getValidators(netuid);
+        (bytes32[] memory hks, uint16[] memory wts) = registry.getValidators(netuid);
         _setValidators(netuid, hks, wts);
     }
 
@@ -492,14 +492,14 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         _recordHotkeyOwner(hotkey);
     }
 
-    /// @dev A validator's rename keeps its coldkey, so the successor answers to the attested owner.
+    /// @dev A validator's hotkey swap keeps its coldkey, so the successor gets the same owner.
     function _simulateSameOwner(bytes32 fromHotkey, bytes32 toHotkey) internal {
         MockStaking mock = MockStaking(STAKING_PRECOMPILE);
         mock.setHotkeyDeleted(toHotkey, false);
         mock.setHotkeyOwner(toHotkey, mock.ownerOf(fromHotkey));
     }
 
-    /// @dev A stranger claims the hotkey; its owner no longer matches the attested one.
+    /// @dev A stranger claims the hotkey.
     function _simulateSquatter(bytes32 hotkey) internal {
         MockStaking(STAKING_PRECOMPILE).setHotkeyOwner(hotkey, keccak256(abi.encodePacked("squatter:", hotkey)));
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey, false);
