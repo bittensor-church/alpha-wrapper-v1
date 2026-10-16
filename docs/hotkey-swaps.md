@@ -25,11 +25,11 @@ Suppose the registry names A and the vault holds 100 alpha there:
 
 1. A swaps to B across all subnets. The 100 alpha moves to B; A loses its owner record.
 2. The vault follows the swap and records B as the actual stake location.
-3. An exit empties that slot. The next allocation for A goes to B, because B is
-   the key A's owner holds.
+3. An exit empties that slot. The next allocation for A goes to B, the key that
+   still has an owner record.
 
 For an empty slot the vault prefers the attested name, then the recorded key,
-then that key's one-hop successor, each only while the attested owner holds it,
+then that key's one-hop successor, each only while it has an owner record,
 subject to collision checks. Funded slots stay at their resolved location.
 After a per-subnet swap the name keeps its owner record, so an emptied slot
 returns to the name and earns nothing there until the registry owner publishes
@@ -48,21 +48,22 @@ that accounts for itself, writes a followed swap into the record. Two
 unobserved swaps, an erased edge or a collision need a watcher. Subnet re-registration can erase lineage; owner association is a
 different operation and does not re-register the key.
 
-## Who a name answers to
+## Receiving keys
 
-The registry records the coldkey that owned each hotkey when it was attested. A
-receiving key is usable only under that coldkey: the attested name itself, the
-recorded active key, or its one-hop successor, whichever the attested owner
-holds. A validator's own rename keeps its coldkey, so its successor qualifies. A
-vacated name claimed by anyone else reports `AttestedHotkeyRetired` and receives
-nothing; the registry owner retires it by replacing the target.
+The vault does not check who owns a key. A receiving key needs an owner record,
+because the chain refuses stake operations without one: the attested name, else
+the recorded active key, else its one-hop successor. A validator's coldkey swap
+changes nothing for the vault. A name with no usable key reports
+`AttestedHotkeyRetired`; the registry owner replaces the target.
+
+A vacated attested name that someone else claims receives an empty slot's
+allocation until the registry owner publishes the successor. The alpha stays
+under the vault's coldkey and, if moved, is recovered as missing backing.
 
 The chain refuses to move stake through a hotkey with no owner record. When the
 vault has to move stake off such a key, it claims the key for its own coldkey
 first, then moves. That claim serves the move and is permanent; it does not
-make the key an attested destination. A validator's coldkey swap changes the
-owner of its hotkeys, and the registry owner confirms the new owner by publishing
-again.
+make the key an attested destination.
 
 ## The parking hotkey
 
@@ -94,12 +95,12 @@ name was already replaced or never mattered.
 
 | Problem | Meaning | Repair |
 | --- | --- | --- |
-| Name answers to the wrong coldkey | The attested name, its recorded key and its successor are all unusable. | Registry governance publishes a set without the name, or the attested owner reclaims it. |
+| Name has no usable key | The attested name, its recorded key and its successor have no owner record. | Registry governance publishes a set without the name, or the validator reclaims it. |
 | Missing backing | The vault cannot locate enough alpha to satisfy its record. | Park it with `recoverStray`, or let `syncBacking` write off the difference after the window. |
 
 They can occur together. `isBackingIntact() == true` does not prove an exit can
-execute. An attested entry that answers to a stranger blocks allocation without
-any shortfall or recovery clock.
+execute. An attested entry with no usable key blocks allocation without any
+shortfall or recovery clock.
 
 ## Watcher runbook
 

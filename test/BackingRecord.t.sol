@@ -391,12 +391,16 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
     }
 
-    function test_RevertWhen_AReusedNamesSuccessorBelongsToAStranger() public {
+    function test_AReusedNamesSuccessorClaimedByAStranger_StillCarriesTheSlot() public {
         _reuseTheDrainedNameAfterItsRecordedKeyRetires();
         _simulateSquatter(hotkey5);
 
-        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
         vault.rebalance(NETUID1);
+
+        assertEq(
+            vault.recordedSlots(TOKEN1)[0].active, hotkey5, "the slot answers under the successor, whoever holds it"
+        );
+        assertEq(_getVaultStake(hotkey5, NETUID1), 6_667_333_200, "3334 bps of the remaining 19.998 alpha");
     }
 
     function _reusedNamesSuccessorHeldByAThirdSlot() private {

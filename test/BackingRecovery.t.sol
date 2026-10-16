@@ -53,8 +53,6 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
     }
 
-    // --- Declaring and clearing a shortfall ---------------------------------------------------
-
     function test_SyncBacking_DeclaresTheShortfall() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _buildSwapTrail(NETUID1, hotkey1, 2);
@@ -185,8 +183,6 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         vm.expectRevert(BackingUnchanged.selector);
         vault.syncBacking(TOKEN1);
     }
-
-    // --- Recovery parks the position ------------------------------------------------------------
 
     function test_RecoverStray_ParksTheWholePosition() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
@@ -367,8 +363,6 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         vault.recoverStray(TOKEN1, hotkey4);
     }
 
-    // --- Strays with nothing missing join the live backing -------------------------------------
-
     function test_RecoverStray_AnnexesADonationToTheFirstSlot() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey4, _subnetColdkey(NETUID1), NETUID1, 3 * ALPHA);
@@ -425,8 +419,6 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         vm.expectRevert(IAlphaVaultAbi.ConsolidationBelowFloor.selector);
         vault.recoverStray(TOKEN1, hotkey4);
     }
-
-    // --- Life on the parking hotkey --------------------------------------------------------------
 
     function _parkedPosition() private returns (uint256 shares) {
         return _parkedPosition(30 * ALPHA);
@@ -758,8 +750,6 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "and the backing is whole again");
     }
 
-    // --- Subnet dissolution --------------------------------------------------------------------
-
     function _dissolveWithPot(uint256 pot) private {
         _simulateDissolutionStarted(NETUID1);
         _simulateTaoAwardedOnDissolution(TOKEN1, pot);
@@ -787,8 +777,6 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
         assertEq(alice.balance, 0.75e18, "half the shares take half the 1.5 TAO pot");
     }
-
-    // --- Writing a loss off ----------------------------------------------------------------------
 
     function test_WriteOff_ParksWhatIsLeft() public {
         _declaredShortfall();
@@ -900,8 +888,6 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         hourVault.syncBacking(tokenId);
         assertTrue(hourVault.awaitingAttestation(tokenId), "and the write-off falls due on it too");
     }
-
-    // --- Who a late recovery belongs to --------------------------------------------------------
 
     function test_LateFoundAlpha_IsAWindfallForTheCurrentCohort() public {
         uint256 aliceShares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
@@ -1045,27 +1031,33 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         );
     }
 
-    // --- Names that answer to the wrong coldkey --------------------------------------------------
-
-    function test_SquattedVacatedName_SendsAllocationToTheSuccessorInstead() public {
+    function _squattedVacatedNameBesideItsSuccessor() private {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey4), _weights(3334, 3333, 3333));
         _simulateFollowedSwap(NETUID1, hotkey4, hotkey5);
         _simulateSquatter(hotkey4);
-
-        vault.rebalance(NETUID1);
-
-        assertEq(_getVaultStake(hotkey4, NETUID1), 0, "nothing goes to the squatted name");
-        assertEq(_getVaultStake(hotkey5, NETUID1), 9_999_000_000, "its weight goes to the validator's successor");
     }
 
-    function test_SquattedVacatedNameWithNoSuccessor_IsRetired() public {
-        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey4), _weights(3334, 3333, 3333));
-        _simulateSquatter(hotkey4);
+    function test_SquattedVacatedName_ReceivesTheEmptySlotsAllocation() public {
+        _squattedVacatedNameBesideItsSuccessor();
 
-        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey4));
         vault.rebalance(NETUID1);
+
+        assertEq(
+            _getVaultStake(hotkey4, NETUID1), 9_999_000_000, "the attested name receives its weight, whoever holds it"
+        );
+        assertEq(_getVaultStake(hotkey5, NETUID1), 0, "and the validator's successor nothing");
+    }
+
+    function test_PublishingTheSuccessor_MovesTheAllocationOffTheSquattedName() public {
+        _squattedVacatedNameBesideItsSuccessor();
+        vault.rebalance(NETUID1);
+
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey5), _weights(3334, 3333, 3333));
+        vault.rebalance(NETUID1);
+
+        assertEq(_getVaultStake(hotkey4, NETUID1), 0, "the dropped name is consolidated away");
+        assertEq(_getVaultStake(hotkey5, NETUID1), 9_999_000_000, "onto the published successor");
     }
 
     function test_OwnerlessFundedKey_RefusesAlignmentUntilReplaced() public {
@@ -1087,17 +1079,25 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "losing nothing");
     }
 
-    /// @dev A coldkey swap moves every hotkey of the validator to the new coldkey; the attesters confirm it.
-    function test_ValidatorColdkeySwap_RetiresItsSlotUntilReattested() public {
-        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        MockStaking(STAKING_PRECOMPILE).setHotkeyOwner(hotkey1, keccak256("the validator's new coldkey"));
+    /// @dev A coldkey swap moves every hotkey of the validator to the new coldkey.
+    function testFuzz_ValidatorColdkeySwap_ChangesNothingForTheVault(bytes32 newColdkey) public {
+        newColdkey = bytes32(bound(uint256(newColdkey), 1, type(uint256).max));
+        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        uint256 nonce = registry.nonces(NETUID1);
+        MockStaking(STAKING_PRECOMPILE).setHotkeyOwner(hotkey1, newColdkey);
 
-        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
         vault.rebalance(NETUID1);
+        _depositAndWrap(bob, NETUID1, 6 * ALPHA);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
 
-        _reattestCurrentSet(NETUID1);
-        vault.rebalance(NETUID1);
-        assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "the position is whole under the new coldkey");
+        assertEq(registry.nonces(NETUID1), nonce, "no new attestation was needed");
+        assertEq(
+            lens.totalStake(TOKEN1) + _userStakeAcrossHotkeys(alice, NETUID1),
+            36 * ALPHA,
+            "the position is whole under the new coldkey"
+        );
+        assertTrue(lens.isBackingIntact(TOKEN1));
     }
 
     /// @dev hotkey1's slot returns on hotkey4 short by `missing` RAO and is collected into parking.
@@ -1130,12 +1130,15 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         assertEq(vault.recordedSlots(TOKEN1)[0].tracked, 30 * ALPHA);
     }
 
-    function test_SquattedFundedKey_IsRetiredNotFunded() public {
+    function test_SquattedFundedKey_StaysFunded() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        uint256 before = _getVaultStake(hotkey1, NETUID1);
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey1, true);
         _simulateSquatter(hotkey1);
 
-        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
         vault.rebalance(NETUID1);
+
+        assertEq(_getVaultStake(hotkey1, NETUID1), before, "the stake stays where it is, whoever holds the key");
+        assertEq(lens.totalStake(TOKEN1), 30 * ALPHA);
     }
 }

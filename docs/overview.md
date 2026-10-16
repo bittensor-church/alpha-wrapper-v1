@@ -56,8 +56,8 @@ sits and do not rebalance.
 ## Swaps and recovery
 
 The vault records where stake actually sits, separately from registry names.
-It follows one successor hop from that recorded location and keeps allocation
-under the coldkey that owned each attested name.
+It follows one successor hop from that recorded location and stakes only on
+keys with an owner record.
 
 Unresolved swaps need a watcher. Missing backing is parked on a hotkey the
 vault's own coldkey controls, by recovery or by a delayed write-off, and stays

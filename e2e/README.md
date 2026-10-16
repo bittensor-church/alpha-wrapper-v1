@@ -83,6 +83,8 @@ Scenario files in `tests/` cover:
 - `test_subnet_generation.py`: a rewritten registration block leaves the token and its
   exits untouched; dissolving and re-registering the netuid yields a new token, and the
   old one redeems its dissolution refund.
+- `test_validator_coldkey_swap.py`: a validator swaps its coldkey; wraps, rebalances and
+  exits continue without a new attestation.
 Each module's docstring describes its sequence. These scenarios exercise specific
 recovery conditions, not an unconditional exit guarantee; see the
 [design](../docs/hotkey-swaps.md).
