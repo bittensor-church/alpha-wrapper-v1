@@ -62,8 +62,9 @@ under the vault's coldkey and, if moved, is recovered as missing backing.
 
 The chain refuses to move stake through a hotkey with no owner record. When the
 vault has to move stake off such a key, it claims the key for its own coldkey
-first, then moves. That claim serves the move and is permanent; it does not
-make the key an attested destination.
+first, then moves. The claim is permanent, and while the name stays attested
+the claimed key counts as a receiving key for an emptied slot, which earns
+nothing there until the registry owner publishes the successor.
 
 ## The parking hotkey
 
