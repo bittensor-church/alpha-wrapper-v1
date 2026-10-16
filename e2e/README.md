@@ -85,6 +85,9 @@ Scenario files in `tests/` cover:
   old one redeems its dissolution refund.
 - `test_validator_coldkey_swap.py`: a validator swaps its coldkey; the vault follows the
   lineage and wraps, rebalances and exits continue without a new attestation.
+- `test_coldkey_root_poisoning.py`: a stranger swaps into a validator coldkey that holds no
+  alpha of its own, the registry re-approves, the validator swaps its hotkey away, the stranger
+  claims the vacated name, receives the next deposit, and cuts the trail behind a hotkey swap.
 Each module's docstring describes its sequence. These scenarios exercise specific
 recovery conditions, not an unconditional exit guarantee; see the
 [design](../docs/hotkey-swaps.md).
