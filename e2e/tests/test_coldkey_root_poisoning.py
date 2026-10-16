@@ -62,13 +62,6 @@ def _recorded_owner_root(env, netuid: int) -> str:
     return lines[2].strip("[]").lower()
 
 
-def _swap_coldkey(signer_uri: str, destination_pubkey: str, destination_ss58: str) -> None:
-    extrinsics.announce_coldkey_swap(bytes.fromhex(destination_pubkey[2:]), signer_uri=signer_uri)
-    maturity_blocks = SWAP_DELAY_BLOCKS + 2
-    chain.wait_for_blocks(maturity_blocks, timeout=maturity_blocks * config.BLOCK_TIMEOUT_SECONDS)
-    extrinsics.swap_coldkey_announced(destination_ss58, signer_uri=signer_uri)
-
-
 @pytest.mark.scenario
 def test_stranger_owns_the_hotkey_users_deposit_into(env):
     netuid = env.netuids[0]
@@ -89,6 +82,7 @@ def test_stranger_owns_the_hotkey_users_deposit_into(env):
     extrinsics.fund_account(stranger_ss58, FUNDING_RAO)
     _register(hotkey_ss58, netuid, VALIDATOR_URI)
     assert extrinsics.hotkey_owner(hotkey_ss58) == validator_ss58
+    extrinsics.decrease_take(hotkey_ss58, 0, signer_uri=VALIDATOR_URI)
     assert _staking_hotkey_count(validator_pubkey) == 1, "registration lists the hotkey under its owner"
     extrinsics.add_stake(hotkey_ss58, netuid, ALICE_STAKE_RAO)
     env.set_validator(netuid, hotkey_pubkey)
@@ -111,7 +105,12 @@ def test_stranger_owns_the_hotkey_users_deposit_into(env):
     )
 
     extrinsics.set_coldkey_swap_announcement_delay(SWAP_DELAY_BLOCKS)
-    _swap_coldkey(STRANGER_URI, validator_pubkey, validator_ss58)
+    extrinsics.announce_coldkey_swap(bytes.fromhex(validator_pubkey[2:]), signer_uri=STRANGER_URI)
+    maturity_blocks = SWAP_DELAY_BLOCKS + 2
+    chain.wait_for_blocks(maturity_blocks, timeout=maturity_blocks * config.BLOCK_TIMEOUT_SECONDS)
+    assert env.stake(hotkey_pubkey, validator_pubkey, netuid) == 0, "no take accrued to the zero-take validator"
+    assert _staking_hotkey_count(validator_pubkey) == 0, "the validator coldkey is still an eligible destination"
+    extrinsics.swap_coldkey_announced(validator_ss58, signer_uri=STRANGER_URI)
     assert _coldkey_root(validator_pubkey) == (True, stranger_pubkey.lower()), "the stranger rewrote the root"
     assert extrinsics.hotkey_owner(hotkey_ss58) == validator_ss58, "the hotkey still belongs to the validator"
     assert env.stake(hotkey_pubkey, clone_coldkey, netuid) > 0, "the vault's alpha did not move"

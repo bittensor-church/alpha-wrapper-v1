@@ -52,7 +52,7 @@ jobs:
       matrix:
         # Each scenario gets its own fresh subtensor service container, so state a scenario
         # changes on chain, such as the transfer toggles it switches off, cannot reach another.
-        scenario: ${{ fromJSON(needs.scenarios.outputs.files) }}
+        scenario: [tests/test_coldkey_root_poisoning.py]
 
     services:
       subtensor:

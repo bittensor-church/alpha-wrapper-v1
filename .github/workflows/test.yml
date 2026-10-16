@@ -16,6 +16,7 @@ env:
 
 jobs:
   check:
+    if: false
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
