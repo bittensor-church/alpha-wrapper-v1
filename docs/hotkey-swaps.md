@@ -60,6 +60,14 @@ hotkeys stay usable without a new attestation. A vacated name claimed by anyone
 else reports `AttestedHotkeyRetired` and receives nothing; the registry owner
 retires it by replacing the target.
 
+The chain also lets anyone swap a coldkey into one that stakes under no hotkey,
+which joins the swapper to that lineage. For an attested coldkey this retires
+the name until the registry owner re-approves it, and the swapper's coldkey then
+answers for names the validator later vacates. Such a swap is announced in
+advance and refused while the destination stakes under any hotkey, so an
+attested coldkey that holds its own stake, or receives a gift of alpha, cannot
+be swapped into; see the [watcher runbook](#watcher-runbook).
+
 The chain refuses to move stake through a hotkey with no owner record. When the
 vault has to move stake off such a key, it claims the key for its own coldkey
 first, then moves. That claim serves the move and is permanent; it does not
@@ -111,6 +119,10 @@ any shortfall or recovery clock.
    Watch the chain's hotkey swap events for attested names. After any swap of
    an attested name, publish the successor at once: until then an emptied slot
    re-stakes under the old name, which earns nothing on that subnet.
+   Keep every attested coldkey on a staking list: when `getStakingHotkeys`
+   reports none, transfer a small amount of alpha to it under any hotkey. Watch
+   coldkey swap announcements that name an attested coldkey; the swap is refused
+   while that list is non-empty.
 2. For missing backing, call `syncBacking(tokenId)`. It secures all located
    backing on `parkingHotkey` before starting one fixed recovery window, except
    below-floor piles. Other collection failures revert without changing the clock

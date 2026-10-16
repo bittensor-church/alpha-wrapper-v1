@@ -164,5 +164,12 @@ them; accrued TAO survives either way.
 - Clone protection relies on the chain refusing coldkey swaps into existing
   hotkeys and rejecting locked-alpha transfers by default. A public UID can be
   front-run into a retry; a poisoned candidate never becomes backing.
+- A coldkey that stakes under no hotkey accepts a coldkey swap from anyone, which
+  joins the swapper to its lineage. For an attested validator this retires the
+  name until re-approval, and a name the validator later vacates answers to the
+  swapper until the registry owner replaces it. Alpha the swapper moves stays
+  under the vault's coldkey and is recovered as missing backing. Keeping
+  attested coldkeys on a staking list prevents the swap; see the
+  [watcher runbook](hotkey-swaps.md#watcher-runbook).
 
 See [edge cases](edge-cases.md) for dissolution, transfer restrictions and minimums.

@@ -1,17 +1,19 @@
-"""A stranger poisons a validator coldkey's lineage root and ends up holding users' alpha.
+"""A stranger poisons a validator coldkey's lineage root; the watcher and registry owner recover the slot.
 
-The validator's coldkey owns the approved hotkey but holds no alpha of its own, so the chain
-accepts a coldkey swap into it from a stranger. The swap rewrites the coldkey's root. The vault
-refuses the validator until the registry owner re-approves, and the re-approval records the
-stranger's root. When the validator later swaps its hotkey away, the stranger claims the vacated
-name and the vault treats it as approved: once the position empties, the next deposit lands on
-the stranger's hotkey. The stranger then swaps that hotkey away and the vault can no longer
-find the alpha. Every step is an ordinary extrinsic or vault call; the only privileged action
-shortens the swap announcement delay.
+The chain lets anyone swap a coldkey into one that stakes under no hotkey. The validator's
+coldkey owns the approved hotkey, charges no take and holds no alpha, so a stranger's swap into
+it goes through and rewrites the root. The vault refuses the validator until the registry owner
+re-approves, and the re-approval records the stranger's root. When the validator later swaps its
+hotkey away, the stranger claims the vacated name and, the position being empty, receives the
+next deposit, then swaps that hotkey away and the vault loses sight of the alpha. The watcher
+parks it with `recoverStray`, the registry owner publishes the validator's real key, and the
+holder exits in full. A gift of alpha to the validator's coldkey puts it back on a staking list,
+and the chain refuses the next stranger's swap. Every step is an ordinary extrinsic or vault
+call; the only privileged action shortens the swap announcement delay.
 """
 import pytest
 
-from alpha_e2e import chain, config, exits, extrinsics
+from alpha_e2e import chain, config, exits, extrinsics, incidents
 from alpha_e2e.substrate import h160_to_ss58
 
 VALIDATOR_URI = "//PoisonedValidator"
@@ -19,10 +21,12 @@ VALIDATOR_HOTKEY_URI = "//PoisonedValidatorHotkey"
 VALIDATOR_NEXT_HOTKEY_URI = "//PoisonedValidatorNextHotkey"
 STRANGER_URI = "//RootPoisoner"
 STRANGER_HOTKEY_URI = "//RootPoisonerHotkey"
+SECOND_STRANGER_URI = "//SecondRootPoisoner"
 SWAP_DELAY_BLOCKS = 5
 FUNDING_RAO = 50 * config.RAO_PER_TAO
 ALICE_STAKE_RAO = config.VALIDATOR_STAKE_TAO[0] * config.RAO_PER_TAO
 VALIDATOR_OWN_STAKE_RAO = 1 * config.RAO_PER_TAO
+GIFT_RAO = config.RAO_PER_ALPHA
 ALREADY_REGISTERED = "HotKeyAlreadyRegisteredInSubNet"
 
 
@@ -63,7 +67,7 @@ def _recorded_owner_root(env, netuid: int) -> str:
 
 
 @pytest.mark.scenario
-def test_stranger_owns_the_hotkey_users_deposit_into(env):
+def test_stranger_holds_deposits_until_the_watcher_parks_and_the_owner_republishes(env):
     netuid = env.netuids[0]
     token_id = env.token_ids[0]
     validator_ss58 = extrinsics.keypair_ss58(VALIDATOR_URI)
@@ -166,3 +170,46 @@ def test_stranger_owns_the_hotkey_users_deposit_into(env):
         "Poisoning: priced operations should refuse while the alpha is unlocated",
         "rebalance(uint256)", netuid,
     )
+
+    stranding = incidents.Stranding(
+        hotkey_pubkey, hotkey_ss58, stranger_hotkey_pubkey, stranger_hotkey_ss58, stranger_ss58, on_stranger_key,
+    )
+    parked = incidents.park(env, token_id, stranding, "Poisoning")
+    assert env.stake(stranger_hotkey_pubkey, clone_coldkey, netuid) <= config.ROUNDING_DUST_SLOT_RAO, (
+        "the watcher moved the alpha off the stranger's key"
+    )
+
+    env.set_validator(netuid, next_hotkey_pubkey)
+    assert _recorded_owner_root(env, netuid) == stranger_pubkey.lower(), (
+        "the validator's lineage keeps the root the stranger gave it"
+    )
+    env.vault_send(
+        4_000_000, "Poisoning: the release rebalance failed", "rebalance(uint256)", netuid,
+        label="rebalance [release parked]",
+    )
+    assert env.stake(env.parking_hotkey(), clone_coldkey, netuid) <= config.ROUNDING_DUST_SLOT_RAO, (
+        "the parking hotkey should be empty after the release"
+    )
+    assert env.stake(next_hotkey_pubkey, clone_coldkey, netuid) >= parked - config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO, (
+        "the validator's real key carries the recovered alpha"
+    )
+    assert env.backing_intact(token_id), "the record follows the new set"
+
+    extrinsics.transfer_stake(validator_ss58, next_hotkey_ss58, netuid, GIFT_RAO)
+    assert _staking_hotkey_count(validator_pubkey) == 1, "a gift of alpha puts the coldkey on a staking list"
+    second_stranger_ss58 = extrinsics.keypair_ss58(SECOND_STRANGER_URI)
+    extrinsics.fund_account(second_stranger_ss58, FUNDING_RAO)
+    extrinsics.announce_coldkey_swap(bytes.fromhex(validator_pubkey[2:]), signer_uri=SECOND_STRANGER_URI)
+    chain.wait_for_blocks(maturity_blocks, timeout=maturity_blocks * config.BLOCK_TIMEOUT_SECONDS)
+    with pytest.raises(extrinsics.ExtrinsicError) as refused:
+        extrinsics.swap_coldkey_announced(validator_ss58, signer_uri=SECOND_STRANGER_URI)
+    assert "ColdKeyAlreadyAssociated" in str(refused.value), str(refused.value)
+    assert _coldkey_root(validator_pubkey) == (True, stranger_pubkey.lower()), "the refused swap left the root alone"
+    env.vault_send(2_500_000, "Poisoning: rebalance after the refused swap failed", "rebalance(uint256)", netuid)
+
+    exits.unwrap_for_tao(
+        env, token_id, env.vault_shares(token_id, holder=config.SECOND_HOLDER_ADDRESS),
+        "Poisoning: the holder's exit after recovery failed", hotkeys=[next_hotkey_pubkey],
+        holder=config.SECOND_HOLDER_ADDRESS, private_key=config.SECOND_HOLDER_PRIVATE_KEY,
+    )
+    assert env.vault_shares(token_id, holder=config.SECOND_HOLDER_ADDRESS) == 0
