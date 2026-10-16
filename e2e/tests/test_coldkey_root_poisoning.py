@@ -12,6 +12,7 @@ privileged action shortens the swap announcement delay.
 import pytest
 
 from alpha_e2e import chain, config, exits, extrinsics
+from alpha_e2e.substrate import h160_to_ss58
 
 VALIDATOR_URI = "//PoisonedValidator"
 VALIDATOR_HOTKEY_URI = "//PoisonedValidatorHotkey"
@@ -143,6 +144,7 @@ def test_stranger_owns_the_hotkey_users_deposit_into(env):
     assert env.vault_shares(token_id) == 0
     assert env.stake(next_hotkey_pubkey, clone_coldkey, netuid) == 0, "the TAO exit empties the slot"
 
+    extrinsics.fund_account(h160_to_ss58(config.SECOND_HOLDER_ADDRESS), 10 * config.RAO_PER_TAO)
     env.deposit_and_wrap(
         netuid, hotkey_pubkey, hotkey_ss58, config.DEPOSIT_RAO, 1_500_000,
         "Poisoning: the next deposit failed",
