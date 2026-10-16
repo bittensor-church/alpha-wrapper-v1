@@ -15,7 +15,6 @@ concurrency:
 
 jobs:
   coverage:
-    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
