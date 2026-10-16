@@ -88,24 +88,13 @@ def add_stake(
 
 def remove_stake(
     hotkey_ss58: str, netuid: int, amount_rao: int,
-    *, signer_uri: str = "//Alice", chain_endpoint: str = config.CHAIN_ENDPOINT,
+    *, chain_endpoint: str = config.CHAIN_ENDPOINT,
 ) -> str:
     """Sell `amount_rao` alpha back to the pool for TAO."""
     with _connect(chain_endpoint) as client:
         return _submit(client, _sdk().calls.SubtensorModule.remove_stake(
             hotkey=hotkey_ss58, netuid=netuid, amount_unstaked=amount_rao,
-        ), signer_uri=signer_uri)
-
-
-def decrease_take(
-    hotkey_ss58: str, take: int, *, signer_uri: str = "//Alice",
-    chain_endpoint: str = config.CHAIN_ENDPOINT,
-) -> str:
-    """Lower the hotkey's delegate take, as parts per 65535; zero is allowed."""
-    with _connect(chain_endpoint) as client:
-        return _submit(client, _sdk().calls.SubtensorModule.decrease_take(
-            hotkey=hotkey_ss58, take=take,
-        ), signer_uri=signer_uri)
+        ))
 
 
 def lock_stake(

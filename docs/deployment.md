@@ -90,13 +90,13 @@ functions introduced since.
 | --- | --- | --- |
 | Staking `0x0805` | `getStake` | Returns the alpha held by a (hotkey, coldkey, netuid) triple, a chain u64 encoded as ABI uint256. |
 | Staking `0x0805` | `getHotkeyOwner` | Reports no owner record once an all-subnet hotkey swap carries the stake away, and stake operations require that record. |
-| Staking `0x0805` | `getHotkeySuccessor` | Names the key a swap carried a hotkey's stake to. Subnet re-registration can erase the edge, so no edge does not prove there was no swap. |
-| Staking `0x0805` | `getColdkeyLock` | Reports the conviction-locked alpha an account holds on a subnet, rolled forward to the current block. A same-subnet transfer carries the lock along once the sender's unlocked alpha is spent. |
-| Staking `0x0805` | `getRejectLockedAlpha` | Accounts reject incoming locked alpha by default, and this flag reports that setting. A coldkey swap into an account with no stake copies the source's flag. |
-| Staking `0x0805` | `getColdkeyRoot` | Reports the first coldkey of an account's swap lineage, absent for an account that never received a swap. Every swap copies the source's root onto the destination, so a validator's hotkeys stay under one root across its coldkey swaps and an account that receives a swap takes the incoming root. |
+| Staking `0x0805` | `getHotkeySuccessor` | Names the key a swap carried a hotkey's stake to. |
+| Staking `0x0805` | `getColdkeyLock` | Reports the conviction-locked alpha an account holds on a subnet. |
+| Staking `0x0805` | `getRejectLockedAlpha` | Accounts reject incoming locked alpha by default, and this flag reports that setting. |
+| Staking `0x0805` | `getColdkeyRoot` | Reports an account's swap-lineage root, absent without swap history; every swap copies the source's root onto the destination. |
 | Staking `0x0805` | `getOwnedHotkeys` | Lists the hotkeys an account owns; an uncontaminated clone candidate owns none. |
-| Staking `0x0805` | `getDefaultMinStake` | The minimum a partial unstake enforces, in RAO; transfers and moves have a lower minimum, so the vault applies this one to every move as its conservative floor. |
-| Staking `0x0805` | `getNominatorMinRequiredStake` | The TAO spot-value minimum, in RAO, a nominator may hold; a partial unstake that leaves less force-sells the remainder. |
+| Staking `0x0805` | `getDefaultMinStake` | The minimum a partial unstake enforces; the vault applies it to every move as its conservative floor. |
+| Staking `0x0805` | `getNominatorMinRequiredStake` | The minimum a nominator may hold; the chain can sweep smaller positions into TAO. |
 | Staking `0x0805` | `moveStake` | A same-subnet move enforces the chain's transfer minimum, which is the lower of the two minimums. |
 | Staking `0x0805` | `transferStake` | Delivers alpha to another coldkey on the same subnet; the chain's transfer minimum applies. |
 | Staking `0x0805` | `removeStake` | A partial unstake enforces the default minimum stake and lowers the caller's `getStake` by at most the requested amount; a full drain of a position clears it. |
@@ -106,7 +106,7 @@ functions introduced since.
 | Subnet `0x0803` | `getSubnetCapacityConfig` | Its tenth field is the owner's alpha-transfer switch. |
 | Neuron `0x0804` | `tryAssociateHotkey` | Assigns the caller's coldkey as owner only when the hotkey has none, and succeeds silently otherwise. |
 | Alpha `0x0808` | `getAlphaPrice` | Prices alpha in TAO, scaled by 1e18. |
-| Alpha `0x0808` | `simSwapAlphaForTao` | Quotes the post-fee, post-slippage TAO a sale of a given alpha amount returns, in RAO. |
+| Alpha `0x0808` | `simSwapAlphaForTao` | Quotes the TAO a sale of a given alpha amount returns. |
 | Address mapping `0x080C` | `addressMapping` | Returns the substrate coldkey an EVM address controls. |
 
 Two further rules sit outside any single function: the chain refuses a coldkey
