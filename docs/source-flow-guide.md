@@ -24,7 +24,7 @@ The registry names a validator, but a rename can move its stake elsewhere.
 
 Example: after A renames to B, the record can say `logical = A, active = B`.
 Locating backing and choosing a receiver are separate checks: a receiving key
-must also belong to the owner recorded when the validator was attested.
+must also have an owner record.
 
 ## The lifecycle
 
