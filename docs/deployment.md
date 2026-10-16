@@ -76,8 +76,8 @@ rebuilt library means a new vault as well.
   precompile `0x080C`.
 - The library address embedded in the deployed vault bytecode equals the
   deployed `VaultAllocation` address.
-- Every address, its code hash, the commit it was built from and the Subtensor
-  runtime it was deployed against go into the table at the end of this page.
+- Every address, its runtime code hash and the commit it was built from go into
+  the table at the end of this page.
 
 ## Runtime compatibility
 
@@ -119,12 +119,12 @@ Before deploying, read the target chain's runtime version with
 `state_getRuntimeVersion` and review every rule above against the runtime
 changes since 478. A precompile can keep its signature while the pallet behind
 it changes what the call returns, so the review covers the pallet logic, not
-only the precompile interface. Record the runtime in the table below.
+only the precompile interface.
 
 ## Deployed artifacts
 
 Nothing is deployed on a public network yet. Each deployment adds a row.
 
-| Network | Runtime | Contract | Address | Code hash | Deployed at commit |
-| --- | --- | --- | --- | --- | --- |
-| | | | | | |
+| Network | Contract | Address | Code hash | Deployed at commit |
+| --- | --- | --- | --- | --- |
+| | | | | |
