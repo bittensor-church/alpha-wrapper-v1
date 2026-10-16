@@ -82,8 +82,9 @@ rebuilt library means a new vault as well.
 ## Runtime compatibility
 
 The vault reads and writes chain state through precompiles. It requires a
-chain fully compatible with Subtensor runtime 478 for the functions below,
-honoring the rule next to each, with no breaking change introduced since.
+chain fully compatible with Subtensor runtime 478 for the precompile functions
+below, honoring the rule next to each, with no breaking change to those
+functions introduced since.
 
 | Precompile | Function | Rule relied on |
 | --- | --- | --- |
