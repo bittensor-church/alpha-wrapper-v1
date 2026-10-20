@@ -422,7 +422,6 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     ///      With no shortfall, recovered alpha joins live backing, including after write-off.
     function recoverStray(uint256 tokenId, bytes32 source) external nonReentrant {
         address clone = subnetClone[tokenId];
-        if (clone == address(0)) revert NothingToUnwrap();
         uint16 netuid = VaultMath.netuidOf(tokenId);
         if (VaultReads.isDissolved(tokenId)) revert NothingToRecover();
         if (_slots[tokenId].length == 0) revert NothingToRecover();
@@ -478,7 +477,6 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
             }
             unchecked { ++i; }
         }
-        while (slots.length > count) slots.pop();
         recovery[tokenId] = Recovery({ shortSince: block.timestamp, parkedAtNonce: 0 });
         emit BackingShortfallDeclared(tokenId, expected, parked);
     }
@@ -637,9 +635,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     }
 
     function _syncTao(uint256 tokenId) private {
-        address clone = subnetClone[tokenId];
-        if (clone == address(0)) return;
-        uint256 balance = clone.balance;
+        uint256 balance = subnetClone[tokenId].balance;
         if (balance == 0) return;
         uint256 newTao = VaultReads.indexableTao(tokenId, balance, taoLiability[tokenId]);
         if (newTao == 0) return;
@@ -650,7 +646,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
 
     function _checkpoint(address account, uint256 tokenId, uint256 index) private {
         uint256 earned = VaultMath.earnedAt(balanceOf(account, tokenId), index);
-        uint256 credit = VaultMath.pendingTao(earned, taoIndexDebt[tokenId][account]);
+        uint256 credit = earned - taoIndexDebt[tokenId][account];
         if (credit != 0) claimableTao[tokenId][account] += credit;
         taoIndexDebt[tokenId][account] = earned;
     }

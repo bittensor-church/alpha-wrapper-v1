@@ -80,10 +80,6 @@ library VaultMath {
         return entitlement > liability ? liability : entitlement;
     }
 
-    function pendingTao(uint256 earned, uint256 debt) internal pure returns (uint256) {
-        return earned > debt ? earned - debt : 0;
-    }
-
     function toNativeQuantum(uint256 amount) internal pure returns (uint256) { return amount - amount % TAO_NATIVE_QUANTUM; }
 
     function earnedAt(uint256 balance, uint256 index) internal pure returns (uint256) {

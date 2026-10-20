@@ -178,15 +178,12 @@ contract AlphaVaultLens {
     }
 
     function _previewSyncTao(uint256 tokenId, uint256 liability) private view returns (uint256, uint256) {
-        address clone = vault.subnetClone(tokenId);
-        if (clone == address(0)) return (0, 0);
-        uint256 newTao = VaultReads.indexableTao(tokenId, clone.balance, liability);
+        uint256 newTao = VaultReads.indexableTao(tokenId, vault.subnetClone(tokenId).balance, liability);
         if (newTao == 0) return (0, 0);
         return VaultMath.syncAmounts(newTao, vault.totalSupply(tokenId));
     }
 
     function _pendingAt(address account, uint256 tokenId, uint256 index) private view returns (uint256) {
-        return VaultMath.pendingTao(
-            VaultMath.earnedAt(vault.balanceOf(account, tokenId), index), vault.taoIndexDebt(tokenId, account));
+        return VaultMath.earnedAt(vault.balanceOf(account, tokenId), index) - vault.taoIndexDebt(tokenId, account);
     }
 }

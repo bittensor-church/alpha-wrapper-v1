@@ -353,4 +353,15 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 199.98e9, "the total is what the drain left on hotkey2 and hotkey3");
         assertEq(lens.locatedStake(TOKEN1), 199.98e9);
     }
+
+    function testFuzz_MissingStake_IsZeroWhileEmissionsAccrue(uint256 deposit, uint256 emissions) public {
+        deposit = bound(deposit, ALPHA, MAX_SUBNET_ALPHA / 2);
+        emissions = bound(emissions, 1, MAX_SUBNET_ALPHA / 2);
+        _depositAndWrap(alice, NETUID1, deposit);
+        _simulateEmissions(NETUID1, emissions);
+
+        assertEq(lens.missingStake(TOKEN1), 0, "emissions leave more alpha located than tracked");
+        _simulateDissolutionStarted(NETUID1);
+        assertEq(lens.missingStake(TOKEN1), 0, "and a dissolving position tracks nothing");
+    }
 }

@@ -432,6 +432,38 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertEq(vault.balanceOf(alice, TOKEN1), shares - shares / 4, "the TAO exit stays open");
     }
 
+    function _twoAttestedNamesSwappedOntoOneReusedKey() private returns (uint256 shares) {
+        bytes32 reusedKey = keccak256("reused-key");
+        shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _setValidators(NETUID1, _hotkeys(hotkey4, hotkey5, hotkey3), _weights(3334, 3333, 3333));
+        _simulateFollowedSwap(NETUID1, hotkey4, reusedKey);
+        _simulateFollowedSwap(NETUID1, reusedKey, keccak256("onward-key"));
+        _simulateFollowedSwap(NETUID1, hotkey5, reusedKey);
+    }
+
+    function test_RevertWhen_TwoAttestedNamesResolveToOneReusedKey() public {
+        uint256 shares = _twoAttestedNamesSwappedOntoOneReusedKey();
+
+        vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
+        vault.rebalance(NETUID1);
+        vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
+        _simulateAlphaDepositHotkey(bob, NETUID1, 6 * ALPHA, hotkey3);
+        vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
+        _wrapHotkey(bob, NETUID1, hotkey3);
+    }
+
+    function test_TwoAttestedNamesOnOneReusedKey_LeaveTheTaoExitOpen() public {
+        uint256 shares = _twoAttestedNamesSwappedOntoOneReusedKey();
+
+        vm.prank(alice);
+        vault.unwrapForTao(TOKEN1, shares / 4, 0);
+
+        assertEq(alice.balance, 0.375e18, "7.5 alpha sold at 0.05 TAO/alpha");
+        assertEq(vault.balanceOf(alice, TOKEN1), shares - shares / 4, "the TAO exit stays open");
+    }
+
     function _swapTheDrainedKeyBackOntoItsReusedName() private {
         _attestUnderOneColdkey(_hotkeys(hotkey1, hotkey2));
         _positionWithADrainedSwap();
@@ -559,6 +591,17 @@ contract BackingRecordTest is AlphaVaultTestBase {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey4, hotkey2), _weights(3334, 3333, 3333));
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey1, true);
         _drainTheFirstSlot(alice, NETUID1);
+
+        vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
+        vault.rebalance(NETUID1);
+    }
+
+    function test_RevertWhen_RebalancingASetNamingADrainedKeyAndItsUnrecordedSuccessor() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _drainTheFirstSlot(alice, NETUID1);
+        _simulatePerSubnetSwap(NETUID1, hotkey1, hotkey4);
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey4, hotkey2), _weights(3334, 3333, 3333));
+        MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey1, true);
 
         vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
         vault.rebalance(NETUID1);
