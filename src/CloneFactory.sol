@@ -38,7 +38,7 @@ contract CloneFactory {
         // A swap can import ownership roles that create future locks even if today's lock is zero.
         // Plain unlocked alpha and TAO gifts do not give their sender authority over this account.
         if (
-            candidate.code.length != 0 || owned || swapped || staking.getOwnedHotkeys(coldkey).length != 0
+            owned || swapped || staking.getOwnedHotkeys(coldkey).length != 0
                 || VaultReads.lockedAlphaOf(coldkey, netuid) != 0) revert IAlphaVaultAbi.CloneContaminated(candidate);
         Clones.cloneDeterministic(implementation, salt);
     }

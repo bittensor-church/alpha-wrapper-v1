@@ -237,7 +237,7 @@ library VaultAllocation {
             unchecked { ++i; }
         }
 
-        if (maxOver == 0 || maxUnder == 0) return false;
+        if (maxOver == 0) return false;
 
         uint256 moveAmount = maxOver < maxUnder ? maxOver : maxUnder;
         // A rejected precompile call consumes forwarded gas. Skip unproven moves and tolerate weight drift.
@@ -274,8 +274,7 @@ library VaultAllocation {
         bytes32 coldkey = context.coldkey; uint16 netuid = context.netuid;
         for (uint256 i; i < sourceBalances.length;) {
             bytes32 sourceHotkey = sourceKeys[i];
-            if (sourceHotkey != richestHotkey && !VaultMath.contains(currentSet, sourceHotkey) && sourceBalances[i] > 0)
-            {
+            if (sourceHotkey != richestHotkey && sourceBalances[i] > 0) {
                 // Read the live pile; summing earlier credits would over-ask after chain rounding.
                 uint256 pile = IStaking(STAKING_PRECOMPILE).getStake(rollerHotkey, coldkey, netuid);
                 StakeOps.move(context.clone, rollerHotkey, sourceHotkey, netuid, pile);
@@ -283,10 +282,8 @@ library VaultAllocation {
             }
             unchecked { ++i; }
         }
-        if (!VaultMath.contains(currentSet, rollerHotkey)) {
-            uint256 pile = IStaking(STAKING_PRECOMPILE).getStake(rollerHotkey, coldkey, netuid);
-            StakeOps.move(context.clone, rollerHotkey, currentSet[0], netuid, pile);
-        }
+        uint256 finalPile = IStaking(STAKING_PRECOMPILE).getStake(rollerHotkey, coldkey, netuid);
+        StakeOps.move(context.clone, rollerHotkey, currentSet[0], netuid, finalPile);
     }
 
     function _anyRotatedOut(bytes32[] memory hotkeys, bytes32[] memory currentSet) private pure returns (bool) {

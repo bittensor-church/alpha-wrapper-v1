@@ -147,7 +147,7 @@ library VaultReads {
 
     function hotkeySuccessor(bytes32 hotkey, uint16 netuid) internal view returns (bytes32) {
         (bool exists, bytes32 successor) = IStaking(STAKING_PRECOMPILE).getHotkeySuccessor(hotkey, netuid);
-        if (!exists || successor == hotkey) return bytes32(0);
+        if (!exists) return bytes32(0);
         return successor;
     }
 

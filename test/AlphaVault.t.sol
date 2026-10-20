@@ -1366,6 +1366,18 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vault.wrap(NETUID1, hotkey1, quoted + excess);
     }
 
+    function testFuzz_RevertWhen_MinAlphaOutExceedsTheQuote(uint256 depositAlpha, uint256 burn, uint256 excess) public {
+        depositAlpha = bound(depositAlpha, ALPHA_FLOOR, MAX_SUBNET_ALPHA);
+        burn = bound(burn, 1e9, _depositAndWrap(alice, NETUID1, depositAlpha));
+        uint256 quoted = burn / 1e9;
+        excess = bound(excess, 1, type(uint256).max - quoted);
+        MockStaking(STAKING_PRECOMPILE).setTransferStakeRoundingLoss(1);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(SlippageExceeded.selector, quoted));
+        vault.unwrap(TOKEN1, burn, _toSubstrate(alice), quoted + excess);
+    }
+
     function test_WrapDerivesMailboxColdkeyFromUserClone() public {
         _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey1);
         _simulateAlphaDepositHotkey(bob, NETUID1, 5 * ALPHA, hotkey1);

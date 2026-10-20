@@ -2,6 +2,7 @@
 pragma solidity 0.8.36;
 
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
+import { AttestedHotkeyRetired } from "src/VaultErrors.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
@@ -94,6 +95,32 @@ contract ZeroHotkeyRecoveryTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(ZERO, NETUID1), 0);
         assertEq(lens.totalStake(TOKEN1), backing + GIFT, "the gift joins live backing");
         assertTrue(lens.isBackingIntact(TOKEN1));
+    }
+
+    function _ownerlessNameBesideHeldBacking() private returns (uint256 shares) {
+        shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        staking.setHotkeyOwned(ZERO, true);
+        _setValidators(NETUID1, _hotkeys(hotkey4, hotkey1), _weights(5000, 5000));
+        staking.setHotkeyDeleted(hotkey4, true);
+    }
+
+    function test_RevertWhen_AnOwnerlessNameWouldFallBackToTheZeroHotkey() public {
+        uint256 shares = _ownerlessNameBesideHeldBacking();
+
+        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey4));
+        vault.rebalance(NETUID1);
+        vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey4));
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
+    }
+
+    function test_OwnerlessNameBesideTheOwnedZeroHotkey_LeavesTheFullAlphaExitOpen() public {
+        uint256 shares = _ownerlessNameBesideHeldBacking();
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
+
+        assertEq(_getStake(hotkey1, alice, NETUID1), 30 * ALPHA, "the full exit pays from the held key");
     }
 
     function _mailboxDepositSwappedOntoZeroHotkey() private returns (bytes32 mailboxColdkey) {

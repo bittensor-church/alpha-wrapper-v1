@@ -824,6 +824,21 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 1);
     }
 
+    function test_WrittenOffEmptyPosition_RefusesATaoExitUntilTheAlphaIsFound() public {
+        uint256 shares = _writtenOffEmptyPosition();
+
+        vm.prank(alice);
+        vm.expectRevert(NothingToUnwrap.selector);
+        vault.unwrapForTao(TOKEN1, shares, 0);
+
+        vault.recoverStray(TOKEN1, keccak256(abi.encode("gone", uint256(0))));
+        assertEq(_parkedStake(NETUID1), 10_002_000_000, "the watcher parks the first slot's alpha");
+
+        vm.prank(alice);
+        vault.unwrapForTao(TOKEN1, shares, 0);
+        assertEq(alice.balance, 0.5001e18, "the kept shares sell the found 10.002 alpha at 0.05 TAO/alpha");
+    }
+
     function testFuzz_RevertWhen_WritingOffBeforeTheDeadline(uint256 offset) public {
         _declaredShortfall();
         uint256 deadline = lens.writeOffDeadline(TOKEN1);

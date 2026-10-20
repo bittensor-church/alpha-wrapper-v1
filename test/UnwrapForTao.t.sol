@@ -21,6 +21,7 @@ import {
     RevertingReceiver
 } from "./helpers/TaoRailReceivers.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { stdError } from "forge-std/StdError.sol";
 
 /// @dev Unless a test says otherwise, every layout sums to the deposits, so `k * 1e9` shares back `k`
 ///      RAO and a burn of `assets * 1e9` shares is worth exactly `assets`. Sales pay 0.05 TAO per alpha.
@@ -132,6 +133,17 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         // 40e9 * (4e19 + 1e9) / (4e10 + 1) = 4e19: the 40 alpha never sold, less nothing for the deleted 5.
         assertEq(vault.balanceOf(alice, TOKEN1), 4e19, "the seller is refunded only what stayed in the vault");
         assertEq(_positionValue(bob), 40 * ALPHA, "the co-holder keeps every alpha of their share");
+    }
+
+    function test_RevertWhen_ASaleSweepsTheRemainderIntoThePayout() public {
+        uint256 aliceShares = _depositForAlice(50 * ALPHA);
+        _depositAndWrap(bob, NETUID1, 50 * ALPHA);
+        _plantVaultStakes(NETUID1, 100 * ALPHA, 0, 0);
+        MockStaking(STAKING_PRECOMPILE).setPostSalePrice(NETUID1, 1e14);
+
+        vm.prank(alice);
+        vm.expectRevert(stdError.arithmeticError);
+        vault.unwrapForTao(TOKEN1, aliceShares, 0);
     }
 
     function test_UnwrapForTao_FullExitRefundsAnExcludedSlotAsShares() public {
