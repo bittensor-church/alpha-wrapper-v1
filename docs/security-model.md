@@ -69,7 +69,7 @@ its consent. A poisoned mailbox blocks its user's deposit. Locked alpha priced
 as backing would let an attacker mint shares and exit with honest holders'
 unlocked alpha, leaving them alpha that neither exit can move.
 
-- Creation checks the candidate chosen by the caller's UID for code, ownership,
+- Creation checks the candidate chosen by the caller's UID for ownership,
   swap history and locks, rejects a poisoned one so the caller retries with a
   fresh UID, then has the clone claim its own account as a hotkey it owns. The
   chain refuses coldkey swaps into existing hotkeys, so the protection holds at
