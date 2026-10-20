@@ -352,6 +352,6 @@ library VaultAllocation {
         uint256 recipientBefore = IStaking(STAKING_PRECOMPILE).getStake(hotkey, userColdkey, netuid);
         StakeOps.flush(clone, hotkey, userColdkey, netuid, amount);
         uint256 recipientAfter = IStaking(STAKING_PRECOMPILE).getStake(hotkey, userColdkey, netuid);
-        return recipientAfter - recipientBefore;
+        return recipientAfter > recipientBefore ? recipientAfter - recipientBefore : 0;
     }
 }
