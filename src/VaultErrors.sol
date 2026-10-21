@@ -43,6 +43,10 @@ error BackingNotSecured();
 error Parked();
 /// @dev The parking hotkey already belongs to another coldkey; deploy with an unused one.
 error ParkingHotkeyUnavailable();
+/// @dev The clone's staking list is at the chain's cap, so it cannot stake under a new hotkey.
+///      Sell positions it holds on other subnets with `sellOtherSubnetStake`.
+error StakingListFull();
+error MismatchedArrays();
 /// @dev No receiving key with an owner record was resolved for this attested name.
 ///      Restore an owner record or replace the registry entry; the backing timer cannot fix it.
 error AttestedHotkeyRetired(bytes32 hotkey);

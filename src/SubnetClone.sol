@@ -8,4 +8,8 @@ contract SubnetClone is CloneBase {
     function moveStake(bytes32 fromHotkey, bytes32 toHotkey, uint256 netuid, uint256 amount) external onlyWrapper {
         if (amount > 0) { IStaking(STAKING_PRECOMPILE).moveStake(fromHotkey, toHotkey, netuid, netuid, amount); }
     }
+
+    function setRejectStakingHotkeyGrowth(bool enabled) external onlyWrapper {
+        IStaking(STAKING_PRECOMPILE).setRejectStakingHotkeyGrowth(enabled);
+    }
 }

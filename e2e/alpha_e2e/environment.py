@@ -435,6 +435,17 @@ class Environment:
         print(f"  Sending {amount_rao} RAO from Alice -> mailbox {mailbox_ss58[:12]}...")
         extrinsics.transfer_stake_and_hotkey(mailbox_ss58, hotkey_ss58, mailbox_ss58, netuid, amount_rao)
 
+    def sell_other_subnet_stake(
+        self, token_id: int, netuids: List[int], hotkeys: List[str], message: str,
+        private_key: Optional[str] = None,
+    ) -> dict:
+        """Sell the clone's positions on other subnets in one call; the caller is paid the TAO."""
+        return self.vault_send(
+            1_500_000 * max(len(netuids), 1), message, "sellOtherSubnetStake(uint256,uint16[],bytes32[])",
+            token_id, "[" + ",".join(str(n) for n in netuids) + "]", "[" + ",".join(hotkeys) + "]",
+            private_key=private_key, label="sellOtherSubnetStake",
+        )
+
     def set_validator(self, netuid: int, hotkey: str) -> None:
         validators.set_basic_validator(self.validator_registry_address, netuid, hotkey)
 

@@ -65,15 +65,17 @@ Scenario files in `tests/` cover:
   on the real chain; an honest deposit still wraps and exits.
 - `test_reject_hotkey_growth.py`: a candidate that already stakes is rejected, a
   stranger cannot add a hotkey (hotkey 0x0 included) to a mailbox's or clone's
-  staking list after creation, a wrap cannot name hotkey 0x0, and deposits and
-  wraps keep working with the lists unchanged.
+  staking list after creation, a crumb sent under a listed validator keeps its
+  entry after a rotation, `sellOtherSubnetStake` sells it to the caller, and
+  deposits land before and after a full exit.
+- `test_retained_entries_recovery.py`: with such a crumb retained, a stranger cuts
+  the trail behind a validator's rename; the watcher parks the position, sells the
+  crumb, an owner update releases, and deposits and exits continue.
 - `test_subnet_dissolved.py`: refunds and mailbox recovery.
 - `test_min_stake_floor.py`, `test_dust_dos.py`, `test_min_stake_liveness.py`:
   minimums, top-ups, dust and repeated position changes.
 - `test_claimable_tao.py`: forced-sale proceeds become claimable, and the swept
   position's loss is written off once a short recovery window expires.
-- `test_empty_token_write_off.py`: a gift to an emptied token is swept and written off;
-  the token stays open and the next deposit wraps without a registry update.
 - `test_parked_stake.py`: a rename that leaves the stake and the owner record behind,
   where exits keep paying from the old name and follow the successor once the owner
   names it; and a rename that carries the stake, which exits follow before the registry

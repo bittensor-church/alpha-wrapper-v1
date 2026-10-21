@@ -55,12 +55,13 @@ cleanup, then old shares redeem the clone's unreserved TAO.
 ## Follow a transaction
 
 - **`createMailbox`:** resolve the live generation -> check the candidates -> deploy
-  any missing subnet clone and personal mailbox -> initialize as own hotkey owner
-  refusing staking-list growth and verify both refusals -> publish accepted
-  addresses. All steps are atomic.
+  any missing subnet clone and personal mailbox -> make each a hotkey (the mailbox
+  claims its own, the vault claims the clone's) refusing staking-list growth ->
+  verify -> publish accepted addresses. All steps are atomic.
 - **`wrap`:** require prepared addresses -> check backing, receivers and that the mailbox holds no lock ->
-  move the mailbox's own-hotkey stake onto the subnet clone's own hotkey, then onto
-  the chosen registry hotkey -> consolidate dropped keys -> align weights ->
+  land the mailbox's own-hotkey stake on a hotkey the clone lists, lifting the growth
+  flag for the transfer when it lists nothing, then move it onto the chosen registry
+  hotkey -> consolidate dropped keys -> align weights ->
   record actual balances -> calculate and mint shares. Collecting first lets a
   fresh deposit help move old dust; pricing uses the balances after movement.
 - **Live `unwrap`:** check backing -> select destinations -> consolidate dropped

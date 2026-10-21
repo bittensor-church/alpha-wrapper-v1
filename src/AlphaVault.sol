@@ -20,7 +20,7 @@ import { VaultReads } from "./libraries/VaultReads.sol";
 import {
     AttestedHotkeyRetired, BackingUnchanged, ChosenHotkeyNotInSet,
     ClaimBelowNativePrecision, InsufficientShares, LockedDeposit,
-    LockedBacking, MailboxNotPrepared, SubnetCloneNotPrepared,
+    LockedBacking, MailboxNotPrepared, MismatchedArrays, SubnetCloneNotPrepared,
     NetuidOutOfRange, NothingToRecover, NothingToUnwrap,
     Parked, ParkingHotkeyUnavailable, BackingNotSecured,
     ShortfallOnFile, SlippageExceeded, SlotMaskOutOfRange,
@@ -136,7 +136,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         (uint256 totalDeposit, uint256 alphaPriceE18) = VaultAllocation.admitDeposit(mailboxColdkey, nid);
 
         // A fresh deposit can carry rotated-out dust through above-floor consolidation hops.
-        StakeOps.collectDeposit(mailbox, mailboxColdkey, clone, destColdkey, actives[chosenIndex], nid, totalDeposit);
+        VaultAllocation.collectDeposit(mailbox, mailboxColdkey, clone, destColdkey, actives[chosenIndex], nid, totalDeposit);
         VaultAllocation.Context memory context = _context(tokenId, clone, destColdkey, alphaPriceE18);
         VaultAllocation.consolidateRotatedStake(
             context, backing.keys, actives, VaultAllocation.CollectionPolicy.RevertBelowFloor);
@@ -432,6 +432,32 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         uint256 parked = _secureBacking(tokenId, clone, coldkey, sources);
         if (parked <= before) revert NothingToRecover();
         emit BackingRecovered(tokenId, parkingHotkey, parked - before);
+    }
+
+    /// @notice Sell the clone's whole positions under `hotkeys[i]` on `netuids[i]`, each a subnet other than the
+    ///         token's, and pay the caller the TAO.
+    /// @dev Such positions exist only because someone sent them, and each keeps its hotkey on the clone's
+    ///      staking list, whose length caps what the clone can stake under. Stake on the token's own subnet
+    ///      is backing or a stray for `recoverStray`.
+    function sellOtherSubnetStake(uint256 tokenId, uint16[] calldata netuids, bytes32[] calldata hotkeys)
+        external nonReentrant {
+        if (netuids.length != hotkeys.length) revert MismatchedArrays();
+        if (netuids.length == 0) revert ZeroAmount();
+        address clone = subnetClone[tokenId];
+        if (clone == address(0)) revert NothingToRecover();
+        bytes32 coldkey = VaultReads.coldkeyOf(clone);
+        uint16 ownNetuid = VaultMath.netuidOf(tokenId);
+        uint256 balanceBefore = clone.balance;
+        for (uint256 i; i < netuids.length;) {
+            if (netuids[i] == ownNetuid) revert NothingToRecover();
+            uint256 amount = IStaking(STAKING_PRECOMPILE).getStake(hotkeys[i], coldkey, netuids[i]);
+            if (amount == 0) revert ZeroAmount();
+            uint256 soldFrom = clone.balance;
+            StakeOps.sell(clone, hotkeys[i], netuids[i], amount);
+            emit OtherSubnetStakeSold(tokenId, netuids[i], hotkeys[i], amount, clone.balance - soldFrom);
+            unchecked { ++i; }
+        }
+        SubnetClone(payable(clone)).unwrapTao(payable(msg.sender), clone.balance - balanceBefore);
     }
 
     /// @dev Keep resolved keys and old-key residue locations.

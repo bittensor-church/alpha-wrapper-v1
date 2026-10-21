@@ -1,13 +1,16 @@
-"""A stranger cannot grow a clone's staking list, before or after creation.
+"""A stranger cannot grow a clone's staking list, and what it can leave behind is sold off.
 
 Subtensor lets another coldkey add a hotkey to an account's staking list by transferring
 stake onto it, until the list holds 128 entries; after that, transfers onto unlisted hotkeys
-are refused. A mailbox or subnet clone with a full list could never take a deposit onto a
-new hotkey. Each clone refuses that growth from the moment it is created, and deposits
-travel over hotkeys the clones own, which the chain admits whatever the list holds. A
-candidate dusted before creation is rejected, so the window before the flag is set cannot
-be used either. Hotkey 0x0, which the localnet owns from genesis, is refused like any other
-hotkey the clone neither owns nor lists, and a wrap cannot name it.
+are refused. Each clone refuses that growth from the moment it is created, so a stranger
+can only top up hotkeys the clone already lists. Deposits land on the mailbox's own hotkey
+and reach the clone on a hotkey it lists, with the growth flag lifted for the one transfer
+that lands on a clone listing nothing. A candidate dusted before creation is rejected.
+Hotkey 0x0, which the localnet owns from genesis, is refused like any other unlisted hotkey.
+
+A crumb sent under a listed validator on another subnet keeps that validator listed after
+the registry rotates it out. `sellOtherSubnetStake` sells the crumb to whoever calls it and
+the entry is gone.
 """
 import secrets
 from dataclasses import replace
@@ -56,6 +59,7 @@ def test_stranger_cannot_grow_a_clones_staking_list(env, recovery_window):
     extrinsics.fund_account(stranger_ss58, STRANGER_FUNDING_RAO)
     extrinsics.add_stake(stranger_hotkey_ss58, other_netuid, 2 * config.RAO_PER_TAO, signer_uri=STRANGER)
     extrinsics.add_stake(validator_ss58, netuid, 2 * config.RAO_PER_TAO, signer_uri=STRANGER)
+    extrinsics.add_stake(validator_ss58, other_netuid, 2 * config.RAO_PER_TAO, signer_uri=STRANGER)
     extrinsics.add_stake(ZERO_HOTKEY_SS58, netuid, 2 * config.RAO_PER_TAO, signer_uri=STRANGER)
     _, dust = env.floor_boundary(other_netuid, env.chain_min_stake_tao())
     _, gift = env.floor_boundary(netuid, 2 * env.chain_min_stake_tao())
@@ -96,28 +100,38 @@ def test_stranger_cannot_grow_a_clones_staking_list(env, recovery_window):
     assert env.mailbox_deposit(netuid) <= config.ROUNDING_DUST_SLOT_RAO, "the wrap left the deposit in the mailbox"
 
     clone_coldkey = env.clone_coldkey(token_id)
-    backing_before = env.total_stake_across(clone_coldkey, netuid, hotkeys)
-    extrinsics.transfer_stake_and_hotkey(
-        h160_to_ss58(clone), validator_ss58, h160_to_ss58(clone), netuid, gift, signer_uri=STRANGER,
-    )
-    recover_receipt = env.recover_stray(token_id, clone_coldkey, "collecting the gift on the clone's own hotkey failed")
-    recovered = chain.event_word(recover_receipt, "BackingRecovered(uint256,bytes32,uint256)", 0, "gift recovery")
-    assert abs(recovered - gift) <= config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO, (
-        f"the vault recovered {recovered} RAO of a {gift} RAO gift"
-    )
-    assert env.total_stake_across(clone_coldkey, netuid, hotkeys) >= (
-        backing_before + gift - config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO
-    ), "the collected gift did not join the backing"
+    with pytest.raises(extrinsics.ExtrinsicError) as refused:
+        extrinsics.transfer_stake_and_hotkey(
+            h160_to_ss58(clone), validator_ss58, h160_to_ss58(clone), netuid, gift, signer_uri=STRANGER,
+        )
+    assert "AccountRejectsStakingHotkeyGrowth" in str(refused.value), "the clone's own hotkey is no landing pad"
 
-    env.deposit_and_wrap(netuid, validator, validator_ss58, config.DEPOSIT_RAO, 1_500_000, "the second wrap failed")
-    # A drain can leave one RAO behind, which keeps an own hotkey listed beside the attested one.
-    assert len(extrinsics.staking_hotkeys(h160_to_ss58(clone))) <= 2, "the clone lists a stranger's hotkey"
-    assert len(extrinsics.staking_hotkeys(h160_to_ss58(mailbox))) <= 1, "the mailbox lists a stranger's hotkey"
+    extrinsics.transfer_stake(h160_to_ss58(clone), validator_ss58, other_netuid, dust, signer_uri=STRANGER)
+    assert env.stake(validator, clone_coldkey, other_netuid) > 0, "a crumb under a listed validator did not land"
+    env.set_validator(netuid, hotkeys[1])
+    env.vault_send(4_000_000, "the rotation rebalance failed", "rebalance(uint256)", netuid, label="rebalance [rotate]")
+    assert env.stake(validator, clone_coldkey, netuid) <= config.ROUNDING_DUST_SLOT_RAO, "the old validator kept backing"
+    assert len(extrinsics.staking_hotkeys(h160_to_ss58(clone))) == 2, "the crumb did not keep the old entry"
+
+    env.deposit_and_wrap(netuid, hotkeys[1], env.hotkey_ss58s[1], config.DEPOSIT_RAO, 1_500_000, "the second wrap failed")
+
+    balance_before = env.user_tao_wei()
+    sale = env.sell_other_subnet_stake(token_id, [other_netuid], [validator], "selling the crumb failed")
+    tao_out = chain.event_word(sale, "OtherSubnetStakeSold(uint256,uint16,bytes32,uint256,uint256)", 1, "crumb sale")
+    assert env.stake(validator, clone_coldkey, other_netuid) == 0, "the crumb is still there"
+    assert checks.reconstructed_payout(balance_before, env.user_tao_wei(), sale, "crumb sale") == tao_out, (
+        "the caller was not paid the sale"
+    )
+    assert len(extrinsics.staking_hotkeys(h160_to_ss58(clone))) <= 2, "the sale grew the list"
     for address in (clone, mailbox):
         _assert_growth_refused(address, stranger_hotkey_ss58, other_netuid, dust)
 
     receipt, _ = exits.unwrap(env, token_id, env.vault_shares(token_id), "the full exit failed", hotkeys=hotkeys)
     exits.assert_drained(env, token_id, hotkeys, receipt, "full exit")
+    env.deposit_and_wrap(
+        netuid, hotkeys[1], env.hotkey_ss58s[1], config.DEPOSIT_RAO // 10, 1_500_000, "the wrap after a full exit failed",
+    )
+    assert _rejects_growth(clone), "the flag is down after a wrap"
     assert env.stake(stranger_hotkey, h160_to_substrate_b32(poisoned_clone), other_netuid) > 0, (
         "rejected dust never entered backing"
     )

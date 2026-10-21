@@ -726,8 +726,8 @@ contract BackingRecordTest is AlphaVaultTestBase {
         MockStaking(STAKING_PRECOMPILE).setMoveStakeRoundingLoss(100);
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
 
-        assertEq(vault.recordedSlots(TOKEN1)[1].tracked, 9_998_999_866, "the slot expects what landed");
-        assertEq(lens.totalStake(TOKEN1), 29_999_999_700, "the placing move and two alignment moves each lose 100 RAO");
+        assertEq(vault.recordedSlots(TOKEN1)[1].tracked, 9_998_999_900, "the slot expects what landed");
+        assertEq(lens.totalStake(TOKEN1), 29_999_999_800, "two alignment moves each lose 100 RAO");
         assertTrue(lens.isBackingIntact(TOKEN1), "and the loss trips nothing");
     }
 

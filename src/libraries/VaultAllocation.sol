@@ -12,6 +12,8 @@ import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { LockedDeposit, ZeroAmount } from "../VaultErrors.sol";
 import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
 import { CloneFactory } from "../CloneFactory.sol";
+import { DepositMailbox } from "../DepositMailbox.sol";
+import { SubnetClone } from "../SubnetClone.sol";
 
 /// @dev Deployed once and linked into the vault. Holds clone preparation, deposit admission, the
 ///      receiving-key rules, consolidation of dropped validators, payout gathering, weight alignment
@@ -47,6 +49,33 @@ library VaultAllocation {
         alphaPriceE18 = IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(nid);
         if (StakeOps.isBelowFloorAtReadPrice(totalDeposit, alphaPriceE18)) { revert IAlphaVaultAbi.DepositTooSmall(); }
         if (VaultReads.lockedAlphaOf(mailboxColdkey, nid) != 0) revert LockedDeposit();
+    }
+
+    /// @dev A clone owns no hotkey, so another coldkey may only land stake on one it already lists; a clone
+    ///      that lists nothing admits any hotkey while its growth flag is down, lifted and restored within
+    ///      this call. Landing elsewhere than the target moves only what landed, keeping the rest in place.
+    function collectDeposit(address mailbox, bytes32 mailboxColdkey, address clone, bytes32 cloneColdkey,
+        bytes32 target, uint16 netuid, uint256 amount) external {
+        IStaking staking = IStaking(STAKING_PRECOMPILE);
+        bytes32 landing = target;
+        bool lifted;
+        if (staking.getStake(target, cloneColdkey, netuid) == 0) {
+            (bytes32[] memory listed, uint64 total) = staking.getStakingHotkeys(cloneColdkey, 0, 1);
+            if (total != 0) {
+                landing = listed[0];
+            } else {
+                SubnetClone(payable(clone)).setRejectStakingHotkeyGrowth(false); lifted = true;
+            }
+        }
+        uint256 before = staking.getStake(landing, cloneColdkey, netuid);
+        StakeOps.ensureHotkeyHasOwner(landing);
+        DepositMailbox(payable(mailbox))
+            .transferStakeAndHotkey(cloneColdkey, mailboxColdkey, landing, netuid, SafeCast.toUint64(amount));
+        if (lifted) SubnetClone(payable(clone)).setRejectStakingHotkeyGrowth(true);
+        if (landing != target) {
+            uint256 landed = staking.getStake(landing, cloneColdkey, netuid) - before;
+            StakeOps.move(clone, cloneColdkey, landing, target, netuid, landed);
+        }
     }
 
     /// @dev Both sale rounds share this call's balances array: the partial round must see slots drained
@@ -241,7 +270,7 @@ library VaultAllocation {
         uint256 moveAmount = maxOver < maxUnder ? maxOver : maxUnder;
         // A rejected precompile call consumes forwarded gas. Skip unproven moves and tolerate weight drift.
         if (context.alphaPriceE18 == 0 || StakeOps.taoValue(moveAmount, context.alphaPriceE18) < minStakeTao) { return false; }
-        StakeOps.move(context.clone, hotkeys[overIndex], hotkeys[underIndex], context.netuid, moveAmount);
+        StakeOps.move(context.clone, context.coldkey, hotkeys[overIndex], hotkeys[underIndex], context.netuid, moveAmount);
         emit IAlphaVaultAbi.Rebalanced(context.tokenId, hotkeys[overIndex], hotkeys[underIndex], moveAmount);
         balances[overIndex] -= moveAmount; balances[underIndex] += moveAmount;
         return true;
@@ -276,13 +305,13 @@ library VaultAllocation {
             if (sourceHotkey != richestHotkey && sourceBalances[i] > 0) {
                 // Read the live pile; summing earlier credits would over-ask after chain rounding.
                 uint256 pile = IStaking(STAKING_PRECOMPILE).getStake(rollerHotkey, coldkey, netuid);
-                StakeOps.move(context.clone, rollerHotkey, sourceHotkey, netuid, pile);
+                StakeOps.move(context.clone, coldkey, rollerHotkey, sourceHotkey, netuid, pile);
                 rollerHotkey = sourceHotkey;
             }
             unchecked { ++i; }
         }
         uint256 finalPile = IStaking(STAKING_PRECOMPILE).getStake(rollerHotkey, coldkey, netuid);
-        StakeOps.move(context.clone, rollerHotkey, currentSet[0], netuid, finalPile);
+        StakeOps.move(context.clone, coldkey, rollerHotkey, currentSet[0], netuid, finalPile);
     }
 
     function _anyRotatedOut(bytes32[] memory hotkeys, bytes32[] memory currentSet) private pure returns (bool) {
@@ -335,7 +364,7 @@ library VaultAllocation {
             for (uint256 i; i < balances.length && balances[deliveryIndex] < assets;) {
                 if (i != deliveryIndex && balances[i] != 0) {
                     uint256 pile = IStaking(STAKING_PRECOMPILE).getStake(hotkeys[deliveryIndex], coldkey, netuid);
-                    StakeOps.move(context.clone, hotkeys[deliveryIndex], hotkeys[i], netuid, pile);
+                    StakeOps.move(context.clone, coldkey, hotkeys[deliveryIndex], hotkeys[i], netuid, pile);
                     balances[i] += balances[deliveryIndex]; balances[deliveryIndex] = 0; deliveryIndex = i;
                 }
                 unchecked { ++i; }

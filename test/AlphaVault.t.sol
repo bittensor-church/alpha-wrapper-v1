@@ -230,7 +230,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         _wrap(alice, NETUID1);
 
         assertEq(vault.balanceOf(alice, TOKEN1), 1e19, "the mint prices the whole deposit");
-        assertEq(lens.totalStake(TOKEN1), 10 * ALPHA - 3, "the placing move and the two weight moves lost one RAO each");
+        assertEq(lens.totalStake(TOKEN1), 10 * ALPHA - 2, "the two weight moves lost one RAO each");
     }
 
     function test_RevertWhen_UnwrapOnZero() public {

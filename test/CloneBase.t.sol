@@ -105,6 +105,15 @@ contract CloneBaseTest is AlphaVaultTestBase {
         SubnetClone(payable(vaultClone)).moveStake(hotkey1, hotkey2, NETUID1, 1 * ALPHA);
     }
 
+    function test_RevertWhen_NonWrapperTogglesTheGrowthFlag() public {
+        _prepareMailbox(alice, NETUID1);
+        address vaultClone = vault.subnetClone(TOKEN1);
+
+        vm.prank(bob);
+        vm.expectRevert(CloneBase.NotWrapper.selector);
+        SubnetClone(payable(vaultClone)).setRejectStakingHotkeyGrowth(false);
+    }
+
     function test_RevertWhen_NonWrapperUnwrapsSubnetCloneTao() public {
         _prepareMailbox(alice, NETUID1);
         address vaultClone = vault.subnetClone(TOKEN1);

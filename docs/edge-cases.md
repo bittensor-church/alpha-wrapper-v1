@@ -47,9 +47,10 @@ Locked alpha never backs a share:
 - Mailboxes and subnet clones are created through `createMailbox` before they
   are funded. Creation rejects candidates that carry a lock, swap history,
   ownership roles or staking-list entries (`CloneContaminated`; retry with a
-  fresh UID), then has each accepted clone claim its own account as a hotkey,
-  because the chain refuses coldkey swaps into existing hotkeys even at zero
-  stake, and refuse staking-list growth by others.
+  fresh UID), then makes each accepted account a hotkey, a mailbox its own and
+  a subnet clone the vault's, because the chain refuses coldkey swaps into
+  existing hotkeys even at zero stake, and has both refuse staking-list growth
+  by others.
 - `wrap` reverts `LockedDeposit` while the caller's mailbox holds a lock.
 - Priced operations and quotes revert `LockedBacking` while the subnet clone
   holds a lock. The conviction hotkey need not hold the locked stake, so a lock
@@ -112,7 +113,8 @@ refund. Already-indexed claim liabilities stay separate.
 
 Third-party alpha under tracked keys increases backing; stake elsewhere is not
 automatically counted. A clone admits third-party alpha only onto a hotkey it
-already lists or its own hotkey. Mailbox wraps collect only the mailbox's own hotkey.
+already lists; alpha it holds on another subnet is not backing and is sold to
+the caller of `sellOtherSubnetStake`. Mailbox wraps collect only the mailbox's own hotkey.
 Untracked vault alpha joins the position through `recoverStray` under the
 [recovery rules](hotkey-swaps.md), including their late-recovery ownership policy.
 

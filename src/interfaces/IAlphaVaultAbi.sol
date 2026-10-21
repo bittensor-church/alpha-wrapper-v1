@@ -31,6 +31,9 @@ interface IAlphaVaultAbi {
     ///      A zero `registryNonce` means no shares remained, so deposits stay open.
     event BackingParked(uint256 indexed tokenId, uint256 backing, uint256 registryNonce);
     event BackingRecovered(uint256 indexed tokenId, bytes32 indexed hotkey, uint256 amount);
+    /// @dev `taoOut` is native TAO in EVM wei, paid to the caller.
+    event OtherSubnetStakeSold(
+        uint256 indexed tokenId, uint16 indexed netuid, bytes32 indexed hotkey, uint256 alpha, uint256 taoOut);
 
     error SafeCastOverflowedUintDowncast(uint8 bits, uint256 value);
     error ConsolidationBelowFloor();

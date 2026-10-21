@@ -61,9 +61,8 @@ Holders rely on:
   price impact, including price impact borne by remaining holders.
 - Mailboxes and subnet clones are checked and protected at creation, so locked
   alpha never backs a share.
-- Deposits travel over hotkeys the mailbox and the subnet clone own, and both
-  refuse staking-list growth by others, so no stranger can fill the list the
-  chain consults before admitting a transfer.
+- Mailboxes and subnet clones refuse staking-list growth by others, and deposits
+  land only on hotkeys the chain admits whatever a stranger has done to the list.
 
 ## Why clone contamination matters
 
@@ -75,11 +74,12 @@ unlocked alpha, leaving them alpha that neither exit can move.
 
 - Creation checks the candidate chosen by the caller's UID for ownership,
   swap history, locks and staking-list entries, rejects a poisoned one so the
-  caller retries with a fresh UID, then has the clone claim its own account as
-  a hotkey it owns and refuse staking-list growth by others. The chain refuses
-  coldkey swaps into existing hotkeys, so the protection holds at zero stake,
-  and a clone has no function that could rename or hand over that hotkey.
-  Creation also verifies that the clone rejects locked-alpha transfers.
+  caller retries with a fresh UID, then makes the account a hotkey: a mailbox
+  claims its own, the vault claims a subnet clone's. The chain refuses coldkey
+  swaps into existing hotkeys, so the protection holds at zero stake, and no
+  clone has a function that could rename or hand over that hotkey. Creation
+  also verifies that the clone rejects locked-alpha transfers and staking-list
+  growth by others.
 - An unexpected lock fails closed: a locked mailbox cannot be wrapped, and a
   locked subnet clone stops prices, deposits, alignment and exits until the lock
   clears. Recovery reads and accrued TAO claims stay available.
@@ -87,24 +87,42 @@ unlocked alpha, leaving them alpha that neither exit can move.
 The cost is one creation transaction per user; the first user of a subnet
 generation also pays for the shared clone. A UID is public once submitted, so a
 front-run creation can fail and need a retry with a new UID. TAO donations
-remain allowed; alpha donations only onto a hotkey the clone lists or owns.
+remain allowed; alpha donations only onto a hotkey the clone already lists.
 
-## Why staking-list growth matters
+## Why a subnet clone owns no hotkey
 
-The chain keeps, for every coldkey, the list of hotkeys it stakes under, walks
-that list on every stake exit, and refuses a transfer from another coldkey onto
-an unlisted hotkey once the list holds 128 entries. Left open, a stranger could
-fill a mailbox's or a subnet clone's list with dust and block every later
-deposit onto a hotkey it does not yet list.
+The chain hands a subnet to the coldkey that owns its most convicted hotkey and
+locks the owner's cut onto that coldkey every epoch. A subnet clone owning a
+hotkey could be made subnet owner that way and frozen by the lock. The vault
+owns each subnet clone's account as a hotkey instead, which still refuses
+coldkey swaps into it, and the clone owns nothing. Mailboxes keep owning their
+account: a hijacked mailbox blocks one user's wrap on one subnet and the alpha
+stays reclaimable. The vault's coldkey may be made subnet owner through the
+hotkeys it holds; nothing reads its locks or stake.
 
-- Deposits land on the mailbox's own hotkey and reach the subnet clone on the
-  clone's own hotkey. The chain admits a transfer onto a hotkey the receiver
-  owns regardless of what else it lists, and the clone moves the alpha onto the
-  attested hotkey itself, under the larger cap that applies to its own moves.
-- Every clone refuses staking-list growth by others from creation on, so only
-  its own moves change its list and gas stays flat. Stake sent to a candidate
-  before creation would already occupy the list, so creation rejects such a
-  candidate like any other contamination.
+## Staking lists
+
+The chain keeps, for every coldkey, the list of hotkeys it stakes under and
+prices every stake exit by its length. Another coldkey may transfer stake onto a
+listed hotkey freely, and onto an unlisted one only while the list is under 128
+entries and the receiver either allows growth or owns the hotkey. The coldkey's
+own moves stop at 256. An entry stays while the coldkey holds stake under that
+hotkey on any subnet.
+
+- Every clone refuses growth by others from creation on, so a stranger can only
+  top up hotkeys a clone already lists. Stake sent to a candidate before
+  creation is rejected like any other contamination.
+- Deposits land on the mailbox's own hotkey, which the mailbox owns, and reach
+  the subnet clone on a hotkey it lists. A clone that lists nothing takes the
+  one transfer with its flag lifted and restored inside `wrap`.
+- A crumb sent under a listed validator on another subnet keeps that validator
+  listed after a rotation, so the list grows by at most one entry per validator
+  the registry has ever used. `sellOtherSubnetStake` sells such positions, many
+  in one call, and pays the caller the TAO; the entries leave with them. A clone
+  move onto a hotkey it does not list reverts `StakingListFull` at the cap
+  instead of burning gas.
+- A single-subnet swap of a validator carrying such a crumb leaves the clone's
+  stake on the old name. The vault handles it as a swap that kept the stake.
 
 ## Recovery-window tradeoff and late-recovery attack
 
@@ -186,6 +204,11 @@ them; accrued TAO survives either way.
   hotkeys, rejecting locked-alpha transfers by default and honouring the
   reject-growth flag. A public UID can be front-run into a retry; a poisoned
   candidate never becomes backing.
+- Every hotkey the vault claims, for subnet clones, parking and names it moves
+  stake off, stays on the vault's own staking list, which the chain caps at 256.
+  One vault deployment can therefore create about 250 subnet clones.
+- Alpha a clone holds on another subnet is not backing and goes to whoever
+  sells it with `sellOtherSubnetStake`.
 - A vacated attested name that a stranger claims receives an empty slot's
   allocation until the registry owner publishes the successor. The alpha stays
   under the vault's coldkey; if the stranger moves it, it is recovered as

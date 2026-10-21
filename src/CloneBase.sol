@@ -2,8 +2,6 @@
 pragma solidity 0.8.36;
 
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
-import { IAddressMapping, ADDRESS_MAPPING_PRECOMPILE } from "./interfaces/IAddressMapping.sol";
-import { INeuron, NEURON_PRECOMPILE } from "./interfaces/INeuron.sol";
 import { IStaking, STAKING_PRECOMPILE } from "./interfaces/IStaking.sol";
 
 abstract contract CloneBase {
@@ -19,17 +17,16 @@ abstract contract CloneBase {
 
     modifier onlyWrapper() { if (msg.sender != wrapper) revert NotWrapper(); _; }
 
-    /// @dev Owning its own account as a hotkey keeps the account unswappable even while it holds no
-    ///      stake, because the chain refuses coldkey swaps into any hotkey. Refusing staking-list growth
-    ///      keeps strangers from filling the list that admits deposits.
+    /// @dev Refusing staking-list growth keeps strangers from filling the list that admits deposits.
     function initialize(address _wrapper) external {
         if (initialized) revert AlreadyInitialized();
         if (msg.sender != _wrapper) revert UnauthorizedInitializer();
         wrapper = _wrapper; initialized = true;
-        INeuron(NEURON_PRECOMPILE)
-            .tryAssociateHotkey(IAddressMapping(ADDRESS_MAPPING_PRECOMPILE).addressMapping(address(this)));
+        _claimOwnHotkey();
         IStaking(STAKING_PRECOMPILE).setRejectStakingHotkeyGrowth(true);
     }
+
+    function _claimOwnHotkey() internal virtual { }
 
     /// @notice Transfer staked alpha to another coldkey without changing its hotkey or subnet.
     function flush(bytes32 destinationColdkey, bytes32 hotkey, uint256 netuid, uint256 amount) external onlyWrapper {

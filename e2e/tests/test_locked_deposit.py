@@ -31,13 +31,13 @@ def _swap_into(signer_uri: str, destination: str) -> None:
     extrinsics.swap_coldkey_announced(h160_to_ss58(destination), signer_uri=signer_uri)
 
 
-def _protected(env, address: str) -> None:
+def _protected(env, address: str, owner_coldkey: str) -> None:
     coldkey = h160_to_substrate_b32(address)
     owner = chain.cast_call_lines(
         config.STAKING_PRECOMPILE, "getHotkeyOwner(bytes32)(bool,bytes32)", coldkey,
     )
-    assert owner[0] == "true"
-    assert owner[1].lower() == coldkey.lower(), "a clone owns its own account as a hotkey"
+    assert owner[0] == "true", "the clone's account is a hotkey"
+    assert owner[1].lower() == owner_coldkey.lower(), "the clone's account answers to the wrong owner"
     assert chain.cast_call(
         config.STAKING_PRECOMPILE, "getRejectLockedAlpha(bytes32)(bool)", coldkey,
     ) == "true"
@@ -95,12 +95,14 @@ def test_locked_deposit(env, recovery_window):
     mailbox = env.mailbox_address(netuid)
     assert clone.lower() != poisoned_clone.lower()
     assert mailbox.lower() != poisoned_mailbox.lower()
+    vault_coldkey = h160_to_substrate_b32(env.vault_address)
+    _protected(env, clone, vault_coldkey)
+    _protected(env, mailbox, h160_to_substrate_b32(mailbox))
     for address in (clone, mailbox):
-        _protected(env, address)
         assert env.stake(hotkey, h160_to_substrate_b32(address), netuid) == 0
     extrinsics.associate_hotkey(h160_to_ss58(clone), signer_uri=LOCKED_HOLDER)
-    _protected(env, clone)
-    print("  A stranger's association attempt leaves the self-owned clone untouched")
+    _protected(env, clone, vault_coldkey)
+    print("  A stranger's association attempt leaves the vault-owned clone untouched")
     env.vault_send(2_000_000, "idempotent creation failed", "createMailbox(uint256,bytes32)", netuid, _uid())
     assert env.clone_address(token_id) == clone
     assert env.mailbox_address(netuid) == mailbox
@@ -136,4 +138,4 @@ def test_locked_deposit(env, recovery_window):
     assert env.vault_shares(token_id) == 0
     exits.assert_drained(env, token_id, env.subnet_hotkey_pubkeys(0), receipt, "honest exit")
     assert env.stake(gift_hotkey, h160_to_substrate_b32(poisoned_clone), netuid) > 0, "rejected gift never entered backing"
-    _protected(env, clone)
+    _protected(env, clone, vault_coldkey)
