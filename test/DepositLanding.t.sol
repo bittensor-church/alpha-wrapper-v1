@@ -2,9 +2,10 @@
 pragma solidity 0.8.36;
 
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
+import { RevertingReceiver } from "./helpers/TaoRailReceivers.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { IStaking, STAKING_PRECOMPILE, MAX_STAKING_HOTKEYS } from "src/interfaces/IStaking.sol";
-import { MismatchedArrays, NothingToRecover, StakingListFull, ZeroAmount } from "src/VaultErrors.sol";
+import { MismatchedArrays, NothingToRecover, SlippageExceeded, StakingListFull, ZeroAmount } from "src/VaultErrors.sol";
 
 contract DepositLandingTest is AlphaVaultTestBase {
     /// @dev 0.002 alpha, worth the mock's 0.0001 TAO transfer minimum at 0.05 TAO per alpha.
@@ -101,6 +102,73 @@ contract DepositLandingTest is AlphaVaultTestBase {
 
         assertEq(lens.totalStake(TOKEN1), 36 * ALPHA);
         assertGt(_getVaultStake(hotkey4, NETUID1), 0, "the new validator holds its weight");
+    }
+
+    function test_FirstDeposit_RevertedWrap_LeavesTheFlagUp() public {
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+
+        vm.prank(alice);
+        vm.expectPartialRevert(SlippageExceeded.selector);
+        vault.wrap(NETUID1, hotkey1, type(uint256).max);
+
+        assertTrue(mock.getRejectStakingHotkeyGrowth(cloneColdkey), "the lift reverted with the wrap");
+        assertEq(_stakingHotkeyCount(cloneColdkey), 0);
+    }
+
+    function test_RotatingBackToAListedValidatorAtTheCap_Works() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        _strangerTransfer(hotkey3, cloneColdkey, NETUID2);
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
+        vault.rebalance(NETUID1);
+        assertEq(_getVaultStake(hotkey3, NETUID1), 0, "the rotated-out validator holds nothing here");
+        _plantCrumbsOnOtherSubnet(cloneColdkey, MAX_STAKING_HOTKEYS - 3);
+        assertEq(_stakingHotkeyCount(cloneColdkey), MAX_STAKING_HOTKEYS);
+
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(3334, 3333, 3333));
+        vault.rebalance(NETUID1);
+        assertGt(_getVaultStake(hotkey3, NETUID1), 0, "a listed validator takes stake at the cap");
+        uint256 bobShares = _depositAndWrap(bob, NETUID1, 6 * ALPHA);
+        vm.prank(bob);
+        vault.unwrap(TOKEN1, bobShares, _toSubstrate(bob), 0);
+
+        assertApproxEqAbs(lens.totalStake(TOKEN1), 30 * ALPHA, 2, "deposit and exit went through at the cap");
+    }
+
+    function test_SellOtherSubnetStake_LeavesClaimableTaoUntouched() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        address clone = vault.subnetClone(TOKEN1);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        _donateToClone(clone, TAO);
+        vm.prank(alice);
+        vault.safeTransferFrom(alice, bob, TOKEN1, 1, "");
+        uint256 liabilityBefore = vault.taoLiability(TOKEN1);
+        assertGt(liabilityBefore, 0, "the donation is owed to holders before the sale");
+        _strangerTransfer(hotkey3, cloneColdkey, NETUID2);
+        uint256 claimBefore = lens.claimableTaoOf(alice, TOKEN1);
+        uint256 bobBefore = bob.balance;
+
+        vm.prank(bob);
+        vault.sellOtherSubnetStake(TOKEN1, _netuids(NETUID2), _hotkeys(hotkey3));
+
+        assertEq(bob.balance - bobBefore, 100_000 * 1e9, "the caller gets the sale and nothing else");
+        assertEq(clone.balance, TAO, "the TAO owed to holders stays with the clone");
+        assertEq(vault.taoLiability(TOKEN1), liabilityBefore);
+        assertEq(lens.claimableTaoOf(alice, TOKEN1), claimBefore, "the claim index is untouched");
+    }
+
+    function test_RevertWhen_TheCleanupCallerRejectsTao() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        _strangerTransfer(hotkey3, cloneColdkey, NETUID2);
+        RevertingReceiver receiver = new RevertingReceiver();
+
+        vm.prank(address(receiver));
+        vm.expectRevert(bytes("nope"));
+        vault.sellOtherSubnetStake(TOKEN1, _netuids(NETUID2), _hotkeys(hotkey3));
+
+        assertEq(_getStakeForColdkey(hotkey3, cloneColdkey, NETUID2), CRUMB, "nothing was sold");
     }
 
     function test_FullExit_EmptiesTheList_AndTheNextDepositStillLands() public {

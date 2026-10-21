@@ -12,7 +12,8 @@ use 18-decimal EVM wei. One native RAO is 1e9 wei.
 
 1. Call `createMailbox(netuid, uid)` with a fresh random `bytes32` UID. This
    creates your mailbox and, for the first user of this subnet generation, the
-   shared subnet clone. If it reverts `CloneContaminated`, retry with a new UID.
+   shared subnet clone; the registry must already list validators for the
+   subnet. If it reverts `CloneContaminated`, retry with a new UID.
 2. Read `getDepositAddress(you, netuid)` from the vault, or take the addresses
    the call returns. Zero means creation has not succeeded yet.
 3. Convert that EVM address to its Substrate coldkey using

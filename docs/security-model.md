@@ -112,6 +112,9 @@ hotkey on any subnet.
 - Every clone refuses growth by others from creation on, so a stranger can only
   top up hotkeys a clone already lists. Stake sent to a candidate before
   creation is rejected like any other contamination.
+- The vault refuses growth by others too. Its own list holds the parking hotkey
+  and one entry per subnet clone it claims, and a clone is created only for a
+  subnet the registry serves.
 - Deposits land on the mailbox's own hotkey, which the mailbox owns, and reach
   the subnet clone on a hotkey it lists. A clone that lists nothing takes the
   one transfer with its flag lifted and restored inside `wrap`.

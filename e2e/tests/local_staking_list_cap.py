@@ -5,7 +5,12 @@ crumb under it on another subnet, which keeps its entry once the next round rota
 out. At 256 entries the chain refuses the clone's move onto a hotkey it does not list, so a
 rebalance and a deposit onto a fresh validator revert `StakingListFull`. One sale makes
 room and the deposit lands; selling the rest in batches shrinks the list back to the
-hotkeys that still hold stake. About two hours at 12-second blocks.
+hotkeys that still hold stake.
+
+Kept out of the CI matrix on purpose: about 800 transactions take around two hours at the
+localnet's 12-second blocks, far past the 30-minute job limit, and the cap behaviour it
+proves on chain is covered by the unit tests' modelled list. Run it locally when the
+staking-list code changes.
 """
 import pytest
 
@@ -13,6 +18,7 @@ from alpha_e2e import config, exits, extrinsics
 from alpha_e2e.substrate import h160_to_ss58
 
 STRANGER = "//CapStranger"
+OWNER = "//CapOwner"
 OWN_CAP = 256
 SALE_BATCH = 8
 
@@ -38,7 +44,8 @@ def test_list_reaches_the_cap_and_sales_reopen_it(env):
         netuid, first_validator, first_validator_ss58, config.DEPOSIT_RAO, 1_500_000, "Cap: wrap failed",
     )
     extrinsics.fund_account(extrinsics.keypair_ss58(STRANGER), 30 * config.RAO_PER_TAO)
-    extrinsics.associate_hotkeys([ss58 for _, ss58 in validators], signer_uri=STRANGER)
+    extrinsics.fund_account(extrinsics.keypair_ss58(OWNER), 5 * config.RAO_PER_TAO)
+    extrinsics.associate_hotkeys([ss58 for _, ss58 in validators], signer_uri=OWNER)
     extrinsics.add_stakes(
         [first_validator_ss58] + [ss58 for _, ss58 in validators[:rounds]], other_netuid,
         2 * env.chain_min_stake_tao(), signer_uri=STRANGER,

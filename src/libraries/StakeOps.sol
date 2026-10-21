@@ -2,7 +2,7 @@
 pragma solidity 0.8.36;
 
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
-import { IStaking, STAKING_PRECOMPILE, MAX_STAKING_HOTKEYS } from "../interfaces/IStaking.sol";
+import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { INeuron, NEURON_PRECOMPILE } from "../interfaces/INeuron.sol";
 import { CloneBase } from "../CloneBase.sol";
 import { SubnetClone } from "../SubnetClone.sol";
@@ -36,7 +36,7 @@ library StakeOps {
         internal {
         if (
             IStaking(STAKING_PRECOMPILE).getStake(toHotkey, coldkey, netuid) == 0
-                && VaultReads.stakingHotkeyCount(coldkey) >= MAX_STAKING_HOTKEYS
+                && !VaultReads.admitsOwnMove(coldkey, toHotkey)
         ) revert StakingListFull();
         ensureHotkeyHasOwner(fromHotkey);
         ensureHotkeyHasOwner(toHotkey);

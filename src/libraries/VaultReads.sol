@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
+import { IStaking, STAKING_PRECOMPILE, MAX_STAKING_HOTKEYS, STAKING_LIST_PAGE } from "../interfaces/IStaking.sol";
 import { IValidatorRegistry, MAX_VALIDATORS } from "../interfaces/IValidatorRegistry.sol";
 import { IAddressMapping, ADDRESS_MAPPING_PRECOMPILE } from "../interfaces/IAddressMapping.sol";
 import { ISubnet, SUBNET_PRECOMPILE } from "../interfaces/ISubnet.sol";
@@ -31,6 +31,17 @@ library VaultReads {
 
     function stakingHotkeyCount(bytes32 coldkey) internal view returns (uint64 total) {
         (, total) = IStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, 0, 1);
+    }
+
+    /// @dev A listed hotkey is admitted at the cap, so the list is paged only once the cap is reached.
+    function admitsOwnMove(bytes32 coldkey, bytes32 hotkey) internal view returns (bool) {
+        uint64 total = stakingHotkeyCount(coldkey);
+        if (total < MAX_STAKING_HOTKEYS) return true;
+        for (uint64 offset; offset < total; offset += STAKING_LIST_PAGE) {
+            (bytes32[] memory page,) = IStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, offset, STAKING_LIST_PAGE);
+            if (VaultMath.contains(page, hotkey)) return true;
+        }
+        return false;
     }
 
     /// @dev One attestation: the target hotkeys and their basis-point weights.

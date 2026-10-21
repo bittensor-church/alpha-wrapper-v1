@@ -73,7 +73,7 @@ rebuilt library means a new vault as well.
   `vault.parkingHotkey()` return the intended values.
 - `getHotkeyOwner(parkingHotkey)` on the staking precompile `0x0805` returns the
   vault's own coldkey, which is `addressMapping(vault)` on the address-mapping
-  precompile `0x080C`.
+  precompile `0x080C`, and `getRejectStakingHotkeyGrowth` of that coldkey is true.
 - The library address embedded in the deployed vault bytecode equals the
   deployed `VaultAllocation` address.
 - Every address, its runtime code hash and the commit it was built from go into
@@ -100,7 +100,7 @@ functions introduced since.
 | Staking `0x0805` | `moveStake` | A same-subnet move enforces the chain's transfer minimum, which is the lower of the two minimums. |
 | Staking `0x0805` | `transferStake` | Delivers alpha to another coldkey on the same subnet; the chain's transfer minimum applies. The receiver always admits a hotkey it already lists; otherwise only while its list is under the third-party cap and, once it refuses list growth, only a hotkey it owns. |
 | Staking `0x0805` | `transferStakeAndHotkey` | Delivers alpha to another coldkey on the same subnet onto a different hotkey, under the same admission rule and minimum. |
-| Staking `0x0805` | `setRejectStakingHotkeyGrowth` | Makes the calling account refuse staking-list growth by other accounts; a hotkey it associates to itself still joins its list. `wrap` lifts it for one transfer when the clone lists nothing. |
+| Staking `0x0805` | `setRejectStakingHotkeyGrowth` | Makes the calling account refuse staking-list growth by other accounts; a hotkey it associates to itself still joins its list. The vault and every clone set it at creation; `wrap` lifts a clone's for one transfer when it lists nothing. |
 | Staking `0x0805` | `getRejectStakingHotkeyGrowth` | Reports that flag; the chain default is to allow growth. |
 | Staking `0x0805` | `getStakingHotkeys` | Reports an account's staking list length and first entry; an uncontaminated clone candidate lists nothing, and an entry stays while the account holds stake under that hotkey on any subnet. |
 | Staking `0x0805` | `removeStake` | A partial unstake enforces the default minimum stake and lowers the caller's `getStake` by at most the requested amount; a full drain of a position clears it, on any subnet. |

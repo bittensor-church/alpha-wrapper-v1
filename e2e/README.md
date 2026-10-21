@@ -30,9 +30,12 @@ Use one scenario module per fresh chain. Modules share subnet and contract state
 through the session-scoped `env` fixture; running several against one long-lived
 chain is unsupported. CI gives each scenario its own container.
 
-`tests/local_*.py` scenarios are not in the CI matrix. `local_staking_list_cap.py`
-walks a clone's staking list up to the chain's 256-entry cap and back, about two
-hours at the localnet's 12-second blocks:
+`tests/local_*.py` scenarios are left out of the CI matrix on purpose.
+`local_staking_list_cap.py` walks a clone's staking list up to the chain's
+256-entry cap and back: about 800 transactions, around two hours at the
+localnet's 12-second blocks, past the 30-minute CI job limit. The unit tests
+cover the cap on the modelled list; run this one locally when the staking-list
+code changes:
 
 ```bash
 cd e2e

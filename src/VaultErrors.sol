@@ -43,6 +43,8 @@ error BackingNotSecured();
 error Parked();
 /// @dev The parking hotkey already belongs to another coldkey; deploy with an unused one.
 error ParkingHotkeyUnavailable();
+/// @dev The chain did not record the vault's refusal of staking-list growth by others.
+error VaultProtectionFailed();
 /// @dev The clone's staking list is at the chain's cap, so it cannot stake under a new hotkey.
 ///      Sell positions it holds on other subnets with `sellOtherSubnetStake`.
 error StakingListFull();

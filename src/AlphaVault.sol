@@ -22,7 +22,7 @@ import {
     ClaimBelowNativePrecision, InsufficientShares, LockedDeposit,
     LockedBacking, MailboxNotPrepared, MismatchedArrays, SubnetCloneNotPrepared,
     NetuidOutOfRange, NothingToRecover, NothingToUnwrap,
-    Parked, ParkingHotkeyUnavailable, BackingNotSecured,
+    Parked, ParkingHotkeyUnavailable, BackingNotSecured, VaultProtectionFailed,
     ShortfallOnFile, SlippageExceeded, SlotMaskOutOfRange,
     SubnetNotRegistered, SupplyCapExceeded, WithdrawTooSmall,
     ZeroAddress, ZeroAmount, ZeroColdkey,
@@ -73,7 +73,11 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (_recoveryWindow == 0) revert ZeroAmount();
         if (_parkingHotkey == bytes32(0)) revert ZeroHotkey();
         INeuron(NEURON_PRECOMPILE).tryAssociateHotkey(_parkingHotkey);
-        if (!VaultReads.ownedBy(_parkingHotkey, VaultReads.coldkeyOf(address(this)))) { revert ParkingHotkeyUnavailable(); }
+        bytes32 coldkey = VaultReads.coldkeyOf(address(this));
+        if (!VaultReads.ownedBy(_parkingHotkey, coldkey)) revert ParkingHotkeyUnavailable();
+        // Every subnet clone the vault claims is one entry of its own capped staking list.
+        IStaking(STAKING_PRECOMPILE).setRejectStakingHotkeyGrowth(true);
+        if (!IStaking(STAKING_PRECOMPILE).getRejectStakingHotkeyGrowth(coldkey)) revert VaultProtectionFailed();
         cloneFactory = new CloneFactory(_mailboxLogic, _subnetLogic);
         validatorRegistry = IValidatorRegistry(_validatorRegistry);
         recoveryWindow = _recoveryWindow; parkingHotkey = _parkingHotkey;
@@ -89,10 +93,12 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         return uint256(nid) | (uint256(subnet.getRegisteredSubnetCounter(nid)) << VaultMath.NETUID_BITS);
     }
 
-    /// @notice Prepare a protected mailbox before sending alpha. The first caller also prepares
-    ///         the shared subnet clone. A fresh random UID lets a rejected candidate be retried.
+    /// @notice Prepare a protected mailbox before sending alpha. The first caller also prepares the shared
+    ///         subnet clone, which needs a validator set for the subnet. A fresh random UID lets a rejected
+    ///         candidate be retried.
     function createMailbox(uint256 netuid, bytes32 uid) external nonReentrant returns (address mailbox, address clone) {
-        return VaultAllocation.prepareClones(cloneFactory, subnetClone, _mailboxes, currentTokenId(netuid), netuid, uid);
+        return VaultAllocation.prepareClones(
+            cloneFactory, validatorRegistry, subnetClone, _mailboxes, currentTokenId(netuid), netuid, uid);
     }
 
     /// @notice Zero until `createMailbox` succeeds. Deposits go onto the mailbox's own hotkey, whose id is its coldkey.

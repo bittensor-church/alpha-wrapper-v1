@@ -128,6 +128,11 @@ def test_locked_deposit(env, recovery_window):
     assert deposited >= 10 * config.RAO_PER_ALPHA - config.ROUNDING_DUST_SLOT_RAO, (
         f"the honest wrap collected {deposited} RAO of 10 alpha"
     )
+    with pytest.raises(extrinsics.ExtrinsicError) as refused:
+        extrinsics.transfer_stake_and_hotkey(
+            h160_to_ss58(clone), gift_hotkey_ss58, hotkey_ss58, netuid, locked_alpha // 2, signer_uri=LOCKED_HOLDER,
+        )
+    assert "AccountRejectsLockedAlpha" in str(refused.value), "a listed validator still refuses locked alpha"
     checks.assert_first_deposit_shares(env.vault_shares(token_id), deposited, "honest wrap on a fresh vault")
     receipt, received = exits.unwrap(
         env, token_id, env.vault_shares(token_id), "honest exit failed", hotkeys=env.subnet_hotkey_pubkeys(0),

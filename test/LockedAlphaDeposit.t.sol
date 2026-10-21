@@ -7,7 +7,13 @@ import { CloneBase } from "src/CloneBase.sol";
 import { CloneFactory } from "src/CloneFactory.sol";
 import { IAlpha, ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { IStaking, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
-import { LockedDeposit, LockedBacking, MailboxNotPrepared, SubnetCloneNotPrepared } from "src/VaultErrors.sol";
+import {
+    LockedDeposit,
+    LockedBacking,
+    MailboxNotPrepared,
+    NoValidatorFound,
+    SubnetCloneNotPrepared
+} from "src/VaultErrors.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 
@@ -78,6 +84,32 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
         assertEq(total, 1, "a mailbox lists the hotkey it claimed");
         assertEq(listed[0], _toSubstrate(mailbox));
         assertEq(_stakingHotkeyCount(_toSubstrate(clone)), 0, "a subnet clone lists nothing until it stakes");
+        assertEq(_stakingHotkeyCount(_toSubstrate(address(vault))), 2, "the vault lists parking and the clone");
+    }
+
+    function test_Vault_RefusesStakingListGrowthByOthers() public {
+        bytes32 vaultColdkey = _toSubstrate(address(vault));
+        assertTrue(mock.getRejectStakingHotkeyGrowth(vaultColdkey));
+        assertEq(_stakingHotkeyCount(vaultColdkey), 1, "the parking hotkey is the vault's only entry");
+        mock.setHotkeyOwned(hotkey5, true);
+        mock.setStake(hotkey5, _toSubstrate(bob), NETUID1, ALPHA);
+        mock.setStake(PARKING_HOTKEY, _toSubstrate(bob), NETUID1, ALPHA);
+
+        vm.prank(bob);
+        _expectChainRefusal();
+        mock.transferStake(vaultColdkey, hotkey5, NETUID1, NETUID1, ALPHA);
+        vm.prank(bob);
+        mock.transferStake(vaultColdkey, PARKING_HOTKEY, NETUID1, NETUID1, ALPHA);
+
+        assertEq(_stakingHotkeyCount(vaultColdkey), 1, "a gift onto the parking hotkey adds no entry");
+    }
+
+    function test_RevertWhen_CreatingACloneForASubnetWithoutValidators() public {
+        _setRegBlock(99, 300);
+        vm.prank(alice);
+        vm.expectRevert(NoValidatorFound.selector);
+        vault.createMailbox(99, UID);
+        assertEq(_stakingHotkeyCount(_toSubstrate(address(vault))), 1, "no clone was claimed");
     }
 
     function test_RevertWhen_MailboxCandidateAcceptsLockedAlpha() public {

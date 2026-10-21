@@ -9,6 +9,7 @@ import { VaultMath } from "./VaultMath.sol";
 import { VaultReads } from "./VaultReads.sol";
 import { IAlpha, ALPHA_PRECOMPILE } from "../interfaces/IAlpha.sol";
 import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
+import { IValidatorRegistry } from "../interfaces/IValidatorRegistry.sol";
 import { LockedDeposit, ZeroAmount } from "../VaultErrors.sol";
 import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
 import { CloneFactory } from "../CloneFactory.sol";
@@ -36,10 +37,10 @@ library VaultAllocation {
     }
 
     /// @dev Delegatecall keeps the vault as the initializer and the depositor as msg.sender.
-    function prepareClones(CloneFactory factory, mapping(uint256 => address) storage subnetClone,
-        mapping(address => mapping(uint256 => address)) storage mailboxes, uint256 tokenId, uint256 netuid,
-        bytes32 uid) external returns (address mailbox, address clone) {
-        return VaultClones.prepareClones(factory, subnetClone, mailboxes, tokenId, netuid, uid);
+    function prepareClones(CloneFactory factory, IValidatorRegistry registry,
+        mapping(uint256 => address) storage subnetClone, mapping(address => mapping(uint256 => address)) storage mailboxes,
+        uint256 tokenId, uint256 netuid, bytes32 uid) external returns (address mailbox, address clone) {
+        return VaultClones.prepareClones(factory, registry, subnetClone, mailboxes, tokenId, netuid, uid);
     }
 
     function admitDeposit(bytes32 mailboxColdkey, uint16 nid) external view
