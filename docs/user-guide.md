@@ -38,6 +38,11 @@ The first user on a generation pays for the shared clone as well as their
 mailbox; later users pay for a mailbox. A public UID can be front-run, so a
 failed creation can need another attempt.
 
+`StakingListFull` from `wrap` or `rebalance` means the subnet clone's staking
+list cannot take the attested set. Anyone may call `replaceClone(tokenId, uid)`
+with a fresh random UID; the position moves to a fresh clone and the call can
+be retried. Token id, shares and TAO claims do not change.
+
 A deposit below the vault's conservative stake floor reverts `DepositTooSmall`;
 top up the mailbox before retrying. A mailbox holding conviction-locked alpha
 reverts `LockedDeposit`; reclaim it with `reclaimAlphaFromMailbox` to a coldkey

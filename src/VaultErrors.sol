@@ -45,10 +45,10 @@ error Parked();
 error ParkingHotkeyUnavailable();
 /// @dev The chain did not record the vault's refusal of staking-list growth by others.
 error VaultProtectionFailed();
-/// @dev The clone's staking list is at the chain's cap, so it cannot stake under a new hotkey.
-///      Sell positions it holds on other subnets with `sellOtherSubnetStake`.
+/// @dev The clone's staking list cannot take another hotkey; `replaceClone` moves the position to a fresh one.
 error StakingListFull();
-error MismatchedArrays();
+/// @dev The clone's staking list still takes the attested set and the parking hotkey; replacement waits.
+error StakingListHasRoom();
 /// @dev No receiving key with an owner record was resolved for this attested name.
 ///      Restore an owner record or replace the registry entry; the backing timer cannot fix it.
 error AttestedHotkeyRetired(bytes32 hotkey);

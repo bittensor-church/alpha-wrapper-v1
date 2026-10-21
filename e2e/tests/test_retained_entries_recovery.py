@@ -3,8 +3,9 @@
 A stranger sends a crumb under the attested validator on another subnet, which the chain
 admits because the clone lists that validator. The validator then renames its hotkey and a
 stranger cuts the trail, as in the parked-recovery scenario. The watcher parks the position,
-the clone's own move onto the parking hotkey, and sells the crumb; the owner's update releases
-the position onto the successor. Exits pay throughout and deposits resume afterwards.
+the clone's own move onto the parking hotkey, and the owner's update releases the position
+onto the successor while the crumb keeps its entry. Exits pay throughout and deposits resume
+afterwards.
 """
 import pytest
 
@@ -43,9 +44,6 @@ def test_recovery_with_a_retained_entry(env):
     assert len(extrinsics.staking_hotkeys(h160_to_ss58(clone))) >= 2, (
         "the crumb should keep the successor listed beside the parking hotkey"
     )
-
-    env.sell_other_subnet_stake(token_id, [other_netuid], [successor], "Retained entry: selling the crumb failed")
-    assert env.stake(successor, clone_coldkey, other_netuid) == 0, "the crumb is still there"
 
     exits.unwrap(
         env, token_id, shares // 4, "Retained entry: the exit should pay from the parking hotkey",

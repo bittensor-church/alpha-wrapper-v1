@@ -32,11 +32,11 @@ library StakeOps {
 
     /// @dev A chain refusal burns the forwarded gas; a hotkey the clone holds nothing under on this subnet
     ///      may be absent from its staking list, which the cap then shuts.
-    function move(address clone, bytes32 coldkey, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount)
-        internal {
+    function move(address clone, bytes32 coldkey, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount,
+        bytes32 parking) internal {
         if (
             IStaking(STAKING_PRECOMPILE).getStake(toHotkey, coldkey, netuid) == 0
-                && !VaultReads.admitsOwnMove(coldkey, toHotkey)
+                && !VaultReads.admitsOwnMove(coldkey, toHotkey, parking)
         ) revert StakingListFull();
         ensureHotkeyHasOwner(fromHotkey);
         ensureHotkeyHasOwner(toHotkey);

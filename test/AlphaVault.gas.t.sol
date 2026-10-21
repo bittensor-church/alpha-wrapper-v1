@@ -2,6 +2,8 @@
 pragma solidity 0.8.36;
 
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
+import { MockStaking } from "./mocks/MockStaking.sol";
+import { STAKING_PRECOMPILE, MAX_STAKING_HOTKEYS } from "src/interfaces/IStaking.sol";
 import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 
 // Mock-based measurements, not live-chain gas estimates; use e2e receipts for sizing.
@@ -83,6 +85,20 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, 60_010_000_000e9, 0);
         vm.snapshotGasLastCall("AlphaVault", "unwrapForTao: sub-floor tail refunded");
+    }
+
+    function test_gas_replaceClone_3Validators() public {
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
+        _wrap(alice, NETUID1);
+        bytes32 coldkey = _subnetColdkey(NETUID1);
+        for (uint256 i = 3; i < MAX_STAKING_HOTKEYS; ++i) {
+            bytes32 hotkey = keccak256(abi.encode("crumb", i));
+            MockStaking(STAKING_PRECOMPILE).setHotkeyOwned(hotkey, true);
+            MockStaking(STAKING_PRECOMPILE).setStake(hotkey, coldkey, NETUID2, 2_000_000);
+        }
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey4), _weights(3334, 3333, 3333));
+        vault.replaceClone(TOKEN1, keccak256("fixture-replacement"));
+        vm.snapshotGasLastCall("AlphaVault", "replaceClone: 3 validators");
     }
 
     function test_gas_rebalance() public {

@@ -33,15 +33,43 @@ library VaultReads {
         (, total) = IStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, 0, 1);
     }
 
-    /// @dev A listed hotkey is admitted at the cap, so the list is paged only once the cap is reached.
-    function admitsOwnMove(bytes32 coldkey, bytes32 hotkey) internal view returns (bool) {
+    /// @dev Which of `needles` the coldkey lists, read in one pass over the pages.
+    function listedAmong(bytes32 coldkey, bytes32[] memory needles) internal view returns (bool[] memory listed) {
+        listed = new bool[](needles.length);
         uint64 total = stakingHotkeyCount(coldkey);
-        if (total < MAX_STAKING_HOTKEYS) return true;
         for (uint64 offset; offset < total; offset += STAKING_LIST_PAGE) {
             (bytes32[] memory page,) = IStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, offset, STAKING_LIST_PAGE);
-            if (VaultMath.contains(page, hotkey)) return true;
+            for (uint256 i; i < needles.length;) {
+                if (!listed[i] && VaultMath.contains(page, needles[i])) listed[i] = true;
+                unchecked { ++i; }
+            }
         }
-        return false;
+    }
+
+    /// @dev A listed hotkey is admitted at the cap. One entry stays free for the parking hotkey while it is
+    ///      unlisted, so recovery can always park; the list is paged only near the cap.
+    function admitsOwnMove(bytes32 coldkey, bytes32 hotkey, bytes32 parking) internal view returns (bool) {
+        uint64 total = stakingHotkeyCount(coldkey);
+        if (total + 2 <= MAX_STAKING_HOTKEYS) return true;
+        bytes32[] memory needles = new bytes32[](2);
+        needles[0] = hotkey; needles[1] = parking;
+        bool[] memory listed = listedAmong(coldkey, needles);
+        if (listed[0]) return true;
+        uint256 needed = hotkey == parking || listed[1] ? 1 : 2;
+        return total + needed <= MAX_STAKING_HOTKEYS;
+    }
+
+    /// @dev Whether the list can take every attested hotkey and the parking hotkey.
+    function admitsSet(bytes32 coldkey, bytes32[] memory hotkeys, bytes32 parking) internal view returns (bool) {
+        uint64 total = stakingHotkeyCount(coldkey);
+        if (total + hotkeys.length + 1 <= MAX_STAKING_HOTKEYS) return true;
+        bytes32[] memory needles = new bytes32[](hotkeys.length + 1);
+        for (uint256 i; i < hotkeys.length;) { needles[i] = hotkeys[i]; unchecked { ++i; } }
+        needles[hotkeys.length] = parking;
+        bool[] memory listed = listedAmong(coldkey, needles);
+        uint256 missing;
+        for (uint256 i; i < listed.length;) { if (!listed[i]) ++missing; unchecked { ++i; } }
+        return total + missing <= MAX_STAKING_HOTKEYS;
     }
 
     /// @dev One attestation: the target hotkeys and their basis-point weights.

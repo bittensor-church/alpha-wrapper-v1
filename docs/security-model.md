@@ -75,7 +75,7 @@ unlocked alpha, leaving them alpha that neither exit can move.
 - Creation checks the candidate chosen by the caller's UID for ownership,
   swap history, locks and staking-list entries, rejects a poisoned one so the
   caller retries with a fresh UID, then makes the account a hotkey: a mailbox
-  claims its own, the vault claims a subnet clone's. The chain refuses coldkey
+  claims its own, a throwaway owner contract claims a subnet clone's. The chain refuses coldkey
   swaps into existing hotkeys, so the protection holds at zero stake, and no
   clone has a function that could rename or hand over that hotkey. Creation
   also verifies that the clone rejects locked-alpha transfers and staking-list
@@ -93,9 +93,9 @@ remain allowed; alpha donations only onto a hotkey the clone already lists.
 
 The chain hands a subnet to the coldkey that owns its most convicted hotkey and
 locks the owner's cut onto that coldkey every epoch. A subnet clone owning a
-hotkey could be made subnet owner that way and frozen by the lock. The vault
-owns each subnet clone's account as a hotkey instead, which still refuses
-coldkey swaps into it, and the clone owns nothing. Mailboxes keep owning their
+hotkey could be made subnet owner that way and frozen by the lock. A contract
+deployed with each subnet clone owns its account as a hotkey instead, which
+still refuses coldkey swaps into it, and the clone owns nothing. Mailboxes keep owning their
 account: a hijacked mailbox blocks one user's wrap on one subnet and the alpha
 stays reclaimable. The vault's coldkey may be made subnet owner through the
 hotkeys it holds; nothing reads its locks or stake.
@@ -112,18 +112,24 @@ hotkey on any subnet.
 - Every clone refuses growth by others from creation on, so a stranger can only
   top up hotkeys a clone already lists. Stake sent to a candidate before
   creation is rejected like any other contamination.
-- The vault refuses growth by others too. Its own list holds the parking hotkey
-  and one entry per subnet clone it claims, and a clone is created only for a
-  subnet the registry serves.
+- The vault refuses growth by others too. Its own list holds the parking hotkey.
+  Owning a hotkey costs the owner one entry for good, so each subnet clone's
+  hotkey belongs to a contract deployed with it that does nothing else, and a
+  clone is created only for a subnet the registry serves.
 - Deposits land on the mailbox's own hotkey, which the mailbox owns, and reach
   the subnet clone on a hotkey it lists. A clone that lists nothing takes the
   one transfer with its flag lifted and restored inside `wrap`.
-- A crumb sent under a listed validator on another subnet keeps that validator
-  listed after a rotation, so the list grows by at most one entry per validator
-  the registry has ever used. `sellOtherSubnetStake` sells such positions, many
-  in one call, and pays the caller the TAO; the entries leave with them. A clone
-  move onto a hotkey it does not list reverts `StakingListFull` at the cap
-  instead of burning gas.
+- A crumb sent under a listed validator keeps that validator listed after a
+  rotation, so a clone's list grows by at most one entry per validator the
+  registry has ever used, and nothing the vault can call frees such an entry.
+  A clone's own moves keep one entry free for the parking hotkey, so recovery
+  can always park, and a move onto a hotkey the clone does not list reverts
+  `StakingListFull` instead of burning gas.
+- Once the list cannot take the attested set and the parking hotkey, anyone
+  calls `replaceClone(tokenId, uid)`: a fresh clone and owner are created, the
+  recorded backing and the clone's TAO move across under the same hotkeys, and
+  the token keeps its id, shares and claims. Piles below the conservative floor
+  stay behind, and the old clone keeps the crumbs.
 - A single-subnet swap of a validator carrying such a crumb leaves the clone's
   stake on the old name. The vault handles it as a swap that kept the stake.
 
@@ -207,11 +213,12 @@ them; accrued TAO survives either way.
   hotkeys, rejecting locked-alpha transfers by default and honouring the
   reject-growth flag. A public UID can be front-run into a retry; a poisoned
   candidate never becomes backing.
-- Every hotkey the vault claims, for subnet clones, parking and names it moves
-  stake off, stays on the vault's own staking list, which the chain caps at 256.
-  One vault deployment can therefore create about 250 subnet clones.
-- Alpha a clone holds on another subnet is not backing and goes to whoever
-  sells it with `sellOtherSubnetStake`.
+- The parking hotkey and every ownerless name the vault restores an owner to,
+  so it can move stake off it, stay on the vault's own staking list, which the
+  chain caps at 256.
+- Alpha a clone holds on another subnet is not backing and stays there. A
+  replaced clone keeps it, along with recorded piles below the floor and
+  anything that arrives later.
 - A vacated attested name that a stranger claims receives an empty slot's
   allocation until the registry owner publishes the successor. The alpha stays
   under the vault's coldkey; if the stranger moves it, it is recovered as

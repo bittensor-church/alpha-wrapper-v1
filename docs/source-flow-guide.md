@@ -57,8 +57,13 @@ cleanup, then old shares redeem the clone's unreserved TAO.
 - **`createMailbox`:** resolve the live generation -> check the candidates -> deploy
   any missing subnet clone (only for a subnet the registry serves) and personal
   mailbox -> make each a hotkey (the mailbox
-  claims its own, the vault claims the clone's) refusing staking-list growth ->
+  claims its own, a throwaway owner contract claims the clone's) refusing staking-list growth ->
   verify -> publish accepted addresses. All steps are atomic.
+- **`replaceClone`:** require a prepared, live clone with transfers enabled -> check backing ->
+  require that the attested set and the parking hotkey no longer fit the clone's staking list ->
+  deploy a fresh clone and owner -> lift the successor's growth flag -> transfer each recorded
+  pile above the floor under the same hotkey -> restore the flag -> move the TAO balance ->
+  point the token at the successor -> re-read balances into the record.
 - **`wrap`:** require prepared addresses -> check backing, receivers and that the mailbox holds no lock ->
   land the mailbox's own-hotkey stake on a hotkey the clone lists, lifting the growth
   flag for the transfer when it lists nothing, then move it onto the chosen registry

@@ -131,11 +131,9 @@ shortfall or recovery clock.
 5. After completion with shares outstanding, registry governance publishes a newer set even if all backing returned.
    Remove any lost or captured name, naming the intended successor. The next wrap
    or `rebalance(netuid)` releases the parked position onto it.
-6. Watch the clone's staking list (`getStakingHotkeys` on the staking precompile).
-   An entry beyond the attested set and the parking hotkey is a position on
-   another subnet; sell it with `sellOtherSubnetStake(tokenId, netuids, hotkeys)`,
-   which pays the caller. `StakingListFull` on any call means the list is at
-   the chain's cap: sell first, then retry.
+6. `StakingListFull` on any call means the clone's staking list cannot take
+   another hotkey. Call `replaceClone(tokenId, uid)` with a fresh random UID,
+   then retry: the position, its TAO and the token id move to a fresh clone.
 
 `recoverStray` never edits the registry and cannot pay the caller from vault
 funds. Collection emits `BackingRecovered`; sync finalization emits

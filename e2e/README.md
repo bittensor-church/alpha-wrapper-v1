@@ -31,8 +31,8 @@ through the session-scoped `env` fixture; running several against one long-lived
 chain is unsupported. CI gives each scenario its own container.
 
 `tests/local_*.py` scenarios are left out of the CI matrix on purpose.
-`local_staking_list_cap.py` walks a clone's staking list up to the chain's
-256-entry cap and back: about 800 transactions, around two hours at the
+`local_staking_list_cap.py` walks a clone's staking list to the last entry it
+may take and replaces the clone: about 800 transactions, around two hours at the
 localnet's 12-second blocks, past the 30-minute CI job limit. The unit tests
 cover the cap on the modelled list; run this one locally when the staking-list
 code changes:
@@ -73,17 +73,16 @@ Scenario files in `tests/` cover:
 - `test_transfers_off.py`, `test_convicted_alpha.py`: disabled transfers and locks.
 - `test_locked_deposit.py`: poisoned candidates are rejected before deployment
   and a fresh UID creates protected mailboxes and subnet clones, each an owned
-  hotkey (a mailbox its own, a subnet clone the vault's), so coldkey swaps and
+  hotkey (a mailbox its own, a subnet clone its owner contract's), so coldkey swaps and
   locked-alpha transfers into them are refused on the real chain; an honest
   deposit still wraps and exits.
 - `test_reject_hotkey_growth.py`: a candidate that already stakes is rejected, a
   stranger cannot add a hotkey (hotkey 0x0 included) to a mailbox's or clone's
   staking list after creation, a crumb sent under a listed validator keeps its
-  entry after a rotation, `sellOtherSubnetStake` sells it to the caller, and
-  deposits land before and after a full exit.
+  entry after a rotation, and deposits land before and after a full exit.
 - `test_retained_entries_recovery.py`: with such a crumb retained, a stranger cuts
-  the trail behind a validator's rename; the watcher parks the position, sells the
-  crumb, an owner update releases, and deposits and exits continue.
+  the trail behind a validator's rename; the watcher parks the position, an owner
+  update releases, and deposits and exits continue.
 - `test_subnet_dissolved.py`: refunds and mailbox recovery.
 - `test_min_stake_floor.py`, `test_dust_dos.py`, `test_min_stake_liveness.py`:
   minimums, top-ups, dust and repeated position changes.

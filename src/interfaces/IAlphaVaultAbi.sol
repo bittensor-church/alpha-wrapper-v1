@@ -12,6 +12,8 @@ interface IAlphaVaultAbi {
     /// @dev Weight-alignment moves only; excludes consolidation and payout-gather hops.
     event Rebalanced(uint256 indexed tokenId, bytes32 indexed fromHotkey, bytes32 indexed toHotkey, uint256 amount);
     event SubnetProxyCreated(uint256 indexed tokenId, address clone);
+    /// @dev The token's position now lives on `clone`; whatever strangers left on `previous` stays there.
+    event SubnetCloneReplaced(uint256 indexed tokenId, address indexed previous, address clone);
     event MailboxCreated(address indexed user, uint256 indexed netuid, address mailbox);
     /// @dev `sharesBurned` is the caller's burn and `sharesRefunded` the shares minted back for alpha the
     ///      sale left unsold; a full burn's empty-vault refund rate can exceed the burn. `taoOut` is EVM wei.
@@ -31,9 +33,6 @@ interface IAlphaVaultAbi {
     ///      A zero `registryNonce` means no shares remained, so deposits stay open.
     event BackingParked(uint256 indexed tokenId, uint256 backing, uint256 registryNonce);
     event BackingRecovered(uint256 indexed tokenId, bytes32 indexed hotkey, uint256 amount);
-    /// @dev `taoOut` is native TAO in EVM wei, paid to the caller.
-    event OtherSubnetStakeSold(
-        uint256 indexed tokenId, uint16 indexed netuid, bytes32 indexed hotkey, uint256 alpha, uint256 taoOut);
 
     error SafeCastOverflowedUintDowncast(uint8 bits, uint256 value);
     error ConsolidationBelowFloor();

@@ -20,11 +20,11 @@ import { VaultReads } from "./libraries/VaultReads.sol";
 import {
     AttestedHotkeyRetired, BackingUnchanged, ChosenHotkeyNotInSet,
     ClaimBelowNativePrecision, InsufficientShares, LockedDeposit,
-    LockedBacking, MailboxNotPrepared, MismatchedArrays, SubnetCloneNotPrepared,
+    LockedBacking, MailboxNotPrepared, SubnetCloneNotPrepared,
     NetuidOutOfRange, NothingToRecover, NothingToUnwrap,
     Parked, ParkingHotkeyUnavailable, BackingNotSecured, VaultProtectionFailed,
-    ShortfallOnFile, SlippageExceeded, SlotMaskOutOfRange,
-    SubnetNotRegistered, SupplyCapExceeded, WithdrawTooSmall,
+    ShortfallOnFile, SlippageExceeded, SlotMaskOutOfRange, StakingListHasRoom,
+    SubnetDissolved, SubnetNotRegistered, SupplyCapExceeded, WithdrawTooSmall,
     ZeroAddress, ZeroAmount, ZeroColdkey,
     ZeroHotkey
 } from "./VaultErrors.sol";
@@ -75,7 +75,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         INeuron(NEURON_PRECOMPILE).tryAssociateHotkey(_parkingHotkey);
         bytes32 coldkey = VaultReads.coldkeyOf(address(this));
         if (!VaultReads.ownedBy(_parkingHotkey, coldkey)) revert ParkingHotkeyUnavailable();
-        // Every subnet clone the vault claims is one entry of its own capped staking list.
+        // Only the parking hotkey and the names the vault restores an owner to belong on its own list.
         IStaking(STAKING_PRECOMPILE).setRejectStakingHotkeyGrowth(true);
         if (!IStaking(STAKING_PRECOMPILE).getRejectStakingHotkeyGrowth(coldkey)) revert VaultProtectionFailed();
         cloneFactory = new CloneFactory(_mailboxLogic, _subnetLogic);
@@ -140,10 +140,10 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         bytes32[] memory actives = _assignFundableActives(slots, backing, set, nid);
 
         (uint256 totalDeposit, uint256 alphaPriceE18) = VaultAllocation.admitDeposit(mailboxColdkey, nid);
+        VaultAllocation.Context memory context = _context(tokenId, clone, destColdkey, alphaPriceE18);
 
         // A fresh deposit can carry rotated-out dust through above-floor consolidation hops.
-        VaultAllocation.collectDeposit(mailbox, mailboxColdkey, clone, destColdkey, actives[chosenIndex], nid, totalDeposit);
-        VaultAllocation.Context memory context = _context(tokenId, clone, destColdkey, alphaPriceE18);
+        VaultAllocation.collectDeposit(mailbox, mailboxColdkey, context, actives[chosenIndex], totalDeposit);
         VaultAllocation.consolidateRotatedStake(
             context, backing.keys, actives, VaultAllocation.CollectionPolicy.RevertBelowFloor);
         VaultAllocation.rebalance(context, actives, set.weights);
@@ -401,11 +401,11 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     }
 
     /// @dev One price read covers every floor test the allocation library runs for this call.
-    function _context(uint256 tokenId, address clone, bytes32 coldkey, uint256 alphaPriceE18) private pure
+    function _context(uint256 tokenId, address clone, bytes32 coldkey, uint256 alphaPriceE18) private view
         returns (VaultAllocation.Context memory) {
         return VaultAllocation.Context({
             tokenId: tokenId, clone: clone, coldkey: coldkey,
-            netuid: VaultMath.netuidOf(tokenId), alphaPriceE18: alphaPriceE18
+            netuid: VaultMath.netuidOf(tokenId), alphaPriceE18: alphaPriceE18, parking: parkingHotkey
         });
     }
 
@@ -440,30 +440,27 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         emit BackingRecovered(tokenId, parkingHotkey, parked - before);
     }
 
-    /// @notice Sell the clone's whole positions under `hotkeys[i]` on `netuids[i]`, each a subnet other than the
-    ///         token's, and pay the caller the TAO.
-    /// @dev Such positions exist only because someone sent them, and each keeps its hotkey on the clone's
-    ///      staking list, whose length caps what the clone can stake under. Stake on the token's own subnet
-    ///      is backing or a stray for `recoverStray`.
-    function sellOtherSubnetStake(uint256 tokenId, uint16[] calldata netuids, bytes32[] calldata hotkeys)
-        external nonReentrant {
-        if (netuids.length != hotkeys.length) revert MismatchedArrays();
-        if (netuids.length == 0) revert ZeroAmount();
+    /// @notice Move the token's position to a fresh clone once the old one's staking list cannot take the
+    ///         attested set and the parking hotkey. Anyone may call it; a rejected candidate is retried
+    ///         with a fresh UID.
+    /// @dev Recorded piles below the conservative floor stay behind and leave the record. The old clone keeps
+    ///      whatever strangers sent it. Token id, shares, claims and mailboxes are untouched.
+    function replaceClone(uint256 tokenId, bytes32 uid) external nonReentrant {
         address clone = subnetClone[tokenId];
-        if (clone == address(0)) revert NothingToRecover();
+        if (clone == address(0)) revert SubnetCloneNotPrepared();
+        if (VaultReads.isDissolved(tokenId)) revert SubnetDissolved();
+        uint16 netuid = VaultMath.netuidOf(tokenId);
+        VaultReads.requireTransfersEnabled(netuid);
         bytes32 coldkey = VaultReads.coldkeyOf(clone);
-        uint16 ownNetuid = VaultMath.netuidOf(tokenId);
-        uint256 balanceBefore = clone.balance;
-        for (uint256 i; i < netuids.length;) {
-            if (netuids[i] == ownNetuid) revert NothingToRecover();
-            uint256 amount = IStaking(STAKING_PRECOMPILE).getStake(hotkeys[i], coldkey, netuids[i]);
-            if (amount == 0) revert ZeroAmount();
-            uint256 soldFrom = clone.balance;
-            StakeOps.sell(clone, hotkeys[i], netuids[i], amount);
-            emit OtherSubnetStakeSold(tokenId, netuids[i], hotkeys[i], amount, clone.balance - soldFrom);
-            unchecked { ++i; }
-        }
-        SubnetClone(payable(clone)).unwrapTao(payable(msg.sender), clone.balance - balanceBefore);
+        (, VaultReads.Backing memory backing) = _openBacking(tokenId, coldkey, netuid);
+        VaultReads.ValidatorSet memory set = VaultReads.resolveValidators(validatorRegistry, netuid);
+        if (VaultReads.admitsSet(coldkey, set.hotkeys, parkingHotkey)) revert StakingListHasRoom();
+        address successor = VaultAllocation.replaceClone(
+            cloneFactory, _context(tokenId, clone, coldkey, IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid)),
+            backing.keys, uid);
+        subnetClone[tokenId] = successor;
+        _reanchor(tokenId, backing.keys, VaultReads.fetchBalances(backing.keys, VaultReads.coldkeyOf(successor), netuid));
+        emit SubnetCloneReplaced(tokenId, clone, successor);
     }
 
     /// @dev Keep resolved keys and old-key residue locations.

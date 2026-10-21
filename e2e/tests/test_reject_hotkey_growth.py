@@ -1,4 +1,4 @@
-"""A stranger cannot grow a clone's staking list, and what it can leave behind is sold off.
+"""A stranger cannot grow a clone's staking list; a crumb under a listed validator keeps its entry.
 
 Subtensor lets another coldkey add a hotkey to an account's staking list by transferring
 stake onto it, until the list holds 128 entries; after that, transfers onto unlisted hotkeys
@@ -9,8 +9,7 @@ that lands on a clone listing nothing. A candidate dusted before creation is rej
 Hotkey 0x0, which the localnet owns from genesis, is refused like any other unlisted hotkey.
 
 A crumb sent under a listed validator on another subnet keeps that validator listed after
-the registry rotates it out. `sellOtherSubnetStake` sells the crumb to whoever calls it and
-the entry is gone.
+the registry rotates it out; nothing of the vault's is affected and deposits keep landing.
 """
 import secrets
 from dataclasses import replace
@@ -114,15 +113,8 @@ def test_stranger_cannot_grow_a_clones_staking_list(env, recovery_window):
     assert len(extrinsics.staking_hotkeys(h160_to_ss58(clone))) == 2, "the crumb did not keep the old entry"
 
     env.deposit_and_wrap(netuid, hotkeys[1], env.hotkey_ss58s[1], config.DEPOSIT_RAO, 1_500_000, "the second wrap failed")
-
-    balance_before = env.user_tao_wei()
-    sale = env.sell_other_subnet_stake(token_id, [other_netuid], [validator], "selling the crumb failed")
-    tao_out = chain.event_word(sale, "OtherSubnetStakeSold(uint256,uint16,bytes32,uint256,uint256)", 1, "crumb sale")
-    assert env.stake(validator, clone_coldkey, other_netuid) == 0, "the crumb is still there"
-    assert checks.reconstructed_payout(balance_before, env.user_tao_wei(), sale, "crumb sale") == tao_out, (
-        "the caller was not paid the sale"
-    )
-    assert len(extrinsics.staking_hotkeys(h160_to_ss58(clone))) <= 2, "the sale grew the list"
+    assert env.stake(validator, clone_coldkey, other_netuid) > 0, "the crumb stays where the stranger put it"
+    assert len(extrinsics.staking_hotkeys(h160_to_ss58(clone))) == 2, "the second deposit grew the list"
     for address in (clone, mailbox):
         _assert_growth_refused(address, stranger_hotkey_ss58, other_netuid, dust)
 
