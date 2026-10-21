@@ -30,6 +30,15 @@ Use one scenario module per fresh chain. Modules share subnet and contract state
 through the session-scoped `env` fixture; running several against one long-lived
 chain is unsupported. CI gives each scenario its own container.
 
+`tests/local_*.py` scenarios are not in the CI matrix. `local_staking_list_cap.py`
+walks a clone's staking list up to the chain's 256-entry cap and back, about two
+hours at the localnet's 12-second blocks:
+
+```bash
+cd e2e
+python3 -m pytest tests/local_staking_list_cap.py -v -s -m scenario
+```
+
 `chain_ops.py` is the manual CLI for the same chain operations; run it from `e2e/`
 (`cd e2e && python3 chain_ops.py --help`) so it can import `alpha_e2e`.
 

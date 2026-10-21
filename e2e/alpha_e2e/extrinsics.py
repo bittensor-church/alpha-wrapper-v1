@@ -57,6 +57,16 @@ def _submit(client, call, signer_uri: str = "//Alice") -> str:
     return result.block_hash
 
 
+BATCH_SIZE = 16
+
+
+def _submit_batches(calls: list, signer_uri: str, chain_endpoint: str) -> None:
+    with _connect(chain_endpoint) as client:
+        for start in range(0, len(calls), BATCH_SIZE):
+            batch = [client.compose(call) for call in calls[start:start + BATCH_SIZE]]
+            _submit(client, _sdk().calls.Utility.batch_all(calls=batch), signer_uri=signer_uri)
+
+
 def _sudo(client, call):
     """Encode an administrative call for submission through Sudo."""
     return _sdk().calls.Sudo.sudo(call=client.compose(call))
@@ -105,6 +115,16 @@ def add_stake(
         return _submit(client, _sdk().calls.SubtensorModule.add_stake(
             hotkey=hotkey_ss58, netuid=netuid, amount_staked=amount_rao,
         ), signer_uri=signer_uri)
+
+
+def add_stakes(
+    hotkey_ss58s: list, netuid: int, amount_rao: int,
+    *, signer_uri: str, chain_endpoint: str = config.CHAIN_ENDPOINT,
+) -> None:
+    _submit_batches([
+        _sdk().calls.SubtensorModule.add_stake(hotkey=hotkey_ss58, netuid=netuid, amount_staked=amount_rao)
+        for hotkey_ss58 in hotkey_ss58s
+    ], signer_uri, chain_endpoint)
 
 
 def remove_stake(
@@ -469,6 +489,14 @@ def associate_hotkey(
         return _submit(client, _sdk().calls.SubtensorModule.try_associate_hotkey(
             hotkey=hotkey_ss58,
         ), signer_uri=signer_uri)
+
+
+def associate_hotkeys(
+    hotkey_ss58s: list, *, signer_uri: str, chain_endpoint: str = config.CHAIN_ENDPOINT,
+) -> None:
+    _submit_batches([
+        _sdk().calls.SubtensorModule.try_associate_hotkey(hotkey=hotkey_ss58) for hotkey_ss58 in hotkey_ss58s
+    ], signer_uri, chain_endpoint)
 
 
 def hotkey_is_registered(

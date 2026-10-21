@@ -113,13 +113,13 @@ def test_locked_deposit(env, recovery_window):
     assert any(reason in str(refused.value) for reason in SWAP_REFUSALS), str(refused.value)
 
     locked_alpha = env.stake(gift_hotkey, extrinsics.keypair_pubkey(LOCKED_HOLDER), netuid)
-    for destination in (mailbox, clone):
+    for destination, refusal in ((mailbox, "AccountRejectsLockedAlpha"), (clone, "AccountRejectsStakingHotkeyGrowth")):
         with pytest.raises(extrinsics.ExtrinsicError) as refused:
             extrinsics.transfer_stake_and_hotkey(
                 h160_to_ss58(destination), gift_hotkey_ss58, h160_to_ss58(destination), netuid, locked_alpha // 2,
                 signer_uri=LOCKED_HOLDER,
             )
-        assert "AccountRejectsLockedAlpha" in str(refused.value), str(refused.value)
+        assert refusal in str(refused.value), str(refused.value)
 
     receipt = env.deposit_and_wrap(
         netuid, hotkey, hotkey_ss58, 10 * config.RAO_PER_ALPHA, 1_500_000, "honest wrap failed",

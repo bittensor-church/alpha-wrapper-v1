@@ -82,9 +82,9 @@ def test_stranger_cannot_grow_a_clones_staking_list(env, recovery_window):
     clone = env.clone_address(token_id)
     mailbox = env.mailbox_address(netuid)
     assert clone.lower() != poisoned_clone.lower() and mailbox.lower() != poisoned_mailbox.lower()
-    for address in (clone, mailbox):
+    for address, own_entries in ((clone, 0), (mailbox, 1)):
         assert _rejects_growth(address), f"{address} does not refuse staking-list growth"
-        assert len(extrinsics.staking_hotkeys(h160_to_ss58(address))) == 1, "a fresh clone lists only its own hotkey"
+        assert len(extrinsics.staking_hotkeys(h160_to_ss58(address))) == own_entries, "a fresh clone lists a stranger"
         _assert_growth_refused(address, stranger_hotkey_ss58, other_netuid, dust)
         _assert_growth_refused(address, ZERO_HOTKEY_SS58, netuid, gift)
     env.assert_vault_reverts_with(
