@@ -6,7 +6,8 @@ are refused. A mailbox or subnet clone with a full list could never take a depos
 new hotkey. Each clone refuses that growth from the moment it is created, and deposits
 travel over hotkeys the clones own, which the chain admits whatever the list holds. A
 candidate dusted before creation is rejected, so the window before the flag is set cannot
-be used either.
+be used either. Hotkey 0x0, which the localnet owns from genesis, is refused like any other
+hotkey the clone neither owns nor lists, and a wrap cannot name it.
 """
 import secrets
 from dataclasses import replace
@@ -14,10 +15,12 @@ from dataclasses import replace
 import pytest
 
 from alpha_e2e import bootstrap, chain, checks, config, exits, extrinsics
+from alpha_e2e.extrinsics import UNOWNED_ACCOUNT as ZERO_HOTKEY_SS58
 from alpha_e2e.substrate import h160_to_ss58, h160_to_substrate_b32
 
 STRANGER = "//StakingListStranger"
 STRANGER_FUNDING_RAO = 20 * config.RAO_PER_TAO
+ZERO_HOTKEY = "0x" + "00" * 32
 
 
 def _uid() -> str:
@@ -53,6 +56,7 @@ def test_stranger_cannot_grow_a_clones_staking_list(env, recovery_window):
     extrinsics.fund_account(stranger_ss58, STRANGER_FUNDING_RAO)
     extrinsics.add_stake(stranger_hotkey_ss58, other_netuid, 2 * config.RAO_PER_TAO, signer_uri=STRANGER)
     extrinsics.add_stake(validator_ss58, netuid, 2 * config.RAO_PER_TAO, signer_uri=STRANGER)
+    extrinsics.add_stake(ZERO_HOTKEY_SS58, netuid, 2 * config.RAO_PER_TAO, signer_uri=STRANGER)
     _, dust = env.floor_boundary(other_netuid, env.chain_min_stake_tao())
     _, gift = env.floor_boundary(netuid, 2 * env.chain_min_stake_tao())
 
@@ -78,6 +82,11 @@ def test_stranger_cannot_grow_a_clones_staking_list(env, recovery_window):
         assert _rejects_growth(address), f"{address} does not refuse staking-list growth"
         assert len(extrinsics.staking_hotkeys(h160_to_ss58(address))) == 1, "a fresh clone lists only its own hotkey"
         _assert_growth_refused(address, stranger_hotkey_ss58, other_netuid, dust)
+        _assert_growth_refused(address, ZERO_HOTKEY_SS58, netuid, gift)
+    env.assert_vault_reverts_with(
+        "ZeroHotkey()", 1_500_000, "a wrap must not name hotkey 0",
+        "wrap(uint256,bytes32,uint256)", netuid, ZERO_HOTKEY, 0,
+    )
 
     receipt = env.deposit_and_wrap(
         netuid, validator, validator_ss58, config.DEPOSIT_RAO, 1_500_000, "the first wrap failed",

@@ -64,8 +64,9 @@ Scenario files in `tests/` cover:
   own hotkeys, so coldkey swaps and locked-alpha transfers into them are refused
   on the real chain; an honest deposit still wraps and exits.
 - `test_reject_hotkey_growth.py`: a candidate that already stakes is rejected, a
-  stranger cannot add a hotkey to a mailbox's or clone's staking list after
-  creation, and deposits and wraps keep working with the lists unchanged.
+  stranger cannot add a hotkey (hotkey 0x0 included) to a mailbox's or clone's
+  staking list after creation, a wrap cannot name hotkey 0x0, and deposits and
+  wraps keep working with the lists unchanged.
 - `test_subnet_dissolved.py`: refunds and mailbox recovery.
 - `test_min_stake_floor.py`, `test_dust_dos.py`, `test_min_stake_liveness.py`:
   minimums, top-ups, dust and repeated position changes.
@@ -73,8 +74,6 @@ Scenario files in `tests/` cover:
   position's loss is written off once a short recovery window expires.
 - `test_empty_token_write_off.py`: a gift to an emptied token is swept and written off;
   the token stays open and the next deposit wraps without a registry update.
-- `test_zero_hotkey.py`: a hotkey swap carries the vault's backing onto hotkey 0x0 and
-  exits keep paying from it; a gift onto hotkey 0x0 is refused and a wrap cannot name it.
 - `test_parked_stake.py`: a rename that leaves the stake and the owner record behind,
   where exits keep paying from the old name and follow the successor once the owner
   names it; and a rename that carries the stake, which exits follow before the registry
