@@ -5,16 +5,9 @@ import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { CloneBase } from "src/CloneBase.sol";
 import { CloneFactory } from "src/CloneFactory.sol";
-import { CloneOwner } from "src/CloneOwner.sol";
 import { IAlpha, ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { IStaking, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
-import {
-    LockedDeposit,
-    LockedBacking,
-    MailboxNotPrepared,
-    NoValidatorFound,
-    SubnetCloneNotPrepared
-} from "src/VaultErrors.sol";
+import { LockedDeposit, LockedBacking, MailboxNotPrepared, SubnetCloneNotPrepared } from "src/VaultErrors.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 
@@ -41,17 +34,7 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
     }
 
     function _cloneCandidate(bytes32 uid) private view returns (address) {
-        bytes32 salt = keccak256(abi.encode("subnet-v1", TOKEN1, uid));
-        return
-            Clones.predictDeterministicAddress(vault.cloneFactory().subnetLogic(), salt, address(vault.cloneFactory()));
-    }
-
-    /// @dev Mirrors the factory's derivation of the contract that will own a clone candidate's hotkey.
-    function _ownerCandidate(address clone, bytes32 uid) private view returns (address) {
-        bytes32 hotkey = _toSubstrate(clone);
-        bytes32 salt = keccak256(abi.encode("owner-v1", hotkey, uid));
-        bytes memory initCode = abi.encodePacked(type(CloneOwner).creationCode, abi.encode(hotkey));
-        return vm.computeCreate2Address(salt, keccak256(initCode), address(vault.cloneFactory()));
+        return _cloneCandidate(TOKEN1, uid);
     }
 
     function _assertMailboxProtected(address mailbox) private view {
@@ -102,7 +85,7 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
         assertEq(listed[0], _toSubstrate(mailbox));
         assertEq(_stakingHotkeyCount(_toSubstrate(clone)), 0, "a subnet clone lists nothing until it stakes");
         (, bytes32 owner) = mock.getHotkeyOwner(_toSubstrate(clone));
-        assertEq(owner, _toSubstrate(_ownerCandidate(clone, UID)), "the owner is the contract derived from the UID");
+        assertEq(owner, _toSubstrate(_ownerCandidate(clone)), "the owner is the contract derived from the clone");
         assertEq(_stakingHotkeyCount(_toSubstrate(address(vault))), 1, "the vault lists parking only");
     }
 
@@ -122,7 +105,7 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
     }
 
     function test_RevertWhen_CloneOwnerCandidateIsPreclaimed() public {
-        address candidate = _ownerCandidate(_cloneCandidate(UID), UID);
+        address candidate = _ownerCandidate(_cloneCandidate(UID));
         mock.setHotkeyOwner(_toSubstrate(candidate), _toSubstrate(bob));
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IAlphaVaultAbi.CloneContaminated.selector, candidate));
@@ -147,14 +130,6 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
         mock.transferStake(vaultColdkey, PARKING_HOTKEY, NETUID1, NETUID1, ALPHA);
 
         assertEq(_stakingHotkeyCount(vaultColdkey), 1, "a gift onto the parking hotkey adds no entry");
-    }
-
-    function test_RevertWhen_CreatingACloneForASubnetWithoutValidators() public {
-        _setRegBlock(99, 300);
-        vm.prank(alice);
-        vm.expectRevert(NoValidatorFound.selector);
-        vault.createMailbox(99, UID);
-        assertEq(_stakingHotkeyCount(_toSubstrate(address(vault))), 1, "no clone was claimed");
     }
 
     function test_RevertWhen_MailboxCandidateAcceptsLockedAlpha() public {
@@ -327,6 +302,6 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
         factory.deployMailbox(alice, uint16(NETUID1), UID);
         vm.prank(bob);
         vm.expectRevert(CloneFactory.NotVault.selector);
-        factory.deployCloneOwner(hotkey5, uint16(NETUID1), UID);
+        factory.deployCloneOwner(hotkey5, uint16(NETUID1));
     }
 }

@@ -32,8 +32,8 @@ contract CloneFactory {
     }
 
     /// @dev The owner claims `hotkey` in its constructor, so it holds the claim before anyone can act on it.
-    function deployCloneOwner(bytes32 hotkey, uint16 netuid, bytes32 uid) external onlyVault returns (address owner) {
-        bytes32 salt = keccak256(abi.encode("owner-v1", hotkey, uid));
+    function deployCloneOwner(bytes32 hotkey, uint16 netuid) external onlyVault returns (address owner) {
+        bytes32 salt = keccak256(abi.encode("owner-v1", hotkey));
         bytes memory initCode = abi.encodePacked(type(CloneOwner).creationCode, abi.encode(hotkey));
         owner = Create2.computeAddress(salt, keccak256(initCode));
         _requireClean(owner, netuid);

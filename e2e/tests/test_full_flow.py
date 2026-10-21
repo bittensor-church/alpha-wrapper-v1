@@ -200,13 +200,13 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
     mailbox_coldkey = env.mailbox_coldkey(reclaim_netuid)
 
     env.send_to_mailbox(reclaim_netuid, reclaim_hotkey_ss58, config.DEPOSIT_RAO)
-    exits.reclaim_mailbox_alpha_as_tao(env, reclaim_netuid, mailbox_coldkey, "mailbox sale")
+    exits.reclaim_mailbox_alpha_as_tao(env, reclaim_netuid, "mailbox sale")
 
     env.send_to_mailbox(reclaim_netuid, reclaim_hotkey_ss58, config.DEPOSIT_RAO)
     reclaim_receipt = env.vault_send_between_epochs(
         reclaim_netuid, 1_500_000, "reclaimAlphaFromMailbox failed",
-        "reclaimAlphaFromMailbox(uint256,bytes32,bytes32)",
-        reclaim_netuid, mailbox_coldkey, env.wrapper_substrate_coldkey,
+        "reclaimAlphaFromMailbox(uint256,bytes32)",
+        reclaim_netuid, env.wrapper_substrate_coldkey,
     )
     reclaim_block = chain.receipt_block_number(reclaim_receipt, "reclaimAlphaFromMailbox")
     released = -env.stake_change(mailbox_coldkey, reclaim_netuid, [mailbox_coldkey], reclaim_block)

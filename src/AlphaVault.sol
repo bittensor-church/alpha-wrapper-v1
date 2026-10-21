@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { ERC1155 } from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import { ERC1155Supply } from "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -94,11 +95,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     }
 
     /// @notice Prepare a protected mailbox before sending alpha. The first caller also prepares the shared
-    ///         subnet clone, which needs a validator set for the subnet. A fresh random UID lets a rejected
-    ///         candidate be retried.
+    ///         subnet clone. A fresh random UID lets a rejected candidate be retried.
     function createMailbox(uint256 netuid, bytes32 uid) external nonReentrant returns (address mailbox, address clone) {
-        return VaultAllocation.prepareClones(
-            cloneFactory, validatorRegistry, subnetClone, _mailboxes, currentTokenId(netuid), netuid, uid);
+        return VaultAllocation.prepareClones(cloneFactory, subnetClone, _mailboxes, currentTokenId(netuid), netuid, uid);
     }
 
     /// @notice Zero until `createMailbox` succeeds. Deposits go onto the mailbox's own hotkey, whose id is its coldkey.
@@ -361,13 +360,13 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         DepositMailbox(payable(mailbox)).unwrapTao(payable(msg.sender), amount);
     }
 
-    /// @dev Unlike wrapping, reclaim accepts hotkeys outside the current registry set. A locked mailbox
-    ///      empties only into a coldkey that accepts locked alpha; the lock moves with the alpha.
-    function reclaimAlphaFromMailbox(uint256 netuid, bytes32 hotkey, bytes32 destSubstrateColdkey) external nonReentrant {
+    /// @notice Return the caller's mailbox deposit, which sits under the mailbox's own hotkey, to a coldkey.
+    /// @dev A locked mailbox empties only into a coldkey that accepts locked alpha; the lock moves with the alpha.
+    function reclaimAlphaFromMailbox(uint256 netuid, bytes32 destSubstrateColdkey) external nonReentrant {
         if (destSubstrateColdkey == bytes32(0)) revert ZeroColdkey();
 
         address mailbox = _requireMailbox(msg.sender, netuid); bytes32 mailboxColdkey = VaultReads.coldkeyOf(mailbox);
-        uint256 amount = IStaking(STAKING_PRECOMPILE).getStake(hotkey, mailboxColdkey, netuid);
+        uint256 amount = IStaking(STAKING_PRECOMPILE).getStake(mailboxColdkey, mailboxColdkey, netuid);
         if (amount == 0) revert ZeroAmount();
 
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -377,14 +376,15 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (
             VaultReads.lockedAlphaOf(mailboxColdkey, nid) != 0
                 && IStaking(STAKING_PRECOMPILE).getRejectLockedAlpha(destSubstrateColdkey)) revert LockedDeposit();
-        StakeOps.flush(mailbox, hotkey, destSubstrateColdkey, nid, amount);
+        StakeOps.flush(mailbox, mailboxColdkey, destSubstrateColdkey, nid, amount);
     }
 
+    /// @notice Sell the caller's mailbox deposit, which sits under the mailbox's own hotkey, for native TAO.
     /// @param minTaoOut Minimum native TAO in EVM wei.
-    function reclaimMailboxAlphaAsTao(uint256 netuid, bytes32 hotkey, uint256 minTaoOut) external nonReentrant {
+    function reclaimMailboxAlphaAsTao(uint256 netuid, uint256 minTaoOut) external nonReentrant {
         if (netuid > type(uint16).max) revert NetuidOutOfRange();
         address mailbox = _requireMailbox(msg.sender, netuid); bytes32 mailboxColdkey = VaultReads.coldkeyOf(mailbox);
-        uint256 amount = IStaking(STAKING_PRECOMPILE).getStake(hotkey, mailboxColdkey, netuid);
+        uint256 amount = IStaking(STAKING_PRECOMPILE).getStake(mailboxColdkey, mailboxColdkey, netuid);
         if (amount == 0) revert ZeroAmount();
         // Locked alpha cannot be sold; the chain would refuse and burn the forwarded gas.
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -392,11 +392,11 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
 
         uint256 balanceBefore = mailbox.balance;
         // forge-lint: disable-next-line(unsafe-typecast)
-        StakeOps.sell(mailbox, hotkey, uint16(netuid), amount);
+        StakeOps.sell(mailbox, mailboxColdkey, uint16(netuid), amount);
 
         uint256 taoOut = mailbox.balance - balanceBefore;
         if (taoOut < minTaoOut) revert SlippageExceeded(taoOut);
-        emit MailboxAlphaSoldForTao(msg.sender, netuid, hotkey, amount, taoOut);
+        emit MailboxAlphaSoldForTao(msg.sender, netuid, mailboxColdkey, amount, taoOut);
         DepositMailbox(payable(mailbox)).unwrapTao(payable(msg.sender), taoOut);
     }
 
@@ -443,8 +443,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @notice Move the token's position to a fresh clone once the old one's staking list has fewer free
     ///         entries than the attested set plus the parking hotkey. Anyone may call it; a rejected
     ///         candidate is retried with a fresh UID.
-    /// @dev Recorded piles below the conservative floor stay behind and leave the record. The old clone keeps
-    ///      whatever strangers sent it. Token id, shares, claims and mailboxes are untouched.
+    /// @dev Recorded piles below the conservative floor stay behind and leave the record, as does TAO below the
+    ///      chain's existential deposit, which the successor's balance also hides; the last claim gives it up.
+    ///      The old clone keeps whatever strangers sent it. Token id, shares, claims and mailboxes are untouched.
     function replaceClone(uint256 tokenId, bytes32 uid) external nonReentrant {
         address clone = subnetClone[tokenId];
         if (clone == address(0)) revert SubnetCloneNotPrepared();
@@ -457,8 +458,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (VaultReads.admitsSet(coldkey, set.hotkeys.length)) revert StakingListHasRoom();
         address successor = VaultAllocation.replaceClone(
             cloneFactory, _context(tokenId, clone, coldkey, IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid)),
-            backing.keys, uid);
+            backing.keys, backing.balances, uid);
         subnetClone[tokenId] = successor;
+        taoLiability[tokenId] = Math.min(taoLiability[tokenId], successor.balance);
         _reanchor(tokenId, backing.keys, VaultReads.fetchBalances(backing.keys, VaultReads.coldkeyOf(successor), netuid));
         emit SubnetCloneReplaced(tokenId, clone, successor);
     }

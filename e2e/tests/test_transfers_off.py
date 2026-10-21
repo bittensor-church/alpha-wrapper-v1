@@ -72,7 +72,5 @@ def test_disabling_alpha_transfers_preserves_both_tao_exit_rails(env):
     exits.assert_drained(env, position_token_id, position_hotkeys, receipt, "unwrapForTao with transfers off")
     print(f"  Deposit clone withdrawn as TAO: sold {sold_alpha} alpha RAO at the chain's quote")
 
-    sold_alpha = exits.reclaim_mailbox_alpha_as_tao(
-        env, seed_netuid, env.mailbox_coldkey(seed_netuid), "reclaimMailboxAlphaAsTao with transfers off",
-    )
+    sold_alpha = exits.reclaim_mailbox_alpha_as_tao(env, seed_netuid, "reclaimMailboxAlphaAsTao with transfers off")
     print(f"  Mailbox withdrawn as TAO: sold {sold_alpha} alpha RAO at the chain's quote")

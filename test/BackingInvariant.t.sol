@@ -1,14 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Attempt, BackingCampaignHandler, BackingCampaignHarness, recoverErrors } from "./helpers/BackingCampaign.sol";
+import {
+    Attempt,
+    BackingCampaignHandler,
+    BackingCampaignHarness,
+    recoverErrors,
+    replaceErrors
+} from "./helpers/BackingCampaign.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
+import { MAX_STAKING_HOTKEYS } from "src/interfaces/IValidatorRegistry.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
+import { MockStaking } from "./mocks/MockStaking.sol";
+import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract BackingHandler is BackingCampaignHandler {
     uint256 public strayAnnexations;
     uint256 public strayCollections;
+    uint256 public replacements;
 
     constructor(
         AlphaVault _vault,
@@ -18,6 +28,18 @@ contract BackingHandler is BackingCampaignHandler {
         address[] memory _actors,
         bytes32[] memory _seedHotkeys
     ) BackingCampaignHandler(_vault, _harness, _tokenId, _netuid, _actors, _seedHotkeys) { }
+
+    /// @dev Strangers have pinned the clone's list to its last own entry; anyone may then replace the clone. A
+    ///      refused replacement lifts the pins again so the rest of the campaign keeps its own refusal rules.
+    function replaceClone(uint256 uidSeed) external {
+        _backing().pinStakingList(true);
+        try vault.replaceClone(tokenId, keccak256(abi.encode("successor", replacements, uidSeed))) {
+            ++replacements;
+        } catch (bytes memory reason) {
+            _backing().pinStakingList(false);
+            _requireJustifiedRevert(reason, replaceErrors(), Attempt(0, 0, 0, bytes32(0), false));
+        }
+    }
 
     function swapHotkey(uint256 fromSeed, uint256 toSeed) external {
         bytes32 from = touchedHotkeys[bound(fromSeed, 0, touchedHotkeys.length - 1)];
@@ -147,6 +169,10 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
 
     function simulateSwap(bytes32 from, bytes32 to) external {
         _simulateFollowedSwap(NETUID1, from, to);
+    }
+
+    function pinStakingList(bool pinned) external {
+        MockStaking(STAKING_PRECOMPILE).pinStakingEntries(_subnetColdkey(NETUID1), pinned ? MAX_STAKING_HOTKEYS - 1 : 0);
     }
 
     function simulateSilentMove(bytes32 from, bytes32 to) external {

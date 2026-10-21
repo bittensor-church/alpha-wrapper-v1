@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
-import { IStaking, STAKING_PRECOMPILE, MAX_STAKING_HOTKEYS } from "src/interfaces/IStaking.sol";
+import { IStaking, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { MAX_STAKING_HOTKEYS } from "src/interfaces/IValidatorRegistry.sol";
 import {
     AlphaTransfersDisabled,
     ShortfallOnFile,
@@ -18,8 +18,6 @@ import {
 } from "src/VaultErrors.sol";
 
 contract DepositLandingTest is AlphaVaultTestBase {
-    /// @dev 0.002 alpha, worth the mock's 0.0001 TAO transfer minimum at 0.05 TAO per alpha.
-    uint256 private constant CRUMB = 2_000_000;
     bytes32 private constant FRESH_UID = keccak256("fresh-clone-uid");
     address private stranger = makeAddr("stranger");
     MockStaking private mock;
@@ -45,28 +43,11 @@ contract DepositLandingTest is AlphaVaultTestBase {
         mock.transferStake(coldkey, hotkey, netuid, netuid, CRUMB);
     }
 
-    /// @dev Entries a clone collected through rotations, each kept by a crumb on another subnet.
-    function _fillListTo(bytes32 coldkey, uint256 target) private {
-        uint256 listed = _stakingHotkeyCount(coldkey);
-        for (uint256 i = listed; i < target; ++i) {
-            bytes32 hotkey = keccak256(abi.encode("crumb", i));
-            mock.setHotkeyOwned(hotkey, true);
-            mock.setStake(hotkey, coldkey, NETUID2, CRUMB);
-        }
-        assertEq(_stakingHotkeyCount(coldkey), target);
-    }
-
-    function _cloneCandidate(bytes32 uid) private view returns (address) {
-        bytes32 salt = keccak256(abi.encode("subnet-v1", TOKEN1, uid));
-        return
-            Clones.predictDeterministicAddress(vault.cloneFactory().subnetLogic(), salt, address(vault.cloneFactory()));
-    }
-
-    /// @dev A full list with the registry naming a validator the clone has never used.
+    /// @dev The last entry a clone's own moves may take, with the registry naming a validator it never used.
     function _blockTheNextRotation() private returns (address clone, bytes32 coldkey) {
         clone = vault.subnetClone(TOKEN1);
         coldkey = _toSubstrate(clone);
-        _fillListTo(coldkey, MAX_STAKING_HOTKEYS);
+        _fillListTo(coldkey, MAX_STAKING_HOTKEYS - 1);
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey4), _weights(3334, 3333, 3333));
     }
 
@@ -126,6 +107,25 @@ contract DepositLandingTest is AlphaVaultTestBase {
         assertGt(_getVaultStake(hotkey4, NETUID1), 0, "the new validator holds its weight");
     }
 
+    function test_FirstDepositAfterAFullExit_LandsOnACrumbPinnedKeyThenMoves() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        _strangerTransfer(hotkey3, cloneColdkey, NETUID2);
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
+        vault.rebalance(NETUID1);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
+        assertEq(_stakingHotkeyCount(cloneColdkey), 1, "only the crumb-pinned validator stays listed");
+        _sendToMailbox(bob, NETUID1, hotkey1, 6 * ALPHA);
+        _expectTransferAndHotkey(cloneColdkey, _mailboxColdkey(bob, NETUID1), hotkey3, 6 * ALPHA);
+
+        _wrapHotkey(bob, NETUID1, hotkey1);
+
+        assertEq(lens.totalStake(TOKEN1), 6 * ALPHA);
+        assertEq(_getVaultStake(hotkey3, NETUID1), 0, "the landing key holds nothing afterwards");
+        assertGt(_getVaultStake(hotkey1, NETUID1), 0);
+    }
+
     function test_FirstDeposit_RevertedWrap_LeavesTheFlagUp() public {
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         bytes32 cloneColdkey = _subnetColdkey(NETUID1);
@@ -138,6 +138,23 @@ contract DepositLandingTest is AlphaVaultTestBase {
         assertEq(_stakingHotkeyCount(cloneColdkey), 0);
     }
 
+    function testFuzz_RotatingBackToAListedValidator_AtAnyListPosition(uint256 position) public {
+        position = bound(position, 0, MAX_STAKING_HOTKEYS - 4);
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        _fillListTo(cloneColdkey, 2 + position);
+        mock.setStake(hotkey3, cloneColdkey, NETUID2, CRUMB);
+        _fillListTo(cloneColdkey, MAX_STAKING_HOTKEYS - 1);
+        (bytes32[] memory page,) = mock.getStakingHotkeys(cloneColdkey, uint64(2 + position), 1);
+        assertEq(page[0], hotkey3, "the listed validator sits at the fuzzed position");
+
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(3334, 3333, 3333));
+        vault.rebalance(NETUID1);
+
+        assertGt(_getVaultStake(hotkey3, NETUID1), 0, "a listed validator takes stake wherever it is listed");
+    }
+
     function test_RotatingBackToAListedValidatorAtTheCap_Works() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 cloneColdkey = _subnetColdkey(NETUID1);
@@ -145,7 +162,7 @@ contract DepositLandingTest is AlphaVaultTestBase {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
         vault.rebalance(NETUID1);
         assertEq(_getVaultStake(hotkey3, NETUID1), 0, "the rotated-out validator holds nothing here");
-        _fillListTo(cloneColdkey, MAX_STAKING_HOTKEYS);
+        _fillListTo(cloneColdkey, MAX_STAKING_HOTKEYS - 1);
 
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(3334, 3333, 3333));
         vault.rebalance(NETUID1);
@@ -155,6 +172,23 @@ contract DepositLandingTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, bobShares, _toSubstrate(bob), 0);
 
         assertApproxEqAbs(lens.totalStake(TOKEN1), 30 * ALPHA, 2, "deposit and exit went through at the cap");
+    }
+
+    function testFuzz_DepositOntoAnUnlistedValidator_PassesOnlyBelowTheReserve(uint256 entries) public {
+        entries = bound(entries, 1, MAX_STAKING_HOTKEYS - 1);
+        _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _fillListTo(_subnetColdkey(NETUID1), entries);
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey4), _weights(5000, 5000));
+        _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
+
+        if (entries + 2 > MAX_STAKING_HOTKEYS) vm.expectRevert(StakingListFull.selector);
+        vm.prank(bob);
+        vault.wrap(NETUID1, hotkey4, 0);
+
+        if (entries + 2 <= MAX_STAKING_HOTKEYS) {
+            assertGt(_getVaultStake(hotkey4, NETUID1), 0, "the deposit landed on the new validator");
+        }
     }
 
     function test_FullExit_EmptiesTheList_AndTheNextDepositStillLands() public {
@@ -208,9 +242,12 @@ contract DepositLandingTest is AlphaVaultTestBase {
         _strangerTransfer(hotkey3, cloneColdkey, NETUID2);
         _fillListTo(cloneColdkey, MAX_STAKING_HOTKEYS - 1);
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey4), _weights(3334, 3333, 3333));
-
-        vm.expectRevert(StakingListFull.selector);
         vault.rebalance(NETUID1);
+        assertEq(_getVaultStake(hotkey4, NETUID1), 0, "the alignment onto the new validator waits");
+        _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
+        vm.prank(bob);
+        vm.expectRevert(StakingListFull.selector);
+        vault.wrap(NETUID1, hotkey4, 0);
 
         _simulateOffVaultSwap(NETUID1, hotkey1, hotkey5);
         vault.syncBacking(TOKEN1);
@@ -225,6 +262,21 @@ contract DepositLandingTest is AlphaVaultTestBase {
         assertFalse(vault.awaitingAttestation(TOKEN1), "the release fits once the emptied entries left");
         assertGt(_getVaultStake(hotkey4, NETUID1), 0);
         assertApproxEqAbs(lens.totalStake(TOKEN1), 30 * ALPHA, 2);
+    }
+
+    function test_PartialExit_SkipsAnAlignmentMoveTheListRefuses() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        _strangerTransfer(hotkey3, cloneColdkey, NETUID2);
+        _fillListTo(cloneColdkey, MAX_STAKING_HOTKEYS - 1);
+        _setValidators(NETUID1, _hotkeys(hotkey4, hotkey1, hotkey2), _weights(3334, 3333, 3333));
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
+
+        assertEq(_getVaultStake(hotkey3, NETUID1), 0, "the dropped validator was consolidated onto a funded one");
+        assertEq(_getVaultStake(hotkey4, NETUID1), 0, "the unlisted validator waits for a replacement");
+        assertApproxEqAbs(lens.totalStake(TOKEN1), 15 * ALPHA, 2, "the exit paid out");
     }
 
     function test_RevertWhen_AnOwnMoveWouldPassTheListCap_UntilTheCloneIsReplaced() public {
@@ -246,7 +298,7 @@ contract DepositLandingTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 36 * ALPHA, "the deposit lands once the list has room");
         assertGt(_getVaultStake(hotkey4, NETUID1), 0);
         assertEq(_stakingHotkeyCount(_toSubstrate(successor)), 3, "the successor lists the attested set");
-        assertEq(_stakingHotkeyCount(cloneColdkey), MAX_STAKING_HOTKEYS - 3, "the crumbs stay on the old clone");
+        assertEq(_stakingHotkeyCount(cloneColdkey), MAX_STAKING_HOTKEYS - 1 - 3, "the crumbs stay on the old clone");
     }
 
     function test_ReplaceClone_KeepsTheTokenSharesAndTaoClaims() public {
@@ -283,6 +335,18 @@ contract DepositLandingTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
         assertGt(_getVaultStake(hotkey4, NETUID1), 0, "the rotation lands on the successor");
         assertApproxEqAbs(lens.totalStake(TOKEN1), 21 * ALPHA, 4, "deposit and exit went through on the successor");
+    }
+
+    function test_ReplaceClone_LeavesTaoBelowTheExistentialDepositBehind() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        (address clone,) = _blockTheNextRotation();
+        _donateToClone(clone, EXISTENTIAL_DEPOSIT - 1e9);
+
+        vault.replaceClone(TOKEN1, FRESH_UID);
+
+        assertEq(clone.balance, EXISTENTIAL_DEPOSIT - 1e9, "TAO the successor could not show stays behind");
+        assertEq(vault.subnetClone(TOKEN1).balance, 0);
+        assertEq(vault.taoLiability(TOKEN1), 0);
     }
 
     function test_ReplaceClone_WhileParked_LetsTheNextAttestationRelease() public {
@@ -349,7 +413,7 @@ contract DepositLandingTest is AlphaVaultTestBase {
         vault.replaceClone(TOKEN1, FRESH_UID);
         address second = vault.subnetClone(TOKEN1);
         vault.rebalance(NETUID1);
-        _fillListTo(_toSubstrate(second), MAX_STAKING_HOTKEYS);
+        _fillListTo(_toSubstrate(second), MAX_STAKING_HOTKEYS - 1);
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey5), _weights(3334, 3333, 3333));
 
         vault.replaceClone(TOKEN1, keccak256("another-uid"));
@@ -374,14 +438,14 @@ contract DepositLandingTest is AlphaVaultTestBase {
     function test_RevertWhen_SuccessorCandidateIsContaminated() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _blockTheNextRotation();
-        address candidate = _cloneCandidate(FRESH_UID);
+        address candidate = _cloneCandidate(TOKEN1, FRESH_UID);
         mock.setHotkeyOwner(_toSubstrate(candidate), _toSubstrate(bob));
 
         vm.expectRevert(abi.encodeWithSelector(IAlphaVaultAbi.CloneContaminated.selector, candidate));
         vault.replaceClone(TOKEN1, FRESH_UID);
 
         vault.replaceClone(TOKEN1, keccak256("retry-uid"));
-        assertEq(vault.subnetClone(TOKEN1), _cloneCandidate(keccak256("retry-uid")));
+        assertEq(vault.subnetClone(TOKEN1), _cloneCandidate(TOKEN1, keccak256("retry-uid")));
     }
 
     function test_RevertWhen_ReplacingACloneWithRoom() public {

@@ -88,6 +88,13 @@ function recoverErrors() pure returns (bytes4[] memory errors) {
     errors[2] = IAlphaVaultAbi.ConsolidationBelowFloor.selector;
 }
 
+/// @dev A replacement opens the backing record and nothing else that the campaign can refuse.
+function replaceErrors() pure returns (bytes4[] memory errors) {
+    errors = new bytes4[](2);
+    errors[0] = ShortfallOnFile.selector;
+    errors[1] = BackingShortfall.selector;
+}
+
 /// @dev What a refused call asked for, so the refusal can be checked against the state that justifies it.
 struct Attempt {
     uint256 deposit;

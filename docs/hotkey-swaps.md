@@ -141,7 +141,7 @@ funds. Collection emits `BackingRecovered`; sync finalization emits
 are permissionless.
 
 Declaration cost grows with the number of located keys. The E2E scenarios allow
-4M gas per sync for small sets. For large sets (up to 64 validators), simulate the
+4M gas per sync for small sets. For large sets (up to 10 validators), simulate the
 actual chain call and budget above that estimate; mock snapshots do not include
 native dispatch costs. Keep funds for retries when a chain restriction blocks collection.
 

@@ -513,15 +513,15 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     }
 
     function test_ReclaimAlphaFromMailbox() public {
-        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey4);
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         bytes32 aliceSub = _toSubstrate(alice);
+        bytes32 mailboxColdkey = _mailboxColdkey(alice, NETUID1);
 
         vm.prank(alice);
-        vault.reclaimAlphaFromMailbox(NETUID1, hotkey4, aliceSub);
+        vault.reclaimAlphaFromMailbox(NETUID1, aliceSub);
 
-        address mailbox = vault.getDepositAddress(alice, NETUID1);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey4, _toSubstrate(mailbox), NETUID1), 0);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey4, aliceSub, NETUID1), 10 * ALPHA);
+        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(mailboxColdkey, mailboxColdkey, NETUID1), 0);
+        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(mailboxColdkey, aliceSub, NETUID1), 10 * ALPHA);
     }
 
     function test_RevertWhen_ReclaimAlphaFromMailboxNoStake() public {
@@ -529,7 +529,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         bytes32 aliceSub = _toSubstrate(alice);
         vm.prank(alice);
         vm.expectRevert(ZeroAmount.selector);
-        vault.reclaimAlphaFromMailbox(NETUID1, hotkey4, aliceSub);
+        vault.reclaimAlphaFromMailbox(NETUID1, aliceSub);
     }
 
     function test_RevertWhen_WrapWhileTransfersAreDisabled() public {
@@ -551,12 +551,12 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     }
 
     function test_RevertWhen_ReclaimAlphaFromMailboxWhileTransfersAreDisabled() public {
-        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey4);
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _setTransfersEnabled(NETUID1, false);
 
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(AlphaTransfersDisabled.selector, uint16(NETUID1)));
-        vault.reclaimAlphaFromMailbox(NETUID1, hotkey4, _toSubstrate(alice));
+        vault.reclaimAlphaFromMailbox(NETUID1, _toSubstrate(alice));
     }
 
     /// @dev Anyone can park alpha under the clone's coldkey on an attested name; a deposit on that name
@@ -579,51 +579,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     function test_RevertWhen_ReclaimAlphaFromMailboxZeroColdkey() public {
         vm.prank(alice);
         vm.expectRevert(ZeroColdkey.selector);
-        vault.reclaimAlphaFromMailbox(NETUID1, hotkey4, bytes32(0));
-    }
-
-    function test_ReclaimAlphaFromMailboxAcceptsInSetHotkey() public {
-        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey1);
-        bytes32 aliceSub = _toSubstrate(alice);
-
-        vm.prank(alice);
-        vault.reclaimAlphaFromMailbox(NETUID1, hotkey1, aliceSub);
-
-        address mailbox = vault.getDepositAddress(alice, NETUID1);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey1, _toSubstrate(mailbox), NETUID1), 0);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey1, aliceSub, NETUID1), 10 * ALPHA);
-    }
-
-    function test_ReclaimAlphaCleansStrandedHotkeyAlongsideValidDeposit() public {
-        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
-        _simulateAlphaDepositHotkey(alice, NETUID1, 5 * ALPHA, hotkey4);
-
-        _wrapHotkey(alice, NETUID1, hotkey1);
-        assertEq(lens.totalStake(TOKEN1), 10 * ALPHA);
-
-        bytes32 aliceSub = _toSubstrate(alice);
-        vm.prank(alice);
-        vault.reclaimAlphaFromMailbox(NETUID1, hotkey4, aliceSub);
-
-        address mailbox = vault.getDepositAddress(alice, NETUID1);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey4, _toSubstrate(mailbox), NETUID1), 0);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey4, aliceSub, NETUID1), 5 * ALPHA);
-    }
-
-    function test_ReclaimAlphaFromMailboxRecoversAfterSetRotation() public {
-        _setNetuid1Set(hotkey1, hotkey2, hotkey4);
-        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey4);
-
-        _setNetuid1Set(hotkey1, hotkey2, hotkey3);
-
-        bytes32 aliceSub = _toSubstrate(alice);
-        vm.prank(alice);
-        vault.reclaimAlphaFromMailbox(NETUID1, hotkey4, aliceSub);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey4, aliceSub, NETUID1), 10 * ALPHA);
-
-        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
-        _wrapHotkey(alice, NETUID1, hotkey1);
-        assertEq(lens.totalStake(TOKEN1), 10 * ALPHA);
+        vault.reclaimAlphaFromMailbox(NETUID1, bytes32(0));
     }
 
     function test_CurrentTokenIdReflectsRegistrationCounter() public {
@@ -1310,13 +1266,6 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.prank(alice);
         vm.expectRevert(ZeroHotkey.selector);
         vault.wrap(NETUID1, bytes32(0), 0);
-    }
-
-    function test_RevertWhen_WrapFindsAlphaOnlyUnderAnotherMailboxHotkey() public {
-        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey1);
-        vm.prank(alice);
-        vm.expectRevert(ZeroAmount.selector);
-        vault.wrap(NETUID1, hotkey1, 0);
     }
 
     function test_RevertWhen_WrapMintsBelowMinSharesOut() public {

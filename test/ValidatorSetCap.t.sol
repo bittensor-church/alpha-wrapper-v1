@@ -58,14 +58,6 @@ contract ValidatorSetCapTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
     }
 
-    function test_RevertWhen_CreatingACloneWithValidatorSetOverCap() public {
-        _publishSet(OVER_CAP, OVER_CAP);
-
-        vm.prank(alice);
-        _expectTooLarge(OVER_CAP);
-        vault.createMailbox(NETUID1, keccak256("fresh-uid"));
-    }
-
     function test_RevertWhen_OversizedSetAlsoHasMismatchedLengths() public {
         _simulateAlphaDeposit(alice, NETUID1, DEPOSIT);
         bytes32[] memory hks = _publishSet(OVER_CAP, MAX_VALIDATORS);
@@ -92,7 +84,7 @@ contract ValidatorSetCapTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
 
         // 156 bps of 10,000 alpha on each of 63 validators, the 172-bps remainder on the last.
-        _assertSpread(hks, _subnetColdkey(NETUID1), NETUID1, 156 * ALPHA, 172 * ALPHA);
+        _assertSpread(hks, _subnetColdkey(NETUID1), NETUID1, 1_000 * ALPHA, 1_000 * ALPHA);
     }
 
     function testFuzz_RevertWhen_WrapWithValidatorSetOverCap(uint256 rawCount) public {

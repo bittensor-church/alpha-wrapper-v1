@@ -6,6 +6,7 @@ import { MockAlpha } from "./MockAlpha.sol";
 import { MockSubnetPrecompile } from "./MockSubnetPrecompile.sol";
 import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { SUBNET_PRECOMPILE } from "src/interfaces/ISubnet.sol";
+import { MAX_STAKING_HOTKEYS } from "src/interfaces/IValidatorRegistry.sol";
 
 /// @dev Fixtures must seed minimums after `vm.etch`, which copies code but not storage.
 uint256 constant CHAIN_MIN_STAKE = 2e6;
@@ -15,8 +16,6 @@ uint256 constant CHAIN_MIN_TRANSFER = 1e5;
 uint256 constant CHAIN_NOMINATOR_MIN_STAKE = 20e6;
 
 uint256 constant MAX_THIRD_PARTY_STAKING_HOTKEYS = 128;
-
-uint256 constant MAX_STAKING_HOTKEYS = 256;
 
 /// @dev Uses keccak256, not Frontier's blake2b. Every refusal consumes the forwarded gas and returns no data,
 ///      as a refused precompile dispatch does.
@@ -77,6 +76,18 @@ contract MockStaking {
     mapping(bytes32 => mapping(bytes32 => uint256)) private _stakingHotkeySlot;
     mapping(bytes32 => mapping(bytes32 => uint256)) private _netuidsStaked;
     mapping(bytes32 => bool) private _rejectsStakingHotkeyGrowth;
+    /// @dev Entries a stranger's crumbs keep listed, modelled as synthetic hotkeys that never leave; one write
+    ///      instead of one stake per entry, for campaigns that fill a list over and over.
+    mapping(bytes32 => uint256) private _pinnedEntries;
+
+    function pinStakingEntries(bytes32 coldkey, uint256 total) external {
+        uint256 listed = _stakingHotkeys[coldkey].length;
+        _pinnedEntries[coldkey] = total > listed ? total - listed : 0;
+    }
+
+    function _listLength(bytes32 coldkey) private view returns (uint256) {
+        return _stakingHotkeys[coldkey].length + _pinnedEntries[coldkey];
+    }
 
     function _listStakingHotkey(bytes32 coldkey, bytes32 hotkey) private {
         if (_stakingHotkeySlot[coldkey][hotkey] != 0) return;
@@ -101,7 +112,7 @@ contract MockStaking {
     ///      owns nor lists once it rejects growth.
     function _requireListRoom(bytes32 originColdkey, bytes32 destinationColdkey, bytes32 hotkey) private view {
         if (_stakingHotkeySlot[destinationColdkey][hotkey] != 0) return;
-        uint256 listed = _stakingHotkeys[destinationColdkey].length;
+        uint256 listed = _listLength(destinationColdkey);
         if (originColdkey == destinationColdkey) {
             if (listed >= MAX_STAKING_HOTKEYS) _fail();
             return;
@@ -118,12 +129,13 @@ contract MockStaking {
     {
         if (limit == 0 || limit > 64) _fail();
         bytes32[] storage listed = _stakingHotkeys[coldkey];
-        total = uint64(listed.length);
-        uint256 start = offset < listed.length ? offset : listed.length;
-        uint256 end = start + limit < listed.length ? start + limit : listed.length;
+        uint256 length = _listLength(coldkey);
+        total = uint64(length);
+        uint256 start = offset < length ? offset : length;
+        uint256 end = start + limit < length ? start + limit : length;
         hotkeys = new bytes32[](end - start);
         for (uint256 i = start; i < end; ++i) {
-            hotkeys[i - start] = listed[i];
+            hotkeys[i - start] = i < listed.length ? listed[i] : keccak256(abi.encode("pinned", coldkey, i));
         }
     }
 

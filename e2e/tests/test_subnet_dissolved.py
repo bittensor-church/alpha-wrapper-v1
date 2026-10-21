@@ -107,8 +107,8 @@ def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subne
     )
     env.assert_vault_reverts_with(
         "ZeroAmount()", 1_500_000, "reclaimMailboxAlphaAsTao did NOT revert as ZeroAmount on wiped mailbox alpha",
-        "reclaimMailboxAlphaAsTao(uint256,bytes32,uint256)",
-        parked_netuid, parked_mailbox_coldkey, 0,
+        "reclaimMailboxAlphaAsTao(uint256,uint256)",
+        parked_netuid, 0,
     )
 
     clone_tao_before = chain.cast_balance_wei(dissolved_clone)

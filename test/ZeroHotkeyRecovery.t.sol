@@ -103,33 +103,4 @@ contract ZeroHotkeyRecoveryTest is AlphaVaultTestBase {
 
         assertEq(_getStake(hotkey1, alice, NETUID1), 30 * ALPHA, "the full exit pays from the held key");
     }
-
-    function _mailboxDepositSwappedOntoZeroHotkey() private returns (bytes32 mailboxColdkey) {
-        _simulateAlphaDepositHotkey(alice, NETUID1, 100 * ALPHA, hotkey1);
-        _validatorSwapsInto(hotkey1, ZERO);
-        mailboxColdkey = _mailboxColdkey(alice, NETUID1);
-        assertEq(_getStakeForColdkey(ZERO, mailboxColdkey, NETUID1), 100 * ALPHA, "the deposit moved with the swap");
-    }
-
-    function test_ReclaimAlphaFromMailbox_ReturnsADepositSwappedOntoZeroHotkey() public {
-        bytes32 mailboxColdkey = _mailboxDepositSwappedOntoZeroHotkey();
-        bytes32 destination = _toSubstrate(alice);
-
-        vm.prank(alice);
-        vault.reclaimAlphaFromMailbox(NETUID1, ZERO, destination);
-
-        assertEq(_getStakeForColdkey(ZERO, destination, NETUID1), 100 * ALPHA, "the whole deposit arrives");
-        assertEq(_getStakeForColdkey(ZERO, mailboxColdkey, NETUID1), 0, "the mailbox is empty");
-    }
-
-    function test_ReclaimMailboxAlphaAsTao_SellsADepositSwappedOntoZeroHotkey() public {
-        bytes32 mailboxColdkey = _mailboxDepositSwappedOntoZeroHotkey();
-
-        uint256 before = alice.balance;
-        vm.prank(alice);
-        vault.reclaimMailboxAlphaAsTao(NETUID1, ZERO, 0);
-
-        assertEq(alice.balance - before, 5 * TAO, "100 alpha at 0.05 TAO per alpha");
-        assertEq(_getStakeForColdkey(ZERO, mailboxColdkey, NETUID1), 0);
-    }
 }

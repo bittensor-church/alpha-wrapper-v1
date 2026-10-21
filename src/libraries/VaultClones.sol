@@ -4,7 +4,6 @@ pragma solidity 0.8.36;
 import { CloneBase } from "../CloneBase.sol";
 import { CloneFactory } from "../CloneFactory.sol";
 import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
-import { IValidatorRegistry } from "../interfaces/IValidatorRegistry.sol";
 import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
 import { VaultReads } from "./VaultReads.sol";
 
@@ -12,17 +11,15 @@ import { VaultReads } from "./VaultReads.sol";
 ///      inside a delegatecall from the vault, so the vault is the initializer and `msg.sender` is the
 ///      depositor. Compiled into each caller.
 library VaultClones {
-    /// @dev Publish an address only once its protection is verified. Only a subnet the registry serves
-    ///      gets a clone.
-    function prepareClones(CloneFactory factory, IValidatorRegistry registry,
-        mapping(uint256 => address) storage subnetClone, mapping(address => mapping(uint256 => address)) storage mailboxes,
-        uint256 tokenId, uint256 netuid, bytes32 uid) internal returns (address mailbox, address clone) {
+    /// @dev Publish an address only once its protection is verified.
+    function prepareClones(CloneFactory factory, mapping(uint256 => address) storage subnetClone,
+        mapping(address => mapping(uint256 => address)) storage mailboxes, uint256 tokenId, uint256 netuid,
+        bytes32 uid) internal returns (address mailbox, address clone) {
         // forge-lint: disable-next-line(unsafe-typecast)
         uint16 nid = uint16(netuid);
         VaultReads.requireNotDissolving(nid);
         clone = subnetClone[tokenId];
         if (clone == address(0)) {
-            VaultReads.resolveValidators(registry, nid);
             clone = deployProtectedClone(factory, tokenId, nid, uid);
             subnetClone[tokenId] = clone;
             emit IAlphaVaultAbi.SubnetProxyCreated(tokenId, clone);
@@ -44,7 +41,7 @@ library VaultClones {
         internal returns (address clone) {
         clone = factory.deploySubnetClone(tokenId, netuid, uid);
         bytes32 coldkey = VaultReads.coldkeyOf(clone);
-        address owner = factory.deployCloneOwner(coldkey, netuid, uid);
+        address owner = factory.deployCloneOwner(coldkey, netuid);
         _initializeClone(clone, coldkey, VaultReads.coldkeyOf(owner));
     }
 

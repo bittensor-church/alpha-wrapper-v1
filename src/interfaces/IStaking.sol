@@ -53,9 +53,3 @@ interface IStaking {
 }
 
 address constant STAKING_PRECOMPILE = 0x0000000000000000000000000000000000000805;
-
-/// @dev Entries a coldkey's own staking actions may bring its staking list to.
-uint256 constant MAX_STAKING_HOTKEYS = 256;
-
-/// @dev The most entries one `getStakingHotkeys` page returns.
-uint16 constant STAKING_LIST_PAGE = 64;

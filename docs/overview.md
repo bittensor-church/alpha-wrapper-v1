@@ -10,7 +10,10 @@ Emissions raise the backing without minting shares.
 - `AlphaVault`: deposits, shares, exits and permissionless maintenance.
 - `AlphaVaultLens`: read-only backing and payout quotes.
 - `SubnetClone`: one vault-controlled coldkey per subnet registration, isolating
-  that position's stake and TAO from other positions.
+  that position's stake and TAO from other positions, replaced by a fresh one
+  once its staking list is full.
+- `CloneOwner`: a throwaway contract that owns one subnet clone's account as a
+  hotkey, so the vault's own staking list never grows.
 - `DepositMailbox`: one accepted address per user and netuid. The vault only
   credits the caller's own mailbox.
 - `CloneFactory`: a vault-owned deployer that checks each candidate account

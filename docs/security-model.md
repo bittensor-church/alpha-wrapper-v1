@@ -102,34 +102,30 @@ hotkeys it holds; nothing reads its locks or stake.
 
 ## Staking lists
 
-The chain keeps, for every coldkey, the list of hotkeys it stakes under and
-prices every stake exit by its length. Another coldkey may transfer stake onto a
-listed hotkey freely, and onto an unlisted one only while the list is under 128
-entries and the receiver either allows growth or owns the hotkey. The coldkey's
-own moves stop at 256. An entry stays while the coldkey holds stake under that
-hotkey on any subnet.
+The chain keeps, for every coldkey, the list of hotkeys it stakes under: at most
+256 entries through the coldkey's own moves, at most 128 through stake sent by
+others, and a listed hotkey is always admitted. An entry stays while the coldkey
+holds stake under that hotkey on any subnet or a root-dividend record for the
+pair.
 
-- Every clone refuses growth by others from creation on, so a stranger can only
-  top up hotkeys a clone already lists. Stake sent to a candidate before
-  creation is rejected like any other contamination.
-- The vault refuses growth by others too. Its own list holds the parking hotkey.
-  Owning a hotkey costs the owner one entry for good, so each subnet clone's
-  hotkey belongs to a contract deployed with it that does nothing else, and a
-  clone is created only for a subnet the registry serves.
-- Deposits land on the mailbox's own hotkey, which the mailbox owns, and reach
-  the subnet clone on a hotkey it lists. A clone that lists nothing takes the
-  one transfer with its flag lifted and restored inside `wrap`.
-- A crumb sent under a listed validator keeps that validator listed after a
-  rotation, so a clone's list grows by at most one entry per validator the
-  registry has ever used, and nothing the vault can call frees such an entry.
-  A clone's own moves keep one entry free for the parking hotkey, so recovery
-  can always park, and a move onto a hotkey the clone does not list reverts
-  `StakingListFull` instead of burning gas.
-- Once the list has fewer free entries than the attested set plus the parking
-  hotkey, anyone calls `replaceClone(tokenId, uid)`: a fresh clone and owner are created, the
-  recorded backing and the clone's TAO move across under the same hotkeys, and
-  the token keeps its id, shares and claims. Piles below the conservative floor
-  stay behind, and the old clone keeps the crumbs.
+- Every clone and the vault refuse growth by others from creation on. A deposit
+  takes the one route the chain always admits: the mailbox's own hotkey, then a
+  hotkey the clone already lists, then the chosen validator.
+- A crumb a stranger sends under a listed validator keeps that validator listed
+  after a rotation, and nothing the vault can call frees the entry, so a clone's
+  list fills by one entry per validator the registry has ever used.
+- Owning a hotkey costs its owner an entry for good, so a throwaway contract
+  owns each subnet clone's hotkey and the vault's own list holds the parking
+  hotkey alone.
+- A clone's own moves keep the last entry for the parking hotkey, so recovery
+  can always park. A deposit or rotation onto a hotkey the clone cannot take
+  reverts `StakingListFull`; an alignment move the list refuses is skipped, so
+  exits do not wait on the list.
+- Once the list has fewer free entries than the attested set plus parking,
+  anyone calls `replaceClone(tokenId, uid)`: a fresh clone and owner take over
+  the recorded backing and the TAO under the same hotkeys, and the token keeps
+  its id, shares and claims. Piles below the floor, TAO below the chain's
+  existential deposit and the crumbs stay on the old clone.
 - A single-subnet swap of a validator carrying such a crumb leaves the clone's
   stake on the old name. The vault handles it as a swap that kept the stake.
 
@@ -215,7 +211,13 @@ them; accrued TAO survives either way.
   candidate never becomes backing.
 - The parking hotkey and every ownerless name the vault restores an owner to,
   so it can move stake off it, stay on the vault's own staking list, which the
-  chain caps at 256.
+  chain caps at 256. Stake sent to the vault's address before deployment stays
+  there too, at most the 128 entries others may add, which leaves 127 for
+  restored names; refusing to deploy over such entries would let a griefer dust
+  every retry instead.
+- A replacement can be front-run like a creation: a crumb on the predicted
+  successor or owner makes it revert `CloneContaminated`, and the caller retries
+  with a fresh UID while the griefer pays about 0.0001 TAO plus a fee per attempt.
 - Alpha a clone holds on another subnet is not backing and stays there. A
   replaced clone keeps it, along with recorded piles below the floor and
   anything that arrives later.

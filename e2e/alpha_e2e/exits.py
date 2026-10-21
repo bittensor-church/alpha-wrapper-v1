@@ -75,17 +75,17 @@ def unwrap_for_tao(
     return receipt, alpha_sold
 
 
-def reclaim_mailbox_alpha_as_tao(env: Environment, netuid: int, hotkey: str, message: str) -> int:
-    """Sell the wrapper user's mailbox stake under `hotkey` for TAO; asserts the payout and
-    the emptied mailbox, and returns the alpha RAO sold."""
+def reclaim_mailbox_alpha_as_tao(env: Environment, netuid: int, message: str) -> int:
+    """Sell the wrapper user's mailbox stake, which sits under the mailbox's own hotkey, for TAO;
+    asserts the payout and the emptied mailbox, and returns the alpha RAO sold."""
     mailbox_coldkey = env.mailbox_coldkey(netuid)
     balance_before = env.user_tao_wei()
     receipt = env.vault_send_between_epochs(
-        netuid, 1_500_000, message, "reclaimMailboxAlphaAsTao(uint256,bytes32,uint256)", netuid, hotkey, 0,
+        netuid, 1_500_000, message, "reclaimMailboxAlphaAsTao(uint256,uint256)", netuid, 0,
     )
     balance_after = env.user_tao_wei()
     alpha_sold = checks.assert_payout_near_quote(
-        env, balance_before, balance_after, receipt, netuid, mailbox_coldkey, [hotkey],
+        env, balance_before, balance_after, receipt, netuid, mailbox_coldkey, [mailbox_coldkey],
         f"{message}: payout off the chain's quote",
     )
     checks.assert_payout_matches_emitted(

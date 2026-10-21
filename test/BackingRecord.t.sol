@@ -72,9 +72,9 @@ contract BackingRecordTest is AlphaVaultTestBase {
         uint256 shares = _depositAndWrap(bob, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
 
-        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey4);
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         vm.prank(alice);
-        vault.reclaimAlphaFromMailbox(NETUID1, hotkey4, _toSubstrate(alice));
+        vault.reclaimAlphaFromMailbox(NETUID1, _toSubstrate(alice));
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrapHotkey(alice, NETUID1, hotkey2);
         vm.prank(bob);

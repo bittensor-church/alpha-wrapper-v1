@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { IStaking, STAKING_PRECOMPILE, MAX_STAKING_HOTKEYS, STAKING_LIST_PAGE } from "../interfaces/IStaking.sol";
-import { IValidatorRegistry, MAX_VALIDATORS } from "../interfaces/IValidatorRegistry.sol";
+import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
+import { IValidatorRegistry, MAX_STAKING_HOTKEYS, MAX_VALIDATORS } from "../interfaces/IValidatorRegistry.sol";
 import { IAddressMapping, ADDRESS_MAPPING_PRECOMPILE } from "../interfaces/IAddressMapping.sol";
+import { IRuntimeConfiguration, RUNTIME_CONFIGURATION_PRECOMPILE } from "../interfaces/IRuntimeConfiguration.sol";
 import { ISubnet, SUBNET_PRECOMPILE } from "../interfaces/ISubnet.sol";
 import { VaultMath } from "./VaultMath.sol";
 import {
@@ -12,6 +13,8 @@ import {
 } from "../VaultErrors.sol";
 
 library VaultReads {
+    /// @dev The most entries one `getStakingHotkeys` page returns.
+    uint16 internal constant STAKING_LIST_PAGE = 64;
     uint256 internal constant NO_SHORT_SLOT = type(uint256).max;
     /// @dev Frozen with no deadline until recovery is declared.
     uint256 internal constant UNDECLARED_SHORTFALL = type(uint256).max;
@@ -33,8 +36,7 @@ library VaultReads {
         (, total) = IStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, 0, 1);
     }
 
-    function isListed(bytes32 coldkey, bytes32 hotkey) internal view returns (bool) {
-        uint64 total = stakingHotkeyCount(coldkey);
+    function isListed(bytes32 coldkey, bytes32 hotkey, uint64 total) internal view returns (bool) {
         for (uint64 offset; offset < total; offset += STAKING_LIST_PAGE) {
             (bytes32[] memory page,) = IStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, offset, STAKING_LIST_PAGE);
             if (VaultMath.contains(page, hotkey)) return true;
@@ -45,14 +47,20 @@ library VaultReads {
     /// @dev A listed hotkey always fits. The last entry is kept for the parking hotkey, so recovery can
     ///      always park; the list is paged only at the cap.
     function admitsOwnMove(bytes32 coldkey, bytes32 hotkey, bytes32 parking) internal view returns (bool) {
+        uint64 total = stakingHotkeyCount(coldkey);
         uint256 room = hotkey == parking ? 1 : 2;
-        if (stakingHotkeyCount(coldkey) + room <= MAX_STAKING_HOTKEYS) return true;
-        return isListed(coldkey, hotkey);
+        if (total + room <= MAX_STAKING_HOTKEYS) return true;
+        return isListed(coldkey, hotkey, total);
     }
 
-    /// @dev Whether the list surely takes `count` attested hotkeys and the parking hotkey as new entries.
-    function admitsSet(bytes32 coldkey, uint256 count) internal view returns (bool) {
-        return stakingHotkeyCount(coldkey) + count + 1 <= MAX_STAKING_HOTKEYS;
+    /// @dev Whether the list surely takes `setSize` attested hotkeys and the parking hotkey as new entries.
+    function admitsSet(bytes32 coldkey, uint256 setSize) internal view returns (bool) {
+        return stakingHotkeyCount(coldkey) + setSize + 1 <= MAX_STAKING_HOTKEYS;
+    }
+
+    /// @dev The chain keeps this much of an account's TAO out of its visible balance.
+    function existentialDeposit() internal view returns (uint256 deposit) {
+        (deposit,,,) = IRuntimeConfiguration(RUNTIME_CONFIGURATION_PRECOMPILE).getBalancesConstants();
     }
 
     /// @dev One attestation: the target hotkeys and their basis-point weights.

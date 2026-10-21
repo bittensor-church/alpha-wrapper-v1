@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
+import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { VaultMath } from "src/libraries/VaultMath.sol";
 import { Vm } from "forge-std/Test.sol";
@@ -15,12 +16,15 @@ import { MockAddressMapping } from "./mocks/MockAddressMapping.sol";
 import { MockSubnetPrecompile } from "./mocks/MockSubnetPrecompile.sol";
 import { MockAlpha, DEFAULT_ALPHA_PRICE_E18 } from "./mocks/MockAlpha.sol";
 import { MockNeuron } from "./mocks/MockNeuron.sol";
+import { MockRuntimeConfiguration } from "./mocks/MockRuntimeConfiguration.sol";
+import { CloneOwner } from "src/CloneOwner.sol";
 import { RegistryTestHelper } from "./helpers/RegistryTestHelper.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { ADDRESS_MAPPING_PRECOMPILE } from "src/interfaces/IAddressMapping.sol";
 import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { NEURON_PRECOMPILE } from "src/interfaces/INeuron.sol";
+import { RUNTIME_CONFIGURATION_PRECOMPILE } from "src/interfaces/IRuntimeConfiguration.sol";
 import { SUBNET_PRECOMPILE } from "src/interfaces/ISubnet.sol";
 
 abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
@@ -72,6 +76,12 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     /// @dev One TAO in native wei; the chain credits 1e9 wei per TAO RAO.
     uint256 internal constant TAO = 1 ether;
 
+    /// @dev The chain's 500 RAO existential deposit in native wei.
+    uint256 internal constant EXISTENTIAL_DEPOSIT = 500 * 1e9;
+
+    /// @dev 0.002 alpha, worth the mock's 0.0001 TAO transfer minimum at 0.05 TAO per alpha.
+    uint256 internal constant CRUMB = 2_000_000;
+
     uint256 public TOKEN1;
     uint256 public TOKEN2;
 
@@ -84,6 +94,8 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         vm.etch(SUBNET_PRECOMPILE, address(new MockSubnetPrecompile()).code);
         vm.etch(ALPHA_PRECOMPILE, address(new MockAlpha()).code);
         vm.etch(NEURON_PRECOMPILE, address(new MockNeuron()).code);
+        vm.etch(RUNTIME_CONFIGURATION_PRECOMPILE, address(new MockRuntimeConfiguration()).code);
+        MockRuntimeConfiguration(RUNTIME_CONFIGURATION_PRECOMPILE).setExistentialDeposit(EXISTENTIAL_DEPOSIT);
         MockSubnetPrecompile(SUBNET_PRECOMPILE).setRegisteredAt(uint16(NETUID1), 100);
         MockSubnetPrecompile(SUBNET_PRECOMPILE).setRegisteredAt(uint16(NETUID2), 200);
         // Sales mint TAO on chain; the whole TAO supply covers selling any subnet at any fuzzed price.
@@ -203,6 +215,32 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
 
     function _stakingHotkeyCount(bytes32 coldkey) internal view returns (uint64 total) {
         (, total) = MockStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, 0, 1);
+    }
+
+    /// @dev Entries a clone collected through rotations, each kept by a crumb on another subnet.
+    function _fillListTo(bytes32 coldkey, uint256 target) internal {
+        MockStaking mock = MockStaking(STAKING_PRECOMPILE);
+        for (uint256 i = _stakingHotkeyCount(coldkey); i < target; ++i) {
+            bytes32 hotkey = keccak256(abi.encode("crumb", coldkey, i));
+            mock.setHotkeyOwned(hotkey, true);
+            mock.setStake(hotkey, coldkey, NETUID2, CRUMB);
+        }
+        assertEq(_stakingHotkeyCount(coldkey), target);
+    }
+
+    /// @dev Mirrors the factory's derivations so a test can poison a candidate before creation.
+    function _cloneCandidate(uint256 tokenId, bytes32 uid) internal view returns (address) {
+        bytes32 salt = keccak256(abi.encode("subnet-v1", tokenId, uid));
+        return
+            Clones.predictDeterministicAddress(vault.cloneFactory().subnetLogic(), salt, address(vault.cloneFactory()));
+    }
+
+    function _ownerCandidate(address clone) internal view returns (address) {
+        bytes32 hotkey = _toSubstrate(clone);
+        bytes memory initCode = abi.encodePacked(type(CloneOwner).creationCode, abi.encode(hotkey));
+        return vm.computeCreate2Address(
+            keccak256(abi.encode("owner-v1", hotkey)), keccak256(initCode), address(vault.cloneFactory())
+        );
     }
 
     function _attestedHotkeys(uint256 netuid) internal view returns (bytes32[] memory hotkeys) {

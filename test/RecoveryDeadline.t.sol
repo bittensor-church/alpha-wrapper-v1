@@ -194,8 +194,8 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         _wrapHotkey(alice, netuid, hotkeys[0]);
         uint256 tokenId = vault.currentTokenId(netuid);
         uint256 index = bound(rawIndex, 0, MAX_VALIDATORS - 1);
-        // 156 bps of 64 alpha per slot; the last slot takes the 172 bps remainder.
-        uint256 lost = index == MAX_VALIDATORS - 1 ? 1_100_800_000 : 998_400_000;
+        // 1000 bps of 10 alpha per slot.
+        uint256 lost = ALPHA;
         _buildSwapTrail(netuid, hotkeys[index], 2);
         vault.syncBacking(tokenId);
         assertEq(_parkedStake(netuid), MAX_VALIDATORS * ALPHA - lost);

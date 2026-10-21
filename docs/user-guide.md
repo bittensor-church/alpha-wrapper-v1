@@ -12,8 +12,7 @@ use 18-decimal EVM wei. One native RAO is 1e9 wei.
 
 1. Call `createMailbox(netuid, uid)` with a fresh random `bytes32` UID. This
    creates your mailbox and, for the first user of this subnet generation, the
-   shared subnet clone; the registry must already list validators for the
-   subnet. If it reverts `CloneContaminated`, retry with a new UID.
+   shared subnet clone. If it reverts `CloneContaminated`, retry with a new UID.
 2. Read `getDepositAddress(you, netuid)` from the vault, or take the addresses
    the call returns. Zero means creation has not succeeded yet.
 3. Convert that EVM address to its Substrate coldkey using
@@ -38,10 +37,10 @@ The first user on a generation pays for the shared clone as well as their
 mailbox; later users pay for a mailbox. A public UID can be front-run, so a
 failed creation can need another attempt.
 
-`StakingListFull` from `wrap` or `rebalance` means the subnet clone's staking
-list cannot take the attested set. Anyone may call `replaceClone(tokenId, uid)`
-with a fresh random UID; the position moves to a fresh clone and the call can
-be retried. Token id, shares and TAO claims do not change.
+`StakingListFull` from `wrap`, `rebalance` or an exit means the subnet clone's
+staking list cannot take another hotkey. Anyone may call `replaceClone(tokenId,
+uid)` with a fresh random UID; the position moves to a fresh clone and the call
+can be retried. Token id, shares and TAO claims do not change.
 
 A deposit below the vault's conservative stake floor reverts `DepositTooSmall`;
 top up the mailbox before retrying. A mailbox holding conviction-locked alpha
@@ -180,13 +179,11 @@ full exits; sub-RAO residue stays reserved.
 
 Mailbox recovery always acts on your own mailbox:
 
-- `reclaimAlphaFromMailbox(netuid, hotkey, destColdkey)`: return staked alpha
-  from any hotkey the mailbox holds it under.
-- `reclaimMailboxAlphaAsTao(netuid, hotkey, minTaoOut)`: sell it for native TAO.
+- `reclaimAlphaFromMailbox(netuid, destColdkey)`: return the deposit, which sits
+  under the mailbox's own hotkey, to a coldkey.
+- `reclaimMailboxAlphaAsTao(netuid, minTaoOut)`: sell it for native TAO.
 - `reclaimTaoFromMailbox(netuid)`: collect native TAO, including dissolution refunds.
 
 Stake recovery still depends on source ownership and chain rules. Disabled alpha
-transfers prevent the first method, not the TAO sale itself.
-
-Alpha the mailbox holds under any other hotkey, such as a gift, is never wrapped;
-reclaim it from that hotkey.
+transfers prevent the first method, not the TAO sale itself. The chain refuses
+alpha sent to the mailbox under any other hotkey.

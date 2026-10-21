@@ -97,18 +97,19 @@ functions introduced since.
 | Staking `0x0805` | `getOwnedHotkeys` | Lists the hotkeys an account owns; an uncontaminated clone candidate owns none. |
 | Staking `0x0805` | `getDefaultMinStake` | The minimum a partial unstake enforces; the vault applies it to every move as its conservative floor. |
 | Staking `0x0805` | `getNominatorMinRequiredStake` | The minimum a nominator may hold; the chain can sweep smaller positions into TAO. |
-| Staking `0x0805` | `moveStake` | A same-subnet move enforces the chain's transfer minimum, which is the lower of the two minimums. |
+| Staking `0x0805` | `moveStake` | A same-subnet move enforces the chain's transfer minimum, which is the lower of the two minimums. A move onto a hotkey the caller does not list is refused once its staking list holds 256 entries. |
 | Staking `0x0805` | `transferStake` | Delivers alpha to another coldkey on the same subnet; the chain's transfer minimum applies. The receiver always admits a hotkey it already lists; otherwise only while its list is under the third-party cap and, once it refuses list growth, only a hotkey it owns. |
 | Staking `0x0805` | `transferStakeAndHotkey` | Delivers alpha to another coldkey on the same subnet onto a different hotkey, under the same admission rule and minimum. |
-| Staking `0x0805` | `setRejectStakingHotkeyGrowth` | Makes the calling account refuse staking-list growth by other accounts; a hotkey it associates to itself still joins its list. The vault and every clone set it at creation; `wrap` lifts a clone's for one transfer when it lists nothing, and `replaceClone` lifts the successor's for its transfers. |
+| Staking `0x0805` | `setRejectStakingHotkeyGrowth` | Makes the calling account refuse staking-list growth by other accounts; a hotkey it associates to itself still joins its list. |
 | Staking `0x0805` | `getRejectStakingHotkeyGrowth` | Reports that flag; the chain default is to allow growth. |
-| Staking `0x0805` | `getStakingHotkeys` | Reports an account's staking list length and one page of entries; an uncontaminated clone candidate lists nothing, and an entry stays while the account holds stake under that hotkey on any subnet. Dissolving a subnet removes the stake there but not the entry. |
+| Staking `0x0805` | `getStakingHotkeys` | Reports an account's staking list length and one page of at most 64 entries. An entry stays while the account holds stake under that hotkey on any subnet, or a root-dividend record for the pair; dissolving a subnet removes the stake there but not the entry. |
 | Staking `0x0805` | `removeStake` | A partial unstake enforces the default minimum stake and lowers the caller's `getStake` by at most the requested amount; a full drain of a position clears it, on any subnet. |
 | Subnet `0x0803` | `getNetworkRegistrationBlock` | Zero while a netuid is unregistered. |
 | Subnet `0x0803` | `getRegisteredSubnetCounter` | Steps on every registration and survives dissolution, so it tells subnet generations apart. |
 | Subnet `0x0803` | `isSubnetDissolving` | Reports a subnet whose dissolution is under way. |
 | Subnet `0x0803` | `getSubnetCapacityConfig` | Its tenth field is the owner's alpha-transfer switch. |
-| Neuron `0x0804` | `tryAssociateHotkey` | Assigns the caller's coldkey as owner only when the hotkey has none, and succeeds silently otherwise. A newly owned hotkey joins the caller's staking list, so the call is refused once that list holds 256 entries; the vault claims the parking hotkey, a mailbox claims its own account, and a contract deployed with each subnet clone claims the clone's. |
+| Neuron `0x0804` | `tryAssociateHotkey` | Assigns the caller's coldkey as owner only when the hotkey has none, and succeeds silently otherwise. A newly owned hotkey joins the caller's staking list, so the call is refused once that list holds 256 entries. |
+| Runtime configuration `0x0812` | `getBalancesConstants` | Its first value is the existential deposit in EVM wei: an account's balance hides that much, and a transfer that would leave a fresh account below it is refused. |
 | Alpha `0x0808` | `getAlphaPrice` | Prices alpha in TAO, scaled by 1e18. |
 | Alpha `0x0808` | `simSwapAlphaForTao` | Quotes the TAO a sale of a given alpha amount returns. |
 | Address mapping `0x080C` | `addressMapping` | Returns the substrate coldkey an EVM address controls. |
