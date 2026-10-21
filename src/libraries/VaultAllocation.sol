@@ -40,10 +40,9 @@ library VaultAllocation {
         return VaultClones.prepareClones(factory, subnetClone, mailboxes, tokenId, netuid, uid);
     }
 
-    function admitDeposit(address userClone, bytes32 chosenHotkey, uint16 nid) external view
+    function admitDeposit(bytes32 mailboxColdkey, uint16 nid) external view
         returns (uint256 totalDeposit, uint256 alphaPriceE18) {
-        bytes32 mailboxColdkey = VaultReads.coldkeyOf(userClone);
-        totalDeposit = IStaking(STAKING_PRECOMPILE).getStake(chosenHotkey, mailboxColdkey, nid);
+        totalDeposit = IStaking(STAKING_PRECOMPILE).getStake(mailboxColdkey, mailboxColdkey, nid);
         if (totalDeposit == 0) revert ZeroAmount();
         alphaPriceE18 = IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(nid);
         if (StakeOps.isBelowFloorAtReadPrice(totalDeposit, alphaPriceE18)) { revert IAlphaVaultAbi.DepositTooSmall(); }

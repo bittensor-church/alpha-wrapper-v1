@@ -198,7 +198,11 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     }
 
     function _simulateAlphaDeposit(address user, uint256 netuid, uint256 amount) internal {
-        _simulateAlphaDepositHotkey(user, netuid, amount, _attestedHotkeys(netuid)[0]);
+        _simulateAlphaDepositHotkey(user, netuid, amount, _toSubstrate(_prepareMailbox(user, netuid)));
+    }
+
+    function _stakingHotkeyCount(bytes32 coldkey) internal view returns (uint64 total) {
+        (, total) = MockStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, 0, 1);
     }
 
     function _attestedHotkeys(uint256 netuid) internal view returns (bytes32[] memory hotkeys) {

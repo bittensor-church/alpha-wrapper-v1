@@ -31,7 +31,8 @@ Holders rely on:
 
 - Subtensor and its precompiles for stake ownership, moves, accounting and refunds.
   Creation requires `getHotkeyOwner`, `getOwnedHotkeys`, `getColdkeyRoot`,
-  `getColdkeyLock`, `getRejectLockedAlpha` and
+  `getColdkeyLock`, `getRejectLockedAlpha`, `getStakingHotkeys`,
+  `setRejectStakingHotkeyGrowth`, `getRejectStakingHotkeyGrowth` and
   `tryAssociateHotkey`. The lineage and ownership readers must reflect current
   runtime storage; an unsupported runtime cannot prepare clones.
 - Registry governance, validator performance and distinct hotkeys in each set.
@@ -60,6 +61,9 @@ Holders rely on:
   price impact, including price impact borne by remaining holders.
 - Mailboxes and subnet clones are checked and protected at creation, so locked
   alpha never backs a share.
+- Deposits travel over hotkeys the mailbox and the subnet clone own, and both
+  refuse staking-list growth by others, so no stranger can fill the list the
+  chain consults before admitting a transfer.
 
 ## Why clone contamination matters
 
@@ -70,19 +74,37 @@ as backing would let an attacker mint shares and exit with honest holders'
 unlocked alpha, leaving them alpha that neither exit can move.
 
 - Creation checks the candidate chosen by the caller's UID for ownership,
-  swap history and locks, rejects a poisoned one so the caller retries with a
-  fresh UID, then has the clone claim its own account as a hotkey it owns. The
-  chain refuses coldkey swaps into existing hotkeys, so the protection holds at
-  zero stake, and a clone has no function that could rename or hand over that
-  hotkey. Creation also verifies that the clone rejects locked-alpha transfers.
+  swap history, locks and staking-list entries, rejects a poisoned one so the
+  caller retries with a fresh UID, then has the clone claim its own account as
+  a hotkey it owns and refuse staking-list growth by others. The chain refuses
+  coldkey swaps into existing hotkeys, so the protection holds at zero stake,
+  and a clone has no function that could rename or hand over that hotkey.
+  Creation also verifies that the clone rejects locked-alpha transfers.
 - An unexpected lock fails closed: a locked mailbox cannot be wrapped, and a
   locked subnet clone stops prices, deposits, alignment and exits until the lock
   clears. Recovery reads and accrued TAO claims stay available.
 
 The cost is one creation transaction per user; the first user of a subnet
 generation also pays for the shared clone. A UID is public once submitted, so a
-front-run creation can fail and need a retry with a new UID. Ordinary
-unlocked-alpha and TAO donations remain allowed.
+front-run creation can fail and need a retry with a new UID. TAO donations
+remain allowed; alpha donations only onto a hotkey the clone lists or owns.
+
+## Why staking-list growth matters
+
+The chain keeps, for every coldkey, the list of hotkeys it stakes under, walks
+that list on every stake exit, and refuses a transfer from another coldkey onto
+an unlisted hotkey once the list holds 128 entries. Left open, a stranger could
+fill a mailbox's or a subnet clone's list with dust and block every later
+deposit onto a hotkey it does not yet list.
+
+- Deposits land on the mailbox's own hotkey and reach the subnet clone on the
+  clone's own hotkey. The chain admits a transfer onto a hotkey the receiver
+  owns regardless of what else it lists, and the clone moves the alpha onto the
+  attested hotkey itself, under the larger cap that applies to its own moves.
+- Every clone refuses staking-list growth by others from creation on, so only
+  its own moves change its list and gas stays flat. Stake sent to a candidate
+  before creation would already occupy the list, so creation rejects such a
+  candidate like any other contamination.
 
 ## Recovery-window tradeoff and late-recovery attack
 
@@ -97,7 +119,7 @@ can bring the dust home. Other collection failures revert without changing the
 clock or obligation; persistent chain restrictions can still delay recovery.
 A native precompile refusal consumes forwarded gas, even though state rolls back.
 
-The conservative floor uses `DefaultMinStake`: 0.002 TAO on Subtensor runtime 478,
+The conservative floor uses `DefaultMinStake`: 0.002 TAO on Subtensor runtime 481,
 20 times its 0.0001 TAO same-subnet transfer minimum. Thus some chain-movable
 balances can be skipped and written off. Ten skipped locations expose less than
 0.02 TAO at the floor check's price, not at a future price. Using the lower
@@ -151,8 +173,6 @@ them; accrued TAO survives either way.
   TAO exit may discard sub-floor unsold residue.
 - Partial TAO exits can refund unsold alpha as shares; `minTaoOut` bounds the payout,
   not the pool-price effect on remaining holders.
-- A mailbox deposit moved by a swap needs manual reclaim and redeposit if its
-  actual key is no longer listed in the registry.
 - A parked position earns no emissions until the registry authority publishes a new set.
   A validator can swap and re-register its old key to cut a successor edge the
   vault still needs. After an all-subnet swap, anyone paying the burn can register
@@ -163,8 +183,9 @@ them; accrued TAO survives either way.
   nothing there until the registry owner publishes the successor; see the
   [watcher runbook](hotkey-swaps.md#watcher-runbook).
 - Clone protection relies on the chain refusing coldkey swaps into existing
-  hotkeys and rejecting locked-alpha transfers by default. A public UID can be
-  front-run into a retry; a poisoned candidate never becomes backing.
+  hotkeys, rejecting locked-alpha transfers by default and honouring the
+  reject-growth flag. A public UID can be front-run into a retry; a poisoned
+  candidate never becomes backing.
 - A vacated attested name that a stranger claims receives an empty slot's
   allocation until the registry owner publishes the successor. The alpha stays
   under the vault's coldkey; if the stranger moves it, it is recovered as

@@ -95,7 +95,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         return VaultAllocation.prepareClones(cloneFactory, subnetClone, _mailboxes, currentTokenId(netuid), netuid, uid);
     }
 
-    /// @notice Zero until `createMailbox` succeeds.
+    /// @notice Zero until `createMailbox` succeeds. Deposits go onto the mailbox's own hotkey, whose id is its coldkey.
     function getDepositAddress(address user, uint256 netuid) public view returns (address) {
         if (netuid > type(uint16).max) revert NetuidOutOfRange();
         return _mailboxes[user][netuid];
@@ -107,9 +107,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         return parkedAtNonce != 0 && validatorRegistry.nonces(VaultMath.netuidOf(tokenId)) == parkedAtNonce;
     }
 
-    /// @notice Collect the caller's mailbox stake under one currently attested hotkey and mint shares.
-    /// @dev Consolidates dropped validators and aligns weights. Unresolved backing blocks collection;
-    ///      use mailbox reclaim if a swap or registry update leaves the deposit under an unlisted key.
+    /// @notice Move the caller's mailbox deposit onto one currently attested hotkey and mint shares.
+    /// @dev Consolidates dropped validators and aligns weights. Unresolved backing blocks collection. Only alpha
+    ///      on the mailbox's own hotkey is collected; mailbox reclaim handles alpha under any other key.
     ///      A mailbox holding conviction-locked alpha is refused; reclaim it to a coldkey that accepts locks.
     function wrap(uint256 netuid, bytes32 chosenHotkey, uint256 minSharesOut) external nonReentrant {
         if (chosenHotkey == bytes32(0)) revert ZeroHotkey();
@@ -127,23 +127,17 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         address clone = subnetClone[tokenId];
         if (clone == address(0)) revert SubnetCloneNotPrepared();
 
-        address userClone = _requireMailbox(msg.sender, netuid);
+        address mailbox = _requireMailbox(msg.sender, netuid);
+        bytes32 mailboxColdkey = VaultReads.coldkeyOf(mailbox);
         bytes32 destColdkey = VaultReads.coldkeyOf(clone);
         (VaultReads.Slot[] memory slots, VaultReads.Backing memory backing) = _openBacking(tokenId, destColdkey, nid);
         bytes32[] memory actives = _assignFundableActives(slots, backing, set, nid);
 
-        (uint256 totalDeposit, uint256 alphaPriceE18) = VaultAllocation.admitDeposit(userClone, chosenHotkey, nid);
+        (uint256 totalDeposit, uint256 alphaPriceE18) = VaultAllocation.admitDeposit(mailboxColdkey, nid);
 
-        uint256 heldBefore = IStaking(STAKING_PRECOMPILE).getStake(chosenHotkey, destColdkey, nid);
         // A fresh deposit can carry rotated-out dust through above-floor consolidation hops.
-        StakeOps.flush(userClone, chosenHotkey, destColdkey, nid, totalDeposit);
+        StakeOps.collectDeposit(mailbox, mailboxColdkey, clone, destColdkey, actives[chosenIndex], nid, totalDeposit);
         VaultAllocation.Context memory context = _context(tokenId, clone, destColdkey, alphaPriceE18);
-        // Mint pricing reads only active keys; move the deposit onto one before pricing. Anything else
-        // sitting on a superseded name is a stray for recovery, not part of this mint.
-        if (!VaultMath.contains(actives, chosenHotkey)) {
-            uint256 landed = IStaking(STAKING_PRECOMPILE).getStake(chosenHotkey, destColdkey, nid) - heldBefore;
-            StakeOps.move(clone, chosenHotkey, actives[chosenIndex], nid, landed);
-        }
         VaultAllocation.consolidateRotatedStake(
             context, backing.keys, actives, VaultAllocation.CollectionPolicy.RevertBelowFloor);
         VaultAllocation.rebalance(context, actives, set.weights);

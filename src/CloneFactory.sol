@@ -35,11 +35,13 @@ contract CloneFactory {
         IStaking staking = IStaking(STAKING_PRECOMPILE);
         (bool owned,) = staking.getHotkeyOwner(coldkey);
         (bool swapped,) = staking.getColdkeyRoot(coldkey);
-        // A swap can import ownership roles that create future locks even if today's lock is zero.
-        // Plain unlocked alpha and TAO gifts do not give their sender authority over this account.
+        // A swap can import ownership roles that create future locks even if today's lock is zero, and
+        // stake gifted before the clone refuses list growth already occupies the list that admits deposits.
+        // TAO gifts give their sender no authority over this account.
         if (
             owned || swapped || staking.getOwnedHotkeys(coldkey).length != 0
-                || VaultReads.lockedAlphaOf(coldkey, netuid) != 0) revert IAlphaVaultAbi.CloneContaminated(candidate);
+                || VaultReads.lockedAlphaOf(coldkey, netuid) != 0 || VaultReads.stakingHotkeyCount(coldkey) != 0
+        ) revert IAlphaVaultAbi.CloneContaminated(candidate);
         Clones.cloneDeterministic(implementation, salt);
     }
 }

@@ -20,13 +20,15 @@ abstract contract CloneBase {
     modifier onlyWrapper() { if (msg.sender != wrapper) revert NotWrapper(); _; }
 
     /// @dev Owning its own account as a hotkey keeps the account unswappable even while it holds no
-    ///      stake, because the chain refuses coldkey swaps into any hotkey.
+    ///      stake, because the chain refuses coldkey swaps into any hotkey. Refusing staking-list growth
+    ///      keeps strangers from filling the list that admits deposits.
     function initialize(address _wrapper) external {
         if (initialized) revert AlreadyInitialized();
         if (msg.sender != _wrapper) revert UnauthorizedInitializer();
         wrapper = _wrapper; initialized = true;
         INeuron(NEURON_PRECOMPILE)
             .tryAssociateHotkey(IAddressMapping(ADDRESS_MAPPING_PRECOMPILE).addressMapping(address(this)));
+        IStaking(STAKING_PRECOMPILE).setRejectStakingHotkeyGrowth(true);
     }
 
     /// @notice Transfer staked alpha to another coldkey without changing its hotkey or subnet.

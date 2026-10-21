@@ -10,21 +10,23 @@ use 18-decimal EVM wei. One native RAO is 1e9 wei.
 
 ## Wrap staked alpha
 
-1. Read the attested hotkeys from `getValidators(netuid)` on
-   `vault.validatorRegistry()` (first return value). Deposit under one of them.
-2. Call `createMailbox(netuid, uid)` with a fresh random `bytes32` UID. This
+1. Call `createMailbox(netuid, uid)` with a fresh random `bytes32` UID. This
    creates your mailbox and, for the first user of this subnet generation, the
    shared subnet clone. If it reverts `CloneContaminated`, retry with a new UID.
-3. Read `getDepositAddress(you, netuid)` from the vault, or take the addresses
+2. Read `getDepositAddress(you, netuid)` from the vault, or take the addresses
    the call returns. Zero means creation has not succeeded yet.
-4. Convert that EVM address to its Substrate coldkey using
-   `addressMapping(address)` at `0x080C` (Frontier HashedAddressMapping).
-5. Use Subtensor's `transfer_stake` to send alpha to that coldkey on the same
-   subnet, retaining the chosen hotkey.
+3. Convert that EVM address to its Substrate coldkey using
+   `addressMapping(address)` at `0x080C` (Frontier HashedAddressMapping). The
+   mailbox's own hotkey has the same id as that coldkey.
+4. Use Subtensor's `transfer_stake_and_hotkey` to send alpha to that coldkey on
+   the same subnet, landing it on the mailbox's own hotkey. The mailbox refuses
+   alpha sent to a hotkey it neither owns nor already holds stake under.
+5. Read the attested hotkeys from `getValidators(netuid)` on
+   `vault.validatorRegistry()` (first return value) and choose one.
 6. Call `wrap(netuid, chosenHotkey, minSharesOut)` from the same EVM account
-   that created the mailbox.
+   that created the mailbox. The deposit lands on the chosen hotkey.
 
-One wrap collects one mailbox hotkey's balance. Use
+One wrap collects the alpha on the mailbox's own hotkey. Use
 `previewWrap(tokenId, assets)` to choose your minimum shares; a lower mint reverts
 `SlippageExceeded`, leaving the deposit intact. Chain rounding can make execution
 differ slightly from the preview. Zero waives the minimum.
@@ -74,6 +76,9 @@ Call `unwrap(tokenId, shares, yourColdkey, minAlphaOut)`. The vault consolidates
 dropped validators, pays staked alpha in one transfer, and aligns the remainder
 toward current weights. This does not trade against the pool; chain rounding can
 still cost a few RAO. Verify the destination coldkey: the chain pays the key you supply.
+
+A coldkey that refuses staking-list growth by others receives the payout only
+on a hotkey it already lists or owns.
 
 Choose `minAlphaOut` from `previewUnwrap` with only the rounding tolerance you
 accept. It bounds actual recipient credit. Use at least `1` to refuse a zero-alpha
@@ -169,14 +174,13 @@ full exits; sub-RAO residue stays reserved.
 
 Mailbox recovery always acts on your own mailbox:
 
-- `reclaimAlphaFromMailbox(netuid, hotkey, destColdkey)`: return staked alpha,
-  including from unlisted hotkeys.
+- `reclaimAlphaFromMailbox(netuid, hotkey, destColdkey)`: return staked alpha
+  from any hotkey the mailbox holds it under.
 - `reclaimMailboxAlphaAsTao(netuid, hotkey, minTaoOut)`: sell it for native TAO.
 - `reclaimTaoFromMailbox(netuid)`: collect native TAO, including dissolution refunds.
 
 Stake recovery still depends on source ownership and chain rules. Disabled alpha
 transfers prevent the first method, not the TAO sale itself.
 
-If a swap moved your deposit, wrapping the old key can revert `ZeroAmount`.
-Locate the mailbox's stake from chain state/history, reclaim from its actual key,
-then redeposit under a currently attested hotkey.
+Alpha the mailbox holds under any other hotkey, such as a gift, is never wrapped;
+reclaim it from that hotkey.

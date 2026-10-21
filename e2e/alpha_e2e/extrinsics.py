@@ -76,6 +76,27 @@ def transfer_stake(
         ), signer_uri=signer_uri)
 
 
+def transfer_stake_and_hotkey(
+    dest_ss58: str, origin_hotkey_ss58: str, destination_hotkey_ss58: str, netuid: int, alpha_amount: int,
+    *, signer_uri: str = "//Alice", chain_endpoint: str = config.CHAIN_ENDPOINT,
+) -> str:
+    with _connect(chain_endpoint) as client:
+        return _submit(client, _sdk().calls.SubtensorModule.transfer_stake_and_hotkey(
+            destination_coldkey=dest_ss58,
+            origin_hotkey=origin_hotkey_ss58,
+            destination_hotkey=destination_hotkey_ss58,
+            origin_netuid=netuid,
+            destination_netuid=netuid,
+            alpha_amount=alpha_amount,
+        ), signer_uri=signer_uri)
+
+
+def staking_hotkeys(coldkey_ss58: str, *, chain_endpoint: str = config.CHAIN_ENDPOINT) -> list:
+    with _connect(chain_endpoint) as client:
+        value = client.query(_sdk().storage.SubtensorModule.StakingHotkeys, [coldkey_ss58])
+    return list(value or [])
+
+
 def add_stake(
     hotkey_ss58: str, netuid: int, amount_rao: int,
     *, signer_uri: str = "//Alice", chain_endpoint: str = config.CHAIN_ENDPOINT,

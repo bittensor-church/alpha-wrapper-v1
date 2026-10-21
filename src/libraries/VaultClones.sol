@@ -37,8 +37,10 @@ library VaultClones {
     function _initializeClone(address clone) private {
         CloneBase(payable(clone)).initialize(address(this));
         bytes32 coldkey = VaultReads.coldkeyOf(clone);
-        if (!VaultReads.ownedBy(coldkey, coldkey) || !IStaking(STAKING_PRECOMPILE).getRejectLockedAlpha(coldkey)) {
-            revert IAlphaVaultAbi.CloneProtectionFailed(clone);
-        }
+        IStaking staking = IStaking(STAKING_PRECOMPILE);
+        if (
+            !VaultReads.ownedBy(coldkey, coldkey) || !staking.getRejectLockedAlpha(coldkey)
+                || !staking.getRejectStakingHotkeyGrowth(coldkey)
+        ) revert IAlphaVaultAbi.CloneProtectionFailed(clone);
     }
 }

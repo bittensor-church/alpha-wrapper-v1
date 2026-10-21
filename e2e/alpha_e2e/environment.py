@@ -144,8 +144,29 @@ class Environment:
         )
 
     def mailbox_coldkey(self, netuid: int, user: Optional[str] = None) -> str:
-        """Substrate coldkey a user's mailbox stakes under."""
+        """Substrate coldkey a user's mailbox stakes under, also the id of its own hotkey."""
         return substrate.h160_to_substrate_b32(self.mailbox_address(netuid, user))
+
+    def mailbox_deposit(self, netuid: int, user: Optional[str] = None) -> int:
+        """Alpha (RAO) on the mailbox's own hotkey, which is what a wrap collects."""
+        coldkey = self.mailbox_coldkey(netuid, user)
+        return self.stake(coldkey, coldkey, netuid)
+
+    def candidate_addresses(
+        self, token_id: int, netuid: int, uid: str, user: Optional[str] = None,
+    ) -> Tuple[str, str]:
+        """The subnet clone and mailbox a creation with this UID would deploy, derived the way
+        the factory does."""
+        factory = chain.cast_call(self.vault_address, "cloneFactory()(address)")
+        clone_salt = chain.cast_keccak(chain.cast_abi_encode("f(string,uint256,bytes32)", "subnet-v1", token_id, uid))
+        mailbox_salt = chain.cast_keccak(chain.cast_abi_encode(
+            "f(string,address,uint256,bytes32)", "mailbox-v1", user or config.WRAPPER_USER_ADDRESS, netuid, uid,
+        ))
+        clone = chain.create2_clone_address(factory, chain.cast_call(factory, "subnetLogic()(address)"), clone_salt)
+        mailbox = chain.create2_clone_address(
+            factory, chain.cast_call(factory, "mailboxLogic()(address)"), mailbox_salt,
+        )
+        return clone, mailbox
 
     def clone_address(self, token_id: int) -> str:
         """Per-token subnet clone address holding the position's alpha."""
@@ -371,17 +392,19 @@ class Environment:
         self, netuid: int, hotkey_pubkey: str, gas_limit: int, message: str,
         private_key: Optional[str] = None, label: Optional[str] = None, min_shares_out: int = 0,
     ) -> dict:
-        """Wrap whatever the caller's mailbox holds under `hotkey_pubkey`, in a block that
-        `deposited` can measure."""
+        """Wrap whatever the caller's mailbox holds on its own hotkey onto `hotkey_pubkey`, in a
+        block that `deposited` can measure."""
         return self.vault_send_between_epochs(
             netuid, gas_limit, message, "wrap(uint256,bytes32,uint256)", netuid, hotkey_pubkey, min_shares_out,
             private_key=private_key, label=label,
         )
 
-    def deposited(self, wrap_receipt: dict, netuid: int, hotkey_pubkey: str, user: Optional[str] = None) -> int:
-        """Alpha (RAO) a wrap collected, read off the chain: the mailbox's drop in the wrap's block."""
+    def deposited(self, wrap_receipt: dict, netuid: int, user: Optional[str] = None) -> int:
+        """Alpha (RAO) a wrap collected, read off the chain: the drop on the mailbox's own hotkey
+        in the wrap's block."""
         block = chain.receipt_block_number(wrap_receipt, "wrap")
-        return -self.stake_change(self.mailbox_coldkey(netuid, user), netuid, [hotkey_pubkey], block)
+        coldkey = self.mailbox_coldkey(netuid, user)
+        return -self.stake_change(coldkey, netuid, [coldkey], block)
 
     def deposit_and_wrap(
         self, netuid: int, hotkey_pubkey: str, hotkey_ss58: str,
@@ -389,8 +412,8 @@ class Environment:
         user: Optional[str] = None, private_key: Optional[str] = None,
         label: Optional[str] = None, min_shares_out: int = 0,
     ) -> dict:
-        """Transfer alpha from Alice into a user's mailbox under a hotkey, then
-        wrap it into the vault. Defaults to the wrapper user; pass `user` and
+        """Send alpha Alice stakes under `hotkey_ss58` to a user's mailbox, then wrap it
+        onto that validator. Defaults to the wrapper user; pass `user` and
         `private_key` to run it for another holder. Returns the wrap receipt."""
         mailbox = self.mailbox_address(netuid, user)
         clone = self.clone_address(self.current_token_id(netuid))
@@ -398,14 +421,19 @@ class Environment:
             self.create_mailbox(netuid, private_key)
             mailbox = self.mailbox_address(netuid, user)
             assert int(mailbox, 16) != 0, "preparation did not create the intended user's mailbox"
-        print(f"  Transferring {amount_rao} RAO from Alice -> mailbox under {hotkey_pubkey[:18]}...")
-        extrinsics.transfer_stake(
-            substrate.h160_to_ss58(mailbox), hotkey_ss58, netuid, amount_rao,
-        )
+        self.send_to_mailbox(netuid, hotkey_ss58, amount_rao, user)
         return self.wrap(
             netuid, hotkey_pubkey, gas_limit, message,
             private_key=private_key, label=label, min_shares_out=min_shares_out,
         )
+
+    def send_to_mailbox(
+        self, netuid: int, hotkey_ss58: str, amount_rao: int, user: Optional[str] = None,
+    ) -> None:
+        """Move Alice's stake under `hotkey_ss58` onto the user's mailbox hotkey."""
+        mailbox_ss58 = substrate.h160_to_ss58(self.mailbox_address(netuid, user))
+        print(f"  Sending {amount_rao} RAO from Alice -> mailbox {mailbox_ss58[:12]}...")
+        extrinsics.transfer_stake_and_hotkey(mailbox_ss58, hotkey_ss58, mailbox_ss58, netuid, amount_rao)
 
     def set_validator(self, netuid: int, hotkey: str) -> None:
         validators.set_basic_validator(self.validator_registry_address, netuid, hotkey)

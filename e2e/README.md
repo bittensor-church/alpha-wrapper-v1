@@ -6,7 +6,7 @@ Substrate extrinsics.
 ## Requirements
 
 - Localnet at `ws://127.0.0.1:9944` / `http://127.0.0.1:9944`. CI runs
-  `ghcr.io/raofoundation/subtensor-localnet:v478`, pinned by digest in
+  `ghcr.io/raofoundation/subtensor-localnet:v481`, pinned by digest in
   `.github/workflows/e2e.yml`; use the same image locally.
 - Dev Alice funded, as the localnet genesis does. Bootstrap funds every other
   account it uses from Alice.
@@ -63,6 +63,9 @@ Scenario files in `tests/` cover:
   and a fresh UID creates protected mailboxes and subnet clones that own their
   own hotkeys, so coldkey swaps and locked-alpha transfers into them are refused
   on the real chain; an honest deposit still wraps and exits.
+- `test_reject_hotkey_growth.py`: a candidate that already stakes is rejected, a
+  stranger cannot add a hotkey to a mailbox's or clone's staking list after
+  creation, and deposits and wraps keep working with the lists unchanged.
 - `test_subnet_dissolved.py`: refunds and mailbox recovery.
 - `test_min_stake_floor.py`, `test_dust_dos.py`, `test_min_stake_liveness.py`:
   minimums, top-ups, dust and repeated position changes.
@@ -70,8 +73,8 @@ Scenario files in `tests/` cover:
   position's loss is written off once a short recovery window expires.
 - `test_empty_token_write_off.py`: a gift to an emptied token is swept and written off;
   the token stays open and the next deposit wraps without a registry update.
-- `test_zero_hotkey.py`: alpha the vault or a mailbox holds on hotkey 0x0 is collected with
-  `recoverStray` and reclaimed like under any other hotkey; a wrap still cannot name it.
+- `test_zero_hotkey.py`: a hotkey swap carries the vault's backing onto hotkey 0x0 and
+  exits keep paying from it; a gift onto hotkey 0x0 is refused and a wrap cannot name it.
 - `test_parked_stake.py`: a rename that leaves the stake and the owner record behind,
   where exits keep paying from the old name and follow the successor once the owner
   names it; and a rename that carries the stake, which exits follow before the registry

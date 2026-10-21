@@ -143,9 +143,8 @@ abstract contract BackingCampaignHandler is Test {
     function wrap(uint256 actorSeed, uint256 amount, uint256 hotkeySeed) external {
         address actor = _actor(actorSeed);
         bytes32 hotkey = _attested(hotkeySeed);
-        // The chain refuses stake operations on a hotkey without an owner record, so nothing lands there.
-        if (!harness.depositTo(actor, bound(amount, 10, 1_000) * 1e9, hotkey)) return;
-        uint256 deposit = harness.mailboxStake(actor, hotkey);
+        harness.depositTo(actor, bound(amount, 10, 1_000) * 1e9);
+        uint256 deposit = harness.mailboxStake(actor);
         vm.prank(actor);
         try vault.wrap(netuid, hotkey, 0) {
             ++wraps;
@@ -630,13 +629,13 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
             + _getStakeForColdkey(vault.parkingHotkey(), coldkey, NETUID1);
     }
 
-    function depositTo(address user, uint256 amount, bytes32 hotkey) external returns (bool deposited) {
-        (deposited,) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey);
-        if (deposited) _simulateAlphaDepositHotkey(user, NETUID1, amount, hotkey);
+    function depositTo(address user, uint256 amount) external {
+        _simulateAlphaDeposit(user, NETUID1, amount);
     }
 
-    function mailboxStake(address user, bytes32 hotkey) external view returns (uint256) {
-        return _getStakeForColdkey(hotkey, _mailboxColdkey(user, NETUID1), NETUID1);
+    function mailboxStake(address user) external view returns (uint256) {
+        bytes32 mailboxColdkey = _mailboxColdkey(user, NETUID1);
+        return _getStakeForColdkey(mailboxColdkey, mailboxColdkey, NETUID1);
     }
 
     function attest(bytes32[] memory set) external {

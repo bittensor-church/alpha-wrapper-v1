@@ -39,7 +39,7 @@ def test_token_follows_the_registration_counter_not_the_block(env):
         netuid, hotkeys[0], env.hotkey_ss58s[0],
         config.DEPOSIT_RAO // 10, 1_500_000, "Generation: deposits should land on the same token",
     )
-    deposited = env.deposited(receipt, netuid, hotkeys[0])
+    deposited = env.deposited(receipt, netuid)
     joined = env.stake_change(
         env.clone_coldkey(token_id), netuid, hotkeys, chain.receipt_block_number(receipt, "Generation: deposit"),
     )

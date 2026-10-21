@@ -3,6 +3,7 @@ pragma solidity 0.8.36;
 
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { CloneBase } from "src/CloneBase.sol";
+import { DepositMailbox } from "src/DepositMailbox.sol";
 import { SubnetClone } from "src/SubnetClone.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
@@ -62,6 +63,28 @@ contract CloneBaseTest is AlphaVaultTestBase {
         vm.prank(bob);
         vm.expectRevert(CloneBase.NotWrapper.selector);
         CloneBase(payable(mailbox)).flush(_toSubstrate(bob), hotkey1, NETUID1, 10 * ALPHA);
+    }
+
+    function test_TransferStakeAndHotkey_NoOpOnZero() public {
+        DepositMailbox directMailbox = DepositMailbox(payable(Clones.clone(address(mailboxLogic))));
+        directMailbox.initialize(address(this));
+        MockStaking(STAKING_PRECOMPILE).setTransferStakeReverts(true);
+
+        directMailbox.transferStakeAndHotkey(directCloneColdkey, hotkey1, hotkey2, uint16(NETUID1), 0);
+
+        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey2, directCloneColdkey, NETUID1), 0);
+    }
+
+    function test_RevertWhen_NonWrapperTransfersMailboxAlphaAndHotkey() public {
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
+        address mailbox = vault.getDepositAddress(alice, NETUID1);
+
+        vm.prank(bob);
+        vm.expectRevert(CloneBase.NotWrapper.selector);
+        DepositMailbox(payable(mailbox))
+            .transferStakeAndHotkey(
+                _toSubstrate(bob), _toSubstrate(mailbox), hotkey1, uint16(NETUID1), uint64(10 * ALPHA)
+            );
     }
 
     function test_RevertWhen_NonWrapperSellsMailboxAlpha() public {

@@ -190,7 +190,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         uint256 netuid = 9;
         _setRegBlock(netuid, 400);
         bytes32[] memory hotkeys = _setValidatorCount(netuid, MAX_VALIDATORS);
-        _simulateAlphaDepositHotkey(alice, netuid, MAX_VALIDATORS * ALPHA, hotkeys[0]);
+        _simulateAlphaDeposit(alice, netuid, MAX_VALIDATORS * ALPHA);
         _wrapHotkey(alice, netuid, hotkeys[0]);
         uint256 tokenId = vault.currentTokenId(netuid);
         uint256 index = bound(rawIndex, 0, MAX_VALIDATORS - 1);
@@ -345,7 +345,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         uint256 count = bound(rawCount, 1, MAX_VALIDATORS);
         bytes32[] memory keys = _setValidatorCount(netuid, count);
         uint256 expected = count * ALPHA;
-        _simulateAlphaDepositHotkey(alice, netuid, expected, keys[0]);
+        _simulateAlphaDeposit(alice, netuid, expected);
         _wrapHotkey(alice, netuid, keys[0]);
         uint256 tokenId = vault.currentTokenId(netuid);
         uint256 lostMask = bound(rawMask, 1, (uint256(1) << count) - 1);

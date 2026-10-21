@@ -34,15 +34,14 @@ def test_disabling_alpha_transfers_preserves_both_tao_exit_rails(env):
     )
     position_shares = env.vault_shares(position_token_id)
     checks.assert_first_deposit_shares(
-        position_shares, env.deposited(receipt, position_netuid, position_hotkeys[0]), "transfers-off setup wrap",
+        position_shares, env.deposited(receipt, position_netuid), "transfers-off setup wrap",
     )
 
     seed_netuid = env.netuids[1]
-    seed_hotkey_pubkey = env.hotkey_pubkeys[3]
     seed_mailbox_ss58 = h160_to_ss58(env.mailbox_address(seed_netuid))
 
-    extrinsics.transfer_stake(seed_mailbox_ss58, env.hotkey_ss58s[3], seed_netuid, config.DEPOSIT_RAO)
-    seed_alpha = env.stake(seed_hotkey_pubkey, env.mailbox_coldkey(seed_netuid), seed_netuid)
+    env.send_to_mailbox(seed_netuid, env.hotkey_ss58s[3], config.DEPOSIT_RAO)
+    seed_alpha = env.mailbox_deposit(seed_netuid)
     assert seed_alpha >= config.DEPOSIT_RAO - config.ROUNDING_DUST_SLOT_RAO, (
         f"the mailbox holds {seed_alpha} RAO after a {config.DEPOSIT_RAO} RAO transfer"
     )
@@ -74,6 +73,6 @@ def test_disabling_alpha_transfers_preserves_both_tao_exit_rails(env):
     print(f"  Deposit clone withdrawn as TAO: sold {sold_alpha} alpha RAO at the chain's quote")
 
     sold_alpha = exits.reclaim_mailbox_alpha_as_tao(
-        env, seed_netuid, seed_hotkey_pubkey, "reclaimMailboxAlphaAsTao with transfers off",
+        env, seed_netuid, env.mailbox_coldkey(seed_netuid), "reclaimMailboxAlphaAsTao with transfers off",
     )
     print(f"  Mailbox withdrawn as TAO: sold {sold_alpha} alpha RAO at the chain's quote")

@@ -21,7 +21,7 @@ import pytest
 
 from alpha_e2e import chain, checks, config, exits, extrinsics
 from alpha_e2e.checks import run_observability_script
-from alpha_e2e.substrate import h160_to_ss58, h160_to_substrate_b32
+from alpha_e2e.substrate import h160_to_substrate_b32
 
 
 @pytest.mark.scenario
@@ -42,7 +42,7 @@ def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subne
     )
     first_user_shares = env.vault_shares(dissolved_token_id)
     checks.assert_first_deposit_shares(
-        first_user_shares, env.deposited(receipt, dissolved_netuid, dissolved_hotkey_pubkey), "primary-user wrap",
+        first_user_shares, env.deposited(receipt, dissolved_netuid), "primary-user wrap",
     )
     env.deposit_and_wrap(
         dissolved_netuid, dissolved_hotkey_pubkey, dissolved_hotkey_ss58,
@@ -60,18 +60,14 @@ def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subne
           f"clone {dissolved_clone} backed by alpha")
 
     parked_netuid = env.netuids[2]
-    parked_hotkey_pubkey = env.hotkey_pubkeys[6]
-    parked_hotkey_ss58 = env.hotkey_ss58s[6]
     parked_mailbox = env.mailbox_address(parked_netuid)
     parked_mailbox_coldkey = h160_to_substrate_b32(parked_mailbox)
     print(f"  User mailbox on netuid {parked_netuid}: {parked_mailbox}")
 
-    extrinsics.transfer_stake(
-        h160_to_ss58(parked_mailbox), parked_hotkey_ss58, parked_netuid, config.DEPOSIT_RAO,
-    )
-    parked_alpha = env.stake(parked_hotkey_pubkey, parked_mailbox_coldkey, parked_netuid)
+    env.send_to_mailbox(parked_netuid, env.hotkey_ss58s[6], config.DEPOSIT_RAO)
+    parked_alpha = env.mailbox_deposit(parked_netuid)
     assert parked_alpha > 0, "mailbox has zero alpha after seeding"
-    print(f"  Mailbox stake: {parked_alpha} RAO under {parked_hotkey_pubkey[:18]}...")
+    print(f"  Mailbox stake: {parked_alpha} RAO on its own hotkey")
 
     surviving_netuid = env.netuids[1]
     surviving_token_id = env.token_ids[1]
@@ -112,7 +108,7 @@ def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subne
     env.assert_vault_reverts_with(
         "ZeroAmount()", 1_500_000, "reclaimMailboxAlphaAsTao did NOT revert as ZeroAmount on wiped mailbox alpha",
         "reclaimMailboxAlphaAsTao(uint256,bytes32,uint256)",
-        parked_netuid, parked_hotkey_pubkey, 0,
+        parked_netuid, parked_mailbox_coldkey, 0,
     )
 
     clone_tao_before = chain.cast_balance_wei(dissolved_clone)

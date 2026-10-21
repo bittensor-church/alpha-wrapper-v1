@@ -29,6 +29,10 @@ library VaultReads {
         (,, lockedAlpha,,) = IStaking(STAKING_PRECOMPILE).getColdkeyLock(coldkey, netuid);
     }
 
+    function stakingHotkeyCount(bytes32 coldkey) internal view returns (uint64 total) {
+        (, total) = IStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, 0, 1);
+    }
+
     /// @dev One attestation: the target hotkeys and their basis-point weights.
     struct ValidatorSet { bytes32[] hotkeys; uint16[] weights; }
 

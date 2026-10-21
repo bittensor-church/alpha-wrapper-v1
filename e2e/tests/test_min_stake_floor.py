@@ -3,7 +3,6 @@ import pytest
 
 from alpha_e2e import chain, config, exits, extrinsics
 from alpha_e2e.checks import assert_gas_within
-from alpha_e2e.substrate import h160_to_ss58
 
 
 @pytest.mark.scenario
@@ -23,11 +22,8 @@ def test_min_stake_floor(env):
     print(f"  Alpha price={gate_price} -> floor boundary={gate_boundary} alpha RAO, "
           f"parking {sub_floor_alpha}")
 
-    gate_mailbox = env.mailbox_address(gate_netuid)
     try:
-        extrinsics.transfer_stake(
-            h160_to_ss58(gate_mailbox), gate_hotkey_ss58, gate_netuid, sub_floor_alpha,
-        )
+        env.send_to_mailbox(gate_netuid, gate_hotkey_ss58, sub_floor_alpha)
     except extrinsics.ExtrinsicError as error:
         raise AssertionError(
             "Floor gate: parking transfer refused - the deposit must sit between the "
@@ -46,9 +42,7 @@ def test_min_stake_floor(env):
     print("  wrap refused a deposit below the chain minimum as DepositTooSmall, "
           "without burning the gas budget")
 
-    extrinsics.transfer_stake(
-        h160_to_ss58(gate_mailbox), gate_hotkey_ss58, gate_netuid, sub_floor_alpha,
-    )
+    env.send_to_mailbox(gate_netuid, gate_hotkey_ss58, sub_floor_alpha)
     env.vault_send(
         1_500_000, "Floor gate: above-floor wrap failed",
         "wrap(uint256,bytes32,uint256)", gate_netuid, gate_hotkey_pubkey, 0,
@@ -89,7 +83,7 @@ def test_min_stake_floor(env):
         dust_netuid, kept_hotkey_b_pubkey, kept_hotkey_b_ss58, dust_boundary * 3,
         2_500_000, "Dust consolidation: consolidating wrap failed",
     )
-    consolidating_deposit = env.deposited(receipt, dust_netuid, kept_hotkey_b_pubkey)
+    consolidating_deposit = env.deposited(receipt, dust_netuid)
 
     dust_residue_after = env.stake(dust_hotkey_pubkey, dust_clone_coldkey, dust_netuid)
     assert dust_residue_after <= config.ROUNDING_DUST_SLOT_RAO, (

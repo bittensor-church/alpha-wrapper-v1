@@ -82,7 +82,7 @@ rebuilt library means a new vault as well.
 ## Runtime compatibility
 
 The vault reads and writes chain state through precompiles. It requires a
-chain fully compatible with Subtensor runtime 478 for the precompile functions
+chain fully compatible with Subtensor runtime 481 for the precompile functions
 below, honoring the rule next to each, with no breaking change to those
 functions introduced since.
 
@@ -98,7 +98,11 @@ functions introduced since.
 | Staking `0x0805` | `getDefaultMinStake` | The minimum a partial unstake enforces; the vault applies it to every move as its conservative floor. |
 | Staking `0x0805` | `getNominatorMinRequiredStake` | The minimum a nominator may hold; the chain can sweep smaller positions into TAO. |
 | Staking `0x0805` | `moveStake` | A same-subnet move enforces the chain's transfer minimum, which is the lower of the two minimums. |
-| Staking `0x0805` | `transferStake` | Delivers alpha to another coldkey on the same subnet; the chain's transfer minimum applies. |
+| Staking `0x0805` | `transferStake` | Delivers alpha to another coldkey on the same subnet; the chain's transfer minimum applies. The receiver always admits a hotkey it already lists; otherwise only while its list is under the third-party cap and, once it refuses list growth, only a hotkey it owns. |
+| Staking `0x0805` | `transferStakeAndHotkey` | Delivers alpha to another coldkey on the same subnet onto a different hotkey, under the same admission rule and minimum. |
+| Staking `0x0805` | `setRejectStakingHotkeyGrowth` | Makes the calling account refuse staking-list growth by other accounts; a hotkey it associates to itself still joins its list. |
+| Staking `0x0805` | `getRejectStakingHotkeyGrowth` | Reports that flag; the chain default is to allow growth. |
+| Staking `0x0805` | `getStakingHotkeys` | Reports the length of an account's staking list; an uncontaminated clone candidate lists nothing. |
 | Staking `0x0805` | `removeStake` | A partial unstake enforces the default minimum stake and lowers the caller's `getStake` by at most the requested amount; a full drain of a position clears it. |
 | Subnet `0x0803` | `getNetworkRegistrationBlock` | Zero while a netuid is unregistered. |
 | Subnet `0x0803` | `getRegisteredSubnetCounter` | Steps on every registration and survives dissolution, so it tells subnet generations apart. |

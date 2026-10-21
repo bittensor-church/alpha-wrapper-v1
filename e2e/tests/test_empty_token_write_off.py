@@ -1,7 +1,8 @@
 """Scenario: a write-off with no share holders leaves the token open.
 
-After the last holder exits, anyone can transfer a small amount of alpha to the vault's
-subnet account under the attested validator, and `rebalance` records it as backing. A
+After the last holder exits, anyone can send a small amount of alpha onto the clone's own
+hotkey, which the clone admits whatever its staking list holds, and `recoverStray` records
+it as backing. A
 governance raise of the chain's dust threshold then force-sells that small nomination, so
 the record expects alpha that is gone. Anyone declares the loss and, once the recovery
 window expires, writes it off. Parking protects holders from dilution, and with no
@@ -45,13 +46,11 @@ def test_write_off_at_zero_supply_reopens_deposits_without_registry_action(env):
     # A gift sized above the chain's transfer minimum and far below the raised threshold.
     _, floor_boundary_alpha = env.floor_boundary(netuid, env.chain_min_stake_tao())
     gift = floor_boundary_alpha * 3 // 2
-    extrinsics.transfer_stake(substrate.h160_to_ss58(env.clone_address(token_id)), attested_ss58, netuid, gift)
-    rebalance_receipt = env.vault_send_between_epochs(
-        netuid, 4_000_000, "Empty write-off: the recording rebalance failed", "rebalance(uint256)", netuid,
-        label="rebalance [record gift]",
-    )
+    clone_ss58 = substrate.h160_to_ss58(env.clone_address(token_id))
+    extrinsics.transfer_stake_and_hotkey(clone_ss58, attested_ss58, clone_ss58, netuid, gift)
+    recover_receipt = env.recover_stray(token_id, clone_coldkey, "Empty write-off: collecting the gift failed")
     recorded = env.total_stake_across(
-        clone_coldkey, netuid, hotkeys, chain.receipt_block_number(rebalance_receipt, "Empty write-off: rebalance"),
+        clone_coldkey, netuid, hotkeys, chain.receipt_block_number(recover_receipt, "Empty write-off: recoverStray"),
     )
     assert recorded >= gift - config.ROUNDING_DUST_TOTAL_RAO, (
         f"the vault recorded {recorded} RAO against a gift of {gift}"
@@ -106,7 +105,7 @@ def test_write_off_at_zero_supply_reopens_deposits_without_registry_action(env):
         "Empty write-off: the deposit should wrap without a registry update",
     )
     assert registry_nonce() == nonce_before, "the registry published nothing in this scenario"
-    deposited = env.deposited(wrap_receipt, netuid, attested_hotkey)
+    deposited = env.deposited(wrap_receipt, netuid)
     backing = env.total_stake_across(
         clone_coldkey, netuid, hotkeys, chain.receipt_block_number(wrap_receipt, "Empty write-off: wrap"),
     )

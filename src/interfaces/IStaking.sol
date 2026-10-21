@@ -9,6 +9,9 @@ interface IStaking {
     function moveStake(bytes32 origin_hotkey, bytes32 destination_hotkey, uint256 origin_netuid,
         uint256 destination_netuid, uint256 amount) external payable;
 
+    function transferStakeAndHotkey(bytes32 destination_coldkey, bytes32 origin_hotkey, bytes32 destination_hotkey,
+        uint16 origin_netuid, uint16 destination_netuid, uint64 alpha_amount) external;
+
     function getStake(bytes32 hotkey, bytes32 coldkey, uint256 netuid) external view returns (uint256);
 
     /// @dev An all-subnet swap removes the old key's owner record, not the key identifier.
@@ -40,6 +43,13 @@ interface IStaking {
     function getColdkeyRoot(bytes32 coldkey) external view returns (bool exists, bytes32 root);
 
     function getOwnedHotkeys(bytes32 coldkey) external view returns (bytes32[] memory);
+
+    function setRejectStakingHotkeyGrowth(bool enabled) external;
+
+    function getRejectStakingHotkeyGrowth(bytes32 coldkey) external view returns (bool);
+
+    function getStakingHotkeys(bytes32 coldkey, uint64 offset, uint16 limit) external view
+        returns (bytes32[] memory hotkeys, uint64 total);
 }
 
 address constant STAKING_PRECOMPILE = 0x0000000000000000000000000000000000000805;

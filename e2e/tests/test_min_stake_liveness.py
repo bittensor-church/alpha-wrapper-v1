@@ -49,7 +49,7 @@ class ChurnLedger:
             1_500_000, f"{label}: wrap failed",
         )
         assert_gas_within(receipt, config.WRAP_GAS_BOUND, f"{label}: wrap")
-        self.deposited_alpha_total += self.env.deposited(receipt, self.netuid, hotkey_pubkey)
+        self.deposited_alpha_total += self.env.deposited(receipt, self.netuid)
         self.rounding_allowance += config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO
         print(f"  {label}: wrapped {amount_rao} alpha RAO")
 

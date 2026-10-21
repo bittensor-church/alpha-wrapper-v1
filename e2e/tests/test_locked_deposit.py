@@ -31,17 +31,6 @@ def _swap_into(signer_uri: str, destination: str) -> None:
     extrinsics.swap_coldkey_announced(h160_to_ss58(destination), signer_uri=signer_uri)
 
 
-def _candidates(factory: str, token_id: int, netuid: int, uid: str):
-    """The addresses a creation with this UID would deploy, derived the way the factory does."""
-    clone_salt = chain.cast_keccak(chain.cast_abi_encode("f(string,uint256,bytes32)", "subnet-v1", token_id, uid))
-    mailbox_salt = chain.cast_keccak(chain.cast_abi_encode(
-        "f(string,address,uint256,bytes32)", "mailbox-v1", config.WRAPPER_USER_ADDRESS, netuid, uid,
-    ))
-    clone = chain.create2_clone_address(factory, chain.cast_call(factory, "subnetLogic()(address)"), clone_salt)
-    mailbox = chain.create2_clone_address(factory, chain.cast_call(factory, "mailboxLogic()(address)"), mailbox_salt)
-    return clone, mailbox
-
-
 def _protected(env, address: str) -> None:
     coldkey = h160_to_substrate_b32(address)
     owner = chain.cast_call_lines(
@@ -51,6 +40,9 @@ def _protected(env, address: str) -> None:
     assert owner[1].lower() == coldkey.lower(), "a clone owns its own account as a hotkey"
     assert chain.cast_call(
         config.STAKING_PRECOMPILE, "getRejectLockedAlpha(bytes32)(bool)", coldkey,
+    ) == "true"
+    assert chain.cast_call(
+        config.STAKING_PRECOMPILE, "getRejectStakingHotkeyGrowth(bytes32)(bool)", coldkey,
     ) == "true"
 
 
@@ -68,7 +60,6 @@ def test_locked_deposit(env, recovery_window):
         env, vault_address=deployment.vault_address, lens_address=deployment.lens_address,
         validator_registry_address=deployment.validator_registry_address,
     )
-    factory = chain.cast_call(env.vault_address, "cloneFactory()(address)")
     extrinsics.set_coldkey_swap_announcement_delay(SWAP_DELAY_BLOCKS)
     for uri in (CLONE_DONOR, MAILBOX_DONOR, SWAP_DONOR, LOCKED_HOLDER):
         extrinsics.fund_account(extrinsics.keypair_ss58(uri), 30 * 10**9)
@@ -80,7 +71,7 @@ def test_locked_deposit(env, recovery_window):
         extrinsics.set_perpetual_lock(netuid, True, signer_uri=uri)
 
     poisoned_uid = _uid()
-    poisoned_clone, _ = _candidates(factory, token_id, netuid, poisoned_uid)
+    poisoned_clone, _ = env.candidate_addresses(token_id, netuid, poisoned_uid)
     _swap_into(CLONE_DONOR, poisoned_clone)
     assert env.stake(gift_hotkey, h160_to_substrate_b32(poisoned_clone), netuid) > 0
     env.assert_vault_reverts_with(
@@ -89,7 +80,7 @@ def test_locked_deposit(env, recovery_window):
     )
 
     mailbox_uid = _uid()
-    _, poisoned_mailbox = _candidates(factory, token_id, netuid, mailbox_uid)
+    _, poisoned_mailbox = env.candidate_addresses(token_id, netuid, mailbox_uid)
     _swap_into(MAILBOX_DONOR, poisoned_mailbox)
     env.assert_vault_reverts_with(
         "CloneContaminated(address)", 2_000_000, "contaminated mailbox candidate was accepted",
@@ -122,13 +113,16 @@ def test_locked_deposit(env, recovery_window):
     locked_alpha = env.stake(gift_hotkey, extrinsics.keypair_pubkey(LOCKED_HOLDER), netuid)
     for destination in (mailbox, clone):
         with pytest.raises(extrinsics.ExtrinsicError) as refused:
-            extrinsics.transfer_stake(
-                h160_to_ss58(destination), gift_hotkey_ss58, netuid, locked_alpha // 2, signer_uri=LOCKED_HOLDER,
+            extrinsics.transfer_stake_and_hotkey(
+                h160_to_ss58(destination), gift_hotkey_ss58, h160_to_ss58(destination), netuid, locked_alpha // 2,
+                signer_uri=LOCKED_HOLDER,
             )
         assert "AccountRejectsLockedAlpha" in str(refused.value), str(refused.value)
 
-    receipt = env.deposit_and_wrap(netuid, hotkey, hotkey_ss58, 10 * config.RAO_PER_ALPHA, 1_500_000, "honest wrap failed")
-    deposited = env.deposited(receipt, netuid, hotkey)
+    receipt = env.deposit_and_wrap(
+        netuid, hotkey, hotkey_ss58, 10 * config.RAO_PER_ALPHA, 1_500_000, "honest wrap failed",
+    )
+    deposited = env.deposited(receipt, netuid)
     assert deposited >= 10 * config.RAO_PER_ALPHA - config.ROUNDING_DUST_SLOT_RAO, (
         f"the honest wrap collected {deposited} RAO of 10 alpha"
     )

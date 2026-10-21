@@ -2,9 +2,11 @@
 pragma solidity 0.8.36;
 
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
+import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { INeuron, NEURON_PRECOMPILE } from "../interfaces/INeuron.sol";
 import { CloneBase } from "../CloneBase.sol";
+import { DepositMailbox } from "../DepositMailbox.sol";
 import { SubnetClone } from "../SubnetClone.sol";
 import { VaultMath } from "./VaultMath.sol";
 
@@ -26,6 +28,15 @@ library StakeOps {
     /// @dev The chain refuses to move stake through a hotkey with no owner record.
     function ensureHotkeyHasOwner(bytes32 hotkey) internal {
         if (!hasOwner(hotkey)) INeuron(NEURON_PRECOMPILE).tryAssociateHotkey(hotkey);
+    }
+
+    /// @dev The clone's own hotkey admits the mailbox's transfer whatever the clone's staking list holds.
+    function collectDeposit(address mailbox, bytes32 mailboxColdkey, address clone, bytes32 cloneColdkey,
+        bytes32 validator, uint16 netuid, uint256 amount) internal {
+        DepositMailbox(payable(mailbox))
+            .transferStakeAndHotkey(cloneColdkey, mailboxColdkey, cloneColdkey, netuid, SafeCast.toUint64(amount));
+        uint256 landed = IStaking(STAKING_PRECOMPILE).getStake(cloneColdkey, cloneColdkey, netuid);
+        move(clone, cloneColdkey, validator, netuid, landed);
     }
 
     function move(address clone, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount) internal {

@@ -5,7 +5,7 @@ import { VaultMath } from "src/libraries/VaultMath.sol";
 import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
-import { AttestedHotkeyRetired, ZeroAmount } from "src/VaultErrors.sol";
+import { AttestedHotkeyRetired } from "src/VaultErrors.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
@@ -75,7 +75,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey4);
         vm.prank(alice);
         vault.reclaimAlphaFromMailbox(NETUID1, hotkey4, _toSubstrate(alice));
-        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey2);
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrapHotkey(alice, NETUID1, hotkey2);
         vm.prank(bob);
         vault.unwrap(TOKEN1, shares / 2, _toSubstrate(bob), 0);
@@ -92,13 +92,16 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1), "record sound throughout");
     }
 
-    function test_RevertWhen_WrapNamesTheRetiredKeyForADepositOnItsSuccessor() public {
+    function test_Wrap_NamingASwappedAttestedName_StakesAtItsSuccessor() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
-        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey4);
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
 
-        vm.expectRevert(ZeroAmount.selector);
         _wrapHotkey(alice, NETUID1, hotkey1);
+
+        assertEq(_getVaultStake(hotkey1, NETUID1), 0, "nothing lands on the retired name");
+        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey4, "the slot answers under the successor");
+        assertEq(lens.totalStake(TOKEN1), 40 * ALPHA, "the deposit joined the backing");
     }
 
     function test_ReorderedSet_KeepsWeightsWithTheirValidators() public {
@@ -222,7 +225,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
     function test_WrapAfterADrainedSwap_StakesTheShareAtTheSuccessor() public {
         _positionWithADrainedSwap();
 
-        _simulateAlphaDepositHotkey(bob, NETUID1, 6 * ALPHA, hotkey2);
+        _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
         _wrapHotkey(bob, NETUID1, hotkey2);
 
         assertEq(vault.balanceOf(bob, TOKEN1), 6e18, "6 alpha against 19.998 alpha on 1.9998e19 shares");
@@ -272,7 +275,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
 
-        _simulateAlphaDepositHotkey(bob, NETUID1, 6 * ALPHA, hotkey2);
+        _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey4));
         _wrapHotkey(bob, NETUID1, hotkey2);
     }
@@ -449,7 +452,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
-        _simulateAlphaDepositHotkey(bob, NETUID1, 6 * ALPHA, hotkey3);
+        _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
         vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
         _wrapHotkey(bob, NETUID1, hotkey3);
     }
@@ -480,7 +483,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
-        _simulateAlphaDepositHotkey(bob, NETUID1, 6 * ALPHA, hotkey3);
+        _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
         _wrapHotkey(bob, NETUID1, hotkey3);
     }
@@ -515,7 +518,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
     }
 
     function _depositSixAlphaAndWrapUnder(bytes32 chosenHotkey) private {
-        _simulateAlphaDepositHotkey(bob, NETUID1, 6 * ALPHA, chosenHotkey);
+        _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
         _wrapHotkey(bob, NETUID1, chosenHotkey);
 
         assertEq(vault.balanceOf(bob, TOKEN1), 6e18, "6 alpha against 19.998 alpha on 1.9998e19 shares");
@@ -635,7 +638,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         uint256 netuid = 11;
         _setRegBlock(netuid, 500);
         bytes32[] memory hks = _setValidatorCount(netuid, count);
-        _simulateAlphaDepositHotkey(alice, netuid, 30 * ALPHA, hks[0]);
+        _simulateAlphaDeposit(alice, netuid, 30 * ALPHA);
         _wrapHotkey(alice, netuid, hks[0]);
         uint256 tokenId = vault.currentTokenId(netuid);
 
@@ -723,8 +726,8 @@ contract BackingRecordTest is AlphaVaultTestBase {
         MockStaking(STAKING_PRECOMPILE).setMoveStakeRoundingLoss(100);
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
 
-        assertEq(vault.recordedSlots(TOKEN1)[1].tracked, 9_998_999_900, "the slot expects what landed");
-        assertEq(lens.totalStake(TOKEN1), 29_999_999_800, "two alignment moves each lose 100 RAO");
+        assertEq(vault.recordedSlots(TOKEN1)[1].tracked, 9_998_999_866, "the slot expects what landed");
+        assertEq(lens.totalStake(TOKEN1), 29_999_999_700, "the placing move and two alignment moves each lose 100 RAO");
         assertTrue(lens.isBackingIntact(TOKEN1), "and the loss trips nothing");
     }
 
@@ -734,7 +737,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         _setRegBlock(netuid, 400);
         bytes32[] memory hks = _setValidatorCount(netuid, count);
 
-        _simulateAlphaDepositHotkey(alice, netuid, MAX_VALIDATORS * ALPHA, hks[0]);
+        _simulateAlphaDeposit(alice, netuid, MAX_VALIDATORS * ALPHA);
         _wrapHotkey(alice, netuid, hks[0]);
         uint256 tokenId = vault.currentTokenId(netuid);
 
