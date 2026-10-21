@@ -209,8 +209,13 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         return keccak256(abi.encodePacked("evm:", addr));
     }
 
+    /// @dev Stake under the mailbox's own hotkey, the only hotkey a mailbox can hold alpha under.
     function _simulateAlphaDeposit(address user, uint256 netuid, uint256 amount) internal {
-        _simulateAlphaDepositHotkey(user, netuid, amount, _toSubstrate(_prepareMailbox(user, netuid)));
+        bytes32 mailboxColdkey = _toSubstrate(_prepareMailbox(user, netuid));
+        MockStaking mock = MockStaking(STAKING_PRECOMPILE);
+        mock.setStake(
+            mailboxColdkey, mailboxColdkey, netuid, mock.getStake(mailboxColdkey, mailboxColdkey, netuid) + amount
+        );
     }
 
     function _stakingHotkeyCount(bytes32 coldkey) internal view returns (uint64 total) {
@@ -245,13 +250,6 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
 
     function _attestedHotkeys(uint256 netuid) internal view returns (bytes32[] memory hotkeys) {
         (hotkeys,) = vault.validatorRegistry().getValidators(netuid);
-    }
-
-    function _simulateAlphaDepositHotkey(address user, uint256 netuid, uint256 amount, bytes32 hotkey) internal {
-        _prepareMailbox(user, netuid);
-        bytes32 mailboxColdkey = _mailboxColdkey(user, netuid);
-        MockStaking mock = MockStaking(STAKING_PRECOMPILE);
-        mock.setStake(hotkey, mailboxColdkey, netuid, mock.getStake(hotkey, mailboxColdkey, netuid) + amount);
     }
 
     function _prepareMailbox(address user, uint256 netuid) internal returns (address mailbox) {

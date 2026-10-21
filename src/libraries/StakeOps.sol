@@ -32,14 +32,14 @@ library StakeOps {
 
     /// @dev A hotkey the clone holds nothing under on this subnet may be absent from its staking list,
     ///      which the cap then shuts; the chain's refusal would burn the forwarded gas.
-    function admitsMove(bytes32 coldkey, bytes32 toHotkey, uint16 netuid, bytes32 parking) internal view returns (bool) {
-        return IStaking(STAKING_PRECOMPILE).getStake(toHotkey, coldkey, netuid) != 0
-            || VaultReads.admitsOwnMove(coldkey, toHotkey, parking);
-    }
-
     function move(address clone, bytes32 coldkey, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount,
         bytes32 parking) internal {
-        if (!admitsMove(coldkey, toHotkey, netuid, parking)) revert StakingListFull();
+        if (!VaultReads.admitsMove(coldkey, toHotkey, netuid, parking)) revert StakingListFull();
+        moveAdmitted(clone, fromHotkey, toHotkey, netuid, amount);
+    }
+
+    /// @dev For a caller that has already checked the list.
+    function moveAdmitted(address clone, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount) internal {
         ensureHotkeyHasOwner(fromHotkey);
         ensureHotkeyHasOwner(toHotkey);
         SubnetClone(payable(clone)).moveStake(fromHotkey, toHotkey, netuid, amount);

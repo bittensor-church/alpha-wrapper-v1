@@ -264,6 +264,43 @@ contract DepositLandingTest is AlphaVaultTestBase {
         assertApproxEqAbs(lens.totalStake(TOKEN1), 30 * ALPHA, 2);
     }
 
+    function testFuzz_RecoveryParks_AtAnyListLength(uint256 entries) public {
+        entries = bound(entries, 1, MAX_STAKING_HOTKEYS - 1);
+        _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _fillListTo(_subnetColdkey(NETUID1), entries);
+        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey5);
+        vault.syncBacking(TOKEN1);
+
+        vault.recoverStray(TOKEN1, hotkey5);
+
+        assertEq(_parkedStake(NETUID1), 30 * ALPHA, "parking always has its entry");
+    }
+
+    /// @dev Crumbs keep the dropped validators listed, so consolidation frees no entry on its way out.
+    function test_FullRotationAtTheReserve_AlphaExitWaitsForReplacement_TaoExitDoesNot() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        _strangerTransfer(hotkey1, cloneColdkey, NETUID2);
+        _strangerTransfer(hotkey2, cloneColdkey, NETUID2);
+        _strangerTransfer(hotkey3, cloneColdkey, NETUID2);
+        _fillListTo(cloneColdkey, MAX_STAKING_HOTKEYS - 1);
+        _setValidators(NETUID1, _hotkeys(hotkey4, hotkey5), _weights(5000, 5000));
+
+        vm.prank(alice);
+        vm.expectRevert(StakingListFull.selector);
+        vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
+        vm.prank(alice);
+        vault.unwrapForTao(TOKEN1, shares / 4, 0);
+        assertEq(vault.balanceOf(alice, TOKEN1), shares - shares / 4, "the TAO exit does not wait");
+
+        vault.replaceClone(TOKEN1, FRESH_UID);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
+
+        assertGt(_getStake(hotkey4, alice, NETUID1) + _getStake(hotkey5, alice, NETUID1), 0, "the alpha exit paid");
+    }
+
     function test_PartialExit_SkipsAnAlignmentMoveTheListRefuses() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 cloneColdkey = _subnetColdkey(NETUID1);

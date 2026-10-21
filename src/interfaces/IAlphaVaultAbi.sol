@@ -20,8 +20,7 @@ interface IAlphaVaultAbi {
     event UnwrappedForTao(
         address indexed user, uint256 indexed tokenId, uint256 sharesBurned,
         uint256 sharesRefunded, uint256 alphaSold, uint256 taoOut);
-    event MailboxAlphaSoldForTao(
-        address indexed user, uint256 indexed netuid, bytes32 indexed hotkey, uint256 alpha, uint256 taoOut);
+    event MailboxAlphaSoldForTao(address indexed user, uint256 indexed netuid, uint256 alpha, uint256 taoOut);
     /// @dev `amount` is native TAO in EVM wei.
     event TaoClaimed(address indexed user, uint256 indexed tokenId, address recipient, uint256 amount);
     /// @dev The window starts once located backing above the floor sits on parking; smaller piles can stay behind.

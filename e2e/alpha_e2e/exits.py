@@ -93,7 +93,7 @@ def reclaim_mailbox_alpha_as_tao(env: Environment, netuid: int, message: str) ->
         checks.MAILBOX_TAO_RECLAIM,
     )
     block = chain.receipt_block_number(receipt, message)
-    leftover = env.stake(hotkey, mailbox_coldkey, netuid, block)
+    leftover = env.stake(mailbox_coldkey, mailbox_coldkey, netuid, block)
     assert leftover <= config.ROUNDING_DUST_SLOT_RAO, f"{message}: the mailbox still holds {leftover} RAO"
     return alpha_sold
 

@@ -396,7 +396,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
 
         uint256 taoOut = mailbox.balance - balanceBefore;
         if (taoOut < minTaoOut) revert SlippageExceeded(taoOut);
-        emit MailboxAlphaSoldForTao(msg.sender, netuid, mailboxColdkey, amount, taoOut);
+        emit MailboxAlphaSoldForTao(msg.sender, netuid, amount, taoOut);
         DepositMailbox(payable(mailbox)).unwrapTao(payable(msg.sender), taoOut);
     }
 

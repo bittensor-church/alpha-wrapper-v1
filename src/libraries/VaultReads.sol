@@ -44,9 +44,10 @@ library VaultReads {
         return false;
     }
 
-    /// @dev A listed hotkey always fits. The last entry is kept for the parking hotkey, so recovery can
-    ///      always park; the list is paged only at the cap.
-    function admitsOwnMove(bytes32 coldkey, bytes32 hotkey, bytes32 parking) internal view returns (bool) {
+    /// @dev A hotkey the coldkey holds stake under, or lists, always fits. The last entry is kept for the
+    ///      parking hotkey, so recovery can always park; the list is paged only at the cap.
+    function admitsMove(bytes32 coldkey, bytes32 hotkey, uint16 netuid, bytes32 parking) internal view returns (bool) {
+        if (IStaking(STAKING_PRECOMPILE).getStake(hotkey, coldkey, netuid) != 0) return true;
         uint64 total = stakingHotkeyCount(coldkey);
         uint256 room = hotkey == parking ? 1 : 2;
         if (total + room <= MAX_STAKING_HOTKEYS) return true;

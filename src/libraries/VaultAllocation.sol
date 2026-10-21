@@ -295,10 +295,8 @@ library VaultAllocation {
         // A rejected precompile call consumes forwarded gas. Skip unproven moves and tolerate weight drift.
         if (context.alphaPriceE18 == 0 || StakeOps.taoValue(moveAmount, context.alphaPriceE18) < minStakeTao) { return false; }
         // A full staking list is no reason to hold an exit; alignment waits for the clone's replacement.
-        if (!StakeOps.admitsMove(context.coldkey, hotkeys[underIndex], context.netuid, context.parking)) return false;
-        StakeOps.move(
-            context.clone, context.coldkey, hotkeys[overIndex], hotkeys[underIndex], context.netuid, moveAmount,
-            context.parking);
+        if (!VaultReads.admitsMove(context.coldkey, hotkeys[underIndex], context.netuid, context.parking)) return false;
+        StakeOps.moveAdmitted(context.clone, hotkeys[overIndex], hotkeys[underIndex], context.netuid, moveAmount);
         emit IAlphaVaultAbi.Rebalanced(context.tokenId, hotkeys[overIndex], hotkeys[underIndex], moveAmount);
         balances[overIndex] -= moveAmount; balances[underIndex] += moveAmount;
         return true;

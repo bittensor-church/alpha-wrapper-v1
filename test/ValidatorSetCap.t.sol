@@ -83,7 +83,7 @@ contract ValidatorSetCapTest is AlphaVaultTestBase {
         bytes32[] memory hks = _setValidatorCount(NETUID1, MAX_VALIDATORS);
         vault.rebalance(NETUID1);
 
-        // 156 bps of 10,000 alpha on each of 63 validators, the 172-bps remainder on the last.
+        // 1000 bps of 10,000 alpha on each of the ten validators.
         _assertSpread(hks, _subnetColdkey(NETUID1), NETUID1, 1_000 * ALPHA, 1_000 * ALPHA);
     }
 

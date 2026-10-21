@@ -139,7 +139,7 @@ contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
         _seedMailboxAlpha(alice, NETUID1, 100 * ALPHA);
 
         vm.expectEmit(true, true, true, true, address(vault));
-        emit MailboxAlphaSoldForTao(alice, NETUID1, _mailboxColdkey(alice, NETUID1), 100 * ALPHA, 5 * TAO);
+        emit MailboxAlphaSoldForTao(alice, NETUID1, 100 * ALPHA, 5 * TAO);
 
         vm.prank(alice);
         vault.reclaimMailboxAlphaAsTao(NETUID1, 0);

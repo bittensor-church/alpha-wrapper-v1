@@ -119,8 +119,9 @@ pair.
   hotkey alone.
 - A clone's own moves keep the last entry for the parking hotkey, so recovery
   can always park. A deposit or rotation onto a hotkey the clone cannot take
-  reverts `StakingListFull`; an alignment move the list refuses is skipped, so
-  exits do not wait on the list.
+  reverts `StakingListFull`; an alignment move the list refuses is skipped. An
+  exit waits on the list only when every attested validator is new to the
+  clone and the list is at its reserve, and replacement is already open then.
 - Once the list has fewer free entries than the attested set plus parking,
   anyone calls `replaceClone(tokenId, uid)`: a fresh clone and owner take over
   the recorded backing and the TAO under the same hotkeys, and the token keeps
