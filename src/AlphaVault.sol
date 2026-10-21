@@ -440,9 +440,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         emit BackingRecovered(tokenId, parkingHotkey, parked - before);
     }
 
-    /// @notice Move the token's position to a fresh clone once the old one's staking list cannot take the
-    ///         attested set and the parking hotkey. Anyone may call it; a rejected candidate is retried
-    ///         with a fresh UID.
+    /// @notice Move the token's position to a fresh clone once the old one's staking list has fewer free
+    ///         entries than the attested set plus the parking hotkey. Anyone may call it; a rejected
+    ///         candidate is retried with a fresh UID.
     /// @dev Recorded piles below the conservative floor stay behind and leave the record. The old clone keeps
     ///      whatever strangers sent it. Token id, shares, claims and mailboxes are untouched.
     function replaceClone(uint256 tokenId, bytes32 uid) external nonReentrant {
@@ -454,7 +454,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         bytes32 coldkey = VaultReads.coldkeyOf(clone);
         (, VaultReads.Backing memory backing) = _openBacking(tokenId, coldkey, netuid);
         VaultReads.ValidatorSet memory set = VaultReads.resolveValidators(validatorRegistry, netuid);
-        if (VaultReads.admitsSet(coldkey, set.hotkeys, parkingHotkey)) revert StakingListHasRoom();
+        if (VaultReads.admitsSet(coldkey, set.hotkeys.length)) revert StakingListHasRoom();
         address successor = VaultAllocation.replaceClone(
             cloneFactory, _context(tokenId, clone, coldkey, IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid)),
             backing.keys, uid);

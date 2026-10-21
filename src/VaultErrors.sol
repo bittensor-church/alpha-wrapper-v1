@@ -47,7 +47,7 @@ error ParkingHotkeyUnavailable();
 error VaultProtectionFailed();
 /// @dev The clone's staking list cannot take another hotkey; `replaceClone` moves the position to a fresh one.
 error StakingListFull();
-/// @dev The clone's staking list still takes the attested set and the parking hotkey; replacement waits.
+/// @dev The clone's staking list still has free entries for the attested set and the parking hotkey.
 error StakingListHasRoom();
 /// @dev No receiving key with an owner record was resolved for this attested name.
 ///      Restore an owner record or replace the registry entry; the backing timer cannot fix it.

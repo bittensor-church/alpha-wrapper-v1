@@ -219,8 +219,6 @@ contract DepositLandingTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
         assertTrue(vault.awaitingAttestation(TOKEN1));
         _setValidators(NETUID1, _hotkeys(hotkey3, hotkey4), _weights(5000, 5000));
-        vm.expectRevert(StakingListHasRoom.selector);
-        vault.replaceClone(TOKEN1, FRESH_UID);
 
         vault.rebalance(NETUID1);
 
@@ -392,11 +390,17 @@ contract DepositLandingTest is AlphaVaultTestBase {
         vault.replaceClone(TOKEN1, FRESH_UID);
     }
 
-    function test_RevertWhen_ReplacingWhileTheAttestedSetAndParkingStillFit() public {
+    function test_ReplacementOpensOnceTheListIsWithinOneSetOfTheCap() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _fillListTo(_subnetColdkey(NETUID1), MAX_STAKING_HOTKEYS - 1);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        _fillListTo(cloneColdkey, MAX_STAKING_HOTKEYS - 3 - 1);
         vm.expectRevert(StakingListHasRoom.selector);
         vault.replaceClone(TOKEN1, FRESH_UID);
+
+        _fillListTo(cloneColdkey, MAX_STAKING_HOTKEYS - 3);
+        vault.replaceClone(TOKEN1, FRESH_UID);
+
+        assertEq(_stakingHotkeyCount(_subnetColdkey(NETUID1)), 3, "the successor lists the attested set");
     }
 
     function test_RevertWhen_ReplacingAnUnpreparedToken() public {

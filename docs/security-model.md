@@ -125,8 +125,8 @@ hotkey on any subnet.
   A clone's own moves keep one entry free for the parking hotkey, so recovery
   can always park, and a move onto a hotkey the clone does not list reverts
   `StakingListFull` instead of burning gas.
-- Once the list cannot take the attested set and the parking hotkey, anyone
-  calls `replaceClone(tokenId, uid)`: a fresh clone and owner are created, the
+- Once the list has fewer free entries than the attested set plus the parking
+  hotkey, anyone calls `replaceClone(tokenId, uid)`: a fresh clone and owner are created, the
   recorded backing and the clone's TAO move across under the same hotkeys, and
   the token keeps its id, shares and claims. Piles below the conservative floor
   stay behind, and the old clone keeps the crumbs.
