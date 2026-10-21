@@ -72,9 +72,10 @@ Scenario files in `tests/` cover:
   `scripts/plan_tao_exit.py`), both mailbox reclaims, emissions, rotation and observability.
 - `test_transfers_off.py`, `test_convicted_alpha.py`: disabled transfers and locks.
 - `test_locked_deposit.py`: poisoned candidates are rejected before deployment
-  and a fresh UID creates protected mailboxes and subnet clones that own their
-  own hotkeys, so coldkey swaps and locked-alpha transfers into them are refused
-  on the real chain; an honest deposit still wraps and exits.
+  and a fresh UID creates protected mailboxes and subnet clones, each an owned
+  hotkey (a mailbox its own, a subnet clone the vault's), so coldkey swaps and
+  locked-alpha transfers into them are refused on the real chain; an honest
+  deposit still wraps and exits.
 - `test_reject_hotkey_growth.py`: a candidate that already stakes is rejected, a
   stranger cannot add a hotkey (hotkey 0x0 included) to a mailbox's or clone's
   staking list after creation, a crumb sent under a listed validator keeps its

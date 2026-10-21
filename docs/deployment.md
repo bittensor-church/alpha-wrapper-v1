@@ -102,13 +102,13 @@ functions introduced since.
 | Staking `0x0805` | `transferStakeAndHotkey` | Delivers alpha to another coldkey on the same subnet onto a different hotkey, under the same admission rule and minimum. |
 | Staking `0x0805` | `setRejectStakingHotkeyGrowth` | Makes the calling account refuse staking-list growth by other accounts; a hotkey it associates to itself still joins its list. The vault and every clone set it at creation; `wrap` lifts a clone's for one transfer when it lists nothing. |
 | Staking `0x0805` | `getRejectStakingHotkeyGrowth` | Reports that flag; the chain default is to allow growth. |
-| Staking `0x0805` | `getStakingHotkeys` | Reports an account's staking list length and first entry; an uncontaminated clone candidate lists nothing, and an entry stays while the account holds stake under that hotkey on any subnet. |
+| Staking `0x0805` | `getStakingHotkeys` | Reports an account's staking list length and one page of entries; an uncontaminated clone candidate lists nothing, and an entry stays while the account holds stake under that hotkey on any subnet. Dissolving a subnet removes the stake there but not the entry. |
 | Staking `0x0805` | `removeStake` | A partial unstake enforces the default minimum stake and lowers the caller's `getStake` by at most the requested amount; a full drain of a position clears it, on any subnet. |
 | Subnet `0x0803` | `getNetworkRegistrationBlock` | Zero while a netuid is unregistered. |
 | Subnet `0x0803` | `getRegisteredSubnetCounter` | Steps on every registration and survives dissolution, so it tells subnet generations apart. |
 | Subnet `0x0803` | `isSubnetDissolving` | Reports a subnet whose dissolution is under way. |
 | Subnet `0x0803` | `getSubnetCapacityConfig` | Its tenth field is the owner's alpha-transfer switch. |
-| Neuron `0x0804` | `tryAssociateHotkey` | Assigns the caller's coldkey as owner only when the hotkey has none, and succeeds silently otherwise; the vault claims the parking hotkey and every subnet clone's account, a mailbox claims its own. |
+| Neuron `0x0804` | `tryAssociateHotkey` | Assigns the caller's coldkey as owner only when the hotkey has none, and succeeds silently otherwise. A newly owned hotkey joins the caller's staking list, so the call is refused once that list holds 256 entries; the vault claims the parking hotkey and every subnet clone's account, a mailbox claims its own. |
 | Alpha `0x0808` | `getAlphaPrice` | Prices alpha in TAO, scaled by 1e18. |
 | Alpha `0x0808` | `simSwapAlphaForTao` | Quotes the TAO a sale of a given alpha amount returns. |
 | Address mapping `0x080C` | `addressMapping` | Returns the substrate coldkey an EVM address controls. |

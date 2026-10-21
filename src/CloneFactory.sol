@@ -6,8 +6,8 @@ import { IStaking, STAKING_PRECOMPILE } from "./interfaces/IStaking.sol";
 import { VaultReads } from "./libraries/VaultReads.sol";
 import { IAlphaVaultAbi } from "./interfaces/IAlphaVaultAbi.sol";
 
-/// @dev Deployed and owned by the vault, which initializes each clone as its own hotkey owner and
-///      verifies that protection before publishing its address.
+/// @dev Deployed and owned by the vault, which makes each clone a hotkey (a mailbox its own, a subnet
+///      clone the vault's) and verifies that protection before publishing its address.
 contract CloneFactory {
     address public immutable vault;
     address public immutable mailboxLogic; address public immutable subnetLogic;
