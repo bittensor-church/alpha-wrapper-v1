@@ -120,8 +120,17 @@ pair.
 - A clone's own moves keep the last entry for the parking hotkey, so recovery
   can always park. A deposit or rotation onto a hotkey the clone cannot take
   reverts `StakingListFull`; an alignment move the list refuses is skipped. An
-  exit waits on the list only when every attested validator is new to the
-  clone and the list is at its reserve, and replacement is already open then.
+  alpha exit waits on the list only when no attested validator holds stake, the
+  list is at its reserve and the first attested key is not listed; replacement
+  is already open then.
+- Every move or exit the clone signs carries the chain's walk over its staking
+  list, about 8.7k gas per entry, so at the replacement gate an alpha exit or a
+  rotation costs about 2.4M gas instead of about 0.2M. Deposits stay cheap
+  because the mailbox signs them, and views pay nothing.
+- A deposit lands on the first hotkey the clone lists when its target holds
+  nothing. If that hotkey ever lost its owner record, which only an all-subnet
+  swap does and it moves every staker's entry to the new name, the vault would
+  claim the hotkey and spend one of its own entries.
 - Once the list has fewer free entries than the attested set plus parking,
   anyone calls `replaceClone(tokenId, uid)`: a fresh clone and owner take over
   the recorded backing and the TAO under the same hotkeys, and the token keeps

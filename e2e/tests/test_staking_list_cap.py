@@ -7,8 +7,9 @@ hotkey, so a rebalance and a deposit onto a fresh validator revert `StakingListF
 `replaceClone` moves the position to a fresh clone that lists only what it holds, the
 deposit lands there, and the token exits in full.
 
-The gas rows compare wrap, a partial exit and `previewUnwrap` on the fresh clone, on the
-full list and on the successor, with the replacement itself.
+The gas rows cover the first deposit and `previewUnwrap` on the fresh clone; a deposit onto
+a listed validator, a partial exit and `previewUnwrap` on the full list; the replacement;
+and the deposit, `previewUnwrap` and the full exit on the successor.
 """
 import secrets
 
@@ -77,7 +78,7 @@ def test_list_reaches_the_cap_and_replacement_reopens_it(env):
     preview_gas("Cap, full list")
     exits.unwrap(
         env, token_id, env.vault_shares(token_id) // 4, "Cap, full list: the partial exit failed", hotkeys=held,
-        gas_limit=10_000_000,
+        gas_limit=4_000_000,
     )
 
     env.set_validator(netuid, spare)
