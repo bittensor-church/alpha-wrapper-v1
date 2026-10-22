@@ -197,7 +197,7 @@ def revert_reason(receipt: dict, to: str, signature: str, *args, rpc: str = conf
         # A diagnostic must never replace the failure it is describing.
         return None
     if probe.returncode == 0:
-        return None
+        return "the replay at the parent block succeeds, so the failure depended on gas or on same-block state"
     return " ".join((probe.stdout + probe.stderr).split()) or None
 
 

@@ -74,10 +74,11 @@ def test_list_reaches_the_cap_and_replacement_reopens_it(env):
     held = [first_validator] + [pubkey for pubkey, _ in validators[:rounds]]
     env.send_to_mailbox(netuid, first_validator_ss58, config.DEPOSIT_RAO)
     env.wrap(netuid, last_listed, 2_500_000, "Cap, full list: the deposit onto the listed validator failed")
+    preview_gas("Cap, full list")
     exits.unwrap(
         env, token_id, env.vault_shares(token_id) // 4, "Cap, full list: the partial exit failed", hotkeys=held,
+        gas_limit=10_000_000,
     )
-    preview_gas("Cap, full list")
 
     env.set_validator(netuid, spare)
     env.assert_vault_reverts_with(
