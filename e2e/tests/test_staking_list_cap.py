@@ -7,9 +7,9 @@ hotkey, so a rebalance and a deposit onto a fresh validator revert `StakingListF
 `replaceClone` moves the position to a fresh clone that lists only what it holds, the
 deposit lands there, and the token exits in full.
 
-The gas rows cover the first deposit and `previewUnwrap` on the fresh clone; a deposit onto
-a listed validator, a partial exit and `previewUnwrap` on the full list; the replacement;
-and the deposit, `previewUnwrap` and the full exit on the successor.
+Gas rows: deposit and `previewUnwrap` on the fresh clone; deposit, partial exit and
+`previewUnwrap` on the full list; the replacement; deposit, `previewUnwrap` and full exit
+on the successor.
 """
 import secrets
 
