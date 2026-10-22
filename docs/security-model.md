@@ -123,12 +123,13 @@ pair.
   waits only when no attested validator holds stake, the list is at its reserve
   and the first attested key is unlisted; replacement is open by then.
 - Every move or exit the clone signs pays the chain's list walk, about 8.7k gas
-  per entry: about 2.4M gas at the replacement gate instead of 0.2M. Deposits
-  are signed by the mailbox and stay cheap; views pay nothing.
+  per entry: about 2.4M gas at the replacement gate instead of 0.2M. A deposit
+  pays it for every move after landing, such as weight alignment; views pay
+  nothing.
 - A deposit whose target holds nothing lands on the clone's first listed hotkey.
-  A listed hotkey without an owner record would make the vault claim it and
-  spend an entry of its own; only an all-subnet swap removes an owner record,
-  and it carries every staker's entry to the new name.
+  If that hotkey has no owner, the vault claims it and spends one entry of its
+  own list. This happens only to a rotated-out validator whose pinning crumb
+  sat on a subnet that has since dissolved and who then swapped all its subnets.
 - Once the list has fewer free entries than the attested set plus parking,
   anyone calls `replaceClone(tokenId, uid)`: a fresh clone and owner take over
   the recorded backing and the TAO under the same hotkeys, and the token keeps
