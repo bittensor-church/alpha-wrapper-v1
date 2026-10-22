@@ -1,4 +1,4 @@
-"""Walks a subnet clone's staking list to the last entry it may take and replaces the clone. Local only.
+"""Walks a subnet clone's staking list to the last entry it may take and replaces the clone.
 
 Each round attests a fresh validator and rebalances onto it, which lists it, then sends a
 crumb under it on another subnet, which keeps its entry once the next round rotates it
@@ -7,16 +7,14 @@ hotkey, so a rebalance and a deposit onto a fresh validator revert `StakingListF
 `replaceClone` moves the position to a fresh clone that lists only what it holds, the
 deposit lands there, and the token exits in full.
 
-Kept out of the CI matrix on purpose: about 800 transactions take around two hours at the
-localnet's 12-second blocks, far past the 30-minute job limit, and the cap behaviour it
-proves on chain is covered by the unit tests' modelled list. Run it locally when the
-staking-list code changes.
+The gas rows compare wrap, a partial exit and `previewUnwrap` on the fresh clone, on the
+full list and on the successor, with the replacement itself.
 """
 import secrets
 
 import pytest
 
-from alpha_e2e import config, exits, extrinsics
+from alpha_e2e import chain, config, exits, extrinsics
 from alpha_e2e.substrate import h160_to_ss58
 
 STRANGER = "//CapStranger"
@@ -37,15 +35,23 @@ def test_list_reaches_the_cap_and_replacement_reopens_it(env):
         (extrinsics.keypair_pubkey(f"{STRANGER}//{i}"), extrinsics.keypair_ss58(f"{STRANGER}//{i}"))
         for i in range(rounds + 1)
     ]
+    last_listed, _ = validators[rounds - 1]
     spare, _ = validators[rounds]
 
     def listed(address: str) -> int:
         return len(extrinsics.staking_hotkeys(h160_to_ss58(address)))
 
+    def preview_gas(tag: str) -> None:
+        chain.report_view_gas(
+            f"previewUnwrap [{tag}]", env.lens_address, "previewUnwrap(uint256,uint256)",
+            token_id, env.vault_shares(token_id),
+        )
+
     env.deposit_and_wrap(
-        netuid, first_validator, first_validator_ss58, config.DEPOSIT_RAO, 1_500_000, "Cap: wrap failed",
+        netuid, first_validator, first_validator_ss58, config.DEPOSIT_RAO, 1_500_000,
+        "Cap, fresh clone: wrap failed",
     )
-    shares = env.vault_shares(token_id)
+    preview_gas("Cap, fresh clone")
     extrinsics.fund_account(extrinsics.keypair_ss58(STRANGER), 30 * config.RAO_PER_TAO)
     extrinsics.fund_account(extrinsics.keypair_ss58(OWNER), 5 * config.RAO_PER_TAO)
     extrinsics.associate_hotkeys([ss58 for _, ss58 in validators], signer_uri=OWNER)
@@ -65,6 +71,14 @@ def test_list_reaches_the_cap_and_replacement_reopens_it(env):
             print(f"  {i + 1} validators rotated; the clone lists {listed(clone)} hotkeys")
     assert listed(clone) == OWN_CAP - PARKING_RESERVE, f"the clone lists {listed(clone)} hotkeys, expected the last admitted entry"
 
+    held = [first_validator] + [pubkey for pubkey, _ in validators[:rounds]]
+    env.send_to_mailbox(netuid, first_validator_ss58, config.DEPOSIT_RAO)
+    env.wrap(netuid, last_listed, 2_500_000, "Cap, full list: the deposit onto the listed validator failed")
+    exits.unwrap(
+        env, token_id, env.vault_shares(token_id) // 4, "Cap, full list: the partial exit failed", hotkeys=held,
+    )
+    preview_gas("Cap, full list")
+
     env.set_validator(netuid, spare)
     env.assert_vault_reverts_with(
         "StakingListFull()", 4_000_000, "Cap: a rebalance onto an unlisted validator should hit the cap",
@@ -76,15 +90,20 @@ def test_list_reaches_the_cap_and_replacement_reopens_it(env):
         "wrap(uint256,bytes32,uint256)", netuid, spare, 0,
     )
 
+    shares = env.vault_shares(token_id)
+    pile = env.stake(last_listed, env.clone_coldkey(token_id), netuid)
     env.replace_clone(token_id, "0x" + secrets.token_hex(32), "Cap: replacing the clone failed")
     successor = env.clone_address(token_id)
     assert successor.lower() != clone.lower(), "the token has no fresh clone"
     assert env.vault_shares(token_id) == shares, "shares changed with the clone"
     assert listed(successor) == 1, f"the successor lists {listed(successor)} hotkeys, expected the one it holds"
-    assert env.vault_total_stake(token_id) >= config.DEPOSIT_RAO - config.ROUNDING_DUST_SLOT_RAO
-    env.wrap(netuid, spare, 2_500_000, "Cap: the deposit should land once the list has room")
+    assert env.vault_total_stake(token_id) >= pile - config.ROUNDING_DUST_SLOT_RAO, "the position shrank with the clone"
+    env.wrap(netuid, spare, 2_500_000, "Cap, successor: the deposit should land once the list has room")
     assert env.stake(spare, env.clone_coldkey(token_id), netuid) > 0, "the fresh validator holds the deposit"
     assert listed(clone) == OWN_CAP - PARKING_RESERVE, "the crumbs keep every entry on the old clone"
+    preview_gas("Cap, successor")
 
-    receipt, _ = exits.unwrap(env, token_id, env.vault_shares(token_id), "Cap: the full exit failed", hotkeys=[spare])
-    exits.assert_drained(env, token_id, [spare], receipt, "Cap: full exit")
+    receipt, _ = exits.unwrap(
+        env, token_id, env.vault_shares(token_id), "Cap, successor: the full exit failed", hotkeys=[spare],
+    )
+    exits.assert_drained(env, token_id, [spare], receipt, "Cap, successor: full exit")

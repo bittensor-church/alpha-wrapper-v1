@@ -78,6 +78,13 @@ def cast_call_raw(
     return run(_cast_call_command(to, signature, args, rpc, block), timeout=_READ_TIMEOUT).stdout
 
 
+def cast_estimate(to: str, signature: str, *args, rpc: str = config.RPC_URL) -> int:
+    completed = run(
+        ["cast", "estimate", to, signature, *[str(a) for a in args], "--rpc-url", rpc], timeout=_READ_TIMEOUT,
+    )
+    return int(_first_token(completed.stdout))
+
+
 def probe_call(
     to: str, signature: str, *args, sender: Optional[str] = None,
     rpc: str = config.RPC_URL, block: Optional[int] = None,
@@ -133,7 +140,17 @@ def report_gas(label: str, receipt: dict, *, reverted: bool = False) -> None:
     used = receipt_gas_used(receipt)
     if used is None:
         return
-    outcome = " (reverted)" if reverted else ""
+    print_gas(label, used, " (reverted)" if reverted else "")
+
+
+def report_view_gas(label: str, to: str, signature: str, *args, rpc: str = config.RPC_URL) -> int:
+    """Print the gas a view takes on chain, measured with eth_estimateGas."""
+    used = cast_estimate(to, signature, *args, rpc=rpc)
+    print_gas(label, used)
+    return used
+
+
+def print_gas(label: str, used: int, outcome: str = "") -> None:
     print(f"  {GAS_LOG_PREFIX} {label:<44} {used:>10,}{outcome}")
 
 

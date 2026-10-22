@@ -30,18 +30,6 @@ Use one scenario module per fresh chain. Modules share subnet and contract state
 through the session-scoped `env` fixture; running several against one long-lived
 chain is unsupported. CI gives each scenario its own container.
 
-`tests/local_*.py` scenarios are left out of the CI matrix on purpose.
-`local_staking_list_cap.py` walks a clone's staking list to the last entry it
-may take and replaces the clone: about 800 transactions, around two hours at the
-localnet's 12-second blocks, past the 30-minute CI job limit. The unit tests
-cover the cap on the modelled list; run this one locally when the staking-list
-code changes:
-
-```bash
-cd e2e
-python3 -m pytest tests/local_staking_list_cap.py -v -s -m scenario
-```
-
 `chain_ops.py` is the manual CLI for the same chain operations; run it from `e2e/`
 (`cd e2e && python3 chain_ops.py --help`) so it can import `alpha_e2e`.
 
@@ -101,6 +89,11 @@ Scenario files in `tests/` cover:
   old one redeems its dissolution refund.
 - `test_validator_coldkey_swap.py`: a validator swaps its coldkey; wraps, rebalances and
   exits continue without a new attestation.
+- `test_staking_list_cap.py`: a clone's staking list walked to the last entry it may
+  take, where a rebalance and a deposit onto a fresh validator are refused;
+  `replaceClone` moves the position to a fresh clone, the deposit lands and the token
+  exits. Its gas rows compare wrap, unwrap and `previewUnwrap` on the fresh clone, on the
+  full list and on the successor, with the replacement itself.
 Each module's docstring describes its sequence. These scenarios exercise specific
 recovery conditions, not an unconditional exit guarantee; see the
 [design](../docs/hotkey-swaps.md).
