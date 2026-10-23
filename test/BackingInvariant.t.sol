@@ -10,10 +10,9 @@ import {
 } from "./helpers/BackingCampaign.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
-import { MAX_STAKING_HOTKEYS } from "src/interfaces/IValidatorRegistry.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
-import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract BackingHandler is BackingCampaignHandler {
     uint256 public strayAnnexations;

@@ -4,8 +4,8 @@ pragma solidity 0.8.36;
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
-import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
-import { MAX_STAKING_HOTKEYS, MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
+import { MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 
 /// @dev Every entry point keeps working on a replaced clone, at realistic deposits, validator counts and prices.
 contract CloneReplacementTest is AlphaVaultTestBase {

@@ -3,9 +3,6 @@ pragma solidity 0.8.36;
 
 uint256 constant MAX_VALIDATORS = 10;
 
-/// @dev Entries a coldkey's own staking actions may bring its staking list to.
-uint256 constant MAX_STAKING_HOTKEYS = 256;
-
 interface IValidatorRegistry {
     /// @dev Empty means unconfigured. Otherwise 1..10 distinct nonzero hotkeys with matching nonzero
     ///      BPS weights summing to 10000.

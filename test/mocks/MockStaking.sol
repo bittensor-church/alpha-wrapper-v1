@@ -6,7 +6,7 @@ import { MockAlpha } from "./MockAlpha.sol";
 import { MockSubnetPrecompile } from "./MockSubnetPrecompile.sol";
 import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { SUBNET_PRECOMPILE } from "src/interfaces/ISubnet.sol";
-import { MAX_STAKING_HOTKEYS } from "src/interfaces/IValidatorRegistry.sol";
+import { MAX_STAKING_HOTKEYS, STAKING_LIST_PAGE } from "src/interfaces/IStaking.sol";
 
 /// @dev Fixtures must seed minimums after `vm.etch`, which copies code but not storage.
 uint256 constant CHAIN_MIN_STAKE = 2e6;
@@ -127,7 +127,7 @@ contract MockStaking {
         view
         returns (bytes32[] memory hotkeys, uint64 total)
     {
-        if (limit == 0 || limit > 64) _fail();
+        if (limit == 0 || limit > STAKING_LIST_PAGE) _fail();
         bytes32[] storage listed = _stakingHotkeys[coldkey];
         uint256 length = _listLength(coldkey);
         total = uint64(length);

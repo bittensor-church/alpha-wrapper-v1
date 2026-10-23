@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
-import { IValidatorRegistry, MAX_STAKING_HOTKEYS, MAX_VALIDATORS } from "../interfaces/IValidatorRegistry.sol";
+import { IStaking, MAX_STAKING_HOTKEYS, STAKING_LIST_PAGE, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
+import { IValidatorRegistry, MAX_VALIDATORS } from "../interfaces/IValidatorRegistry.sol";
 import { IAddressMapping, ADDRESS_MAPPING_PRECOMPILE } from "../interfaces/IAddressMapping.sol";
 import { IRuntimeConfiguration, RUNTIME_CONFIGURATION_PRECOMPILE } from "../interfaces/IRuntimeConfiguration.sol";
 import { ISubnet, SUBNET_PRECOMPILE } from "../interfaces/ISubnet.sol";
@@ -13,8 +13,6 @@ import {
 } from "../VaultErrors.sol";
 
 library VaultReads {
-    /// @dev The most entries one `getStakingHotkeys` page returns.
-    uint16 internal constant STAKING_LIST_PAGE = 64;
     uint256 internal constant NO_SHORT_SLOT = type(uint256).max;
     /// @dev Frozen with no deadline until recovery is declared.
     uint256 internal constant UNDECLARED_SHORTFALL = type(uint256).max;

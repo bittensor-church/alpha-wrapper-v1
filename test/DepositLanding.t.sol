@@ -4,8 +4,7 @@ pragma solidity 0.8.36;
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
-import { IStaking, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
-import { MAX_STAKING_HOTKEYS } from "src/interfaces/IValidatorRegistry.sol";
+import { IStaking, MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import {
     AlphaTransfersDisabled,
     ShortfallOnFile,
