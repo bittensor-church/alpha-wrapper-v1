@@ -27,12 +27,12 @@ contract UnstuckStakeTest is AlphaVaultTestBase {
         mock = MockStaking(STAKING_PRECOMPILE);
     }
 
-    function _layOutBacking(uint256 middlePile) private {
+    function _layOutBacking(uint256 firstPile, uint256 secondPile, uint256 thirdPile) private {
         _depositAndWrap(alice, NETUID1, 60 * ALPHA);
         uint256[] memory amounts = new uint256[](3);
-        amounts[0] = 30 * ALPHA;
-        amounts[1] = middlePile;
-        amounts[2] = 30 * ALPHA;
+        amounts[0] = firstPile;
+        amounts[1] = secondPile;
+        amounts[2] = thirdPile;
         _plantVaultLayout(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), amounts);
     }
 
@@ -44,7 +44,7 @@ contract UnstuckStakeTest is AlphaVaultTestBase {
     }
 
     function _replaceDuringAPriceDump() private returns (address retired) {
-        _layOutBacking(STRANDED_PILE);
+        _layOutBacking(30 * ALPHA, STRANDED_PILE, 30 * ALPHA);
         _setAlphaPrice(NETUID1, DUMPED_ALPHA_PRICE_E18);
         retired = _replaceCurrentClone(keccak256("dump"), _hotkeys(hotkey1, hotkey2, hotkey4));
     }
@@ -72,7 +72,7 @@ contract UnstuckStakeTest is AlphaVaultTestBase {
 
     function testFuzz_UnstuckStake_AddsAStrangersGiftToTheBacking(uint256 gift) public {
         gift = bound(gift, ALPHA, 1_000_000 * ALPHA);
-        _layOutBacking(DUST_PILE);
+        _layOutBacking(30 * ALPHA, DUST_PILE, 30 * ALPHA);
         address retired = _replaceCurrentClone(keccak256("dust"), _hotkeys(hotkey1, hotkey2, hotkey4));
         _giftFromStranger(_toSubstrate(retired), hotkey2, gift);
         uint256 shares = vault.totalSupply(TOKEN1);
@@ -93,6 +93,47 @@ contract UnstuckStakeTest is AlphaVaultTestBase {
 
         assertEq(_getStakeForColdkey(hotkey2, _toSubstrate(firstRetired), NETUID1), 0);
         assertApproxEqAbs(lens.totalStake(TOKEN1), 61 * ALPHA, 4, "the newest clone receives it");
+    }
+
+    function test_UnstuckStake_SkipsARecordedKeyTheCurrentCloneDoesNotFund() public {
+        _layOutBacking(STRANDED_PILE, 30 * ALPHA, 30 * ALPHA);
+        _setAlphaPrice(NETUID1, DUMPED_ALPHA_PRICE_E18);
+        address retired = _replaceCurrentClone(keccak256("first-skipped"), _hotkeys(hotkey1, hotkey2, hotkey4));
+        _setAlphaPrice(NETUID1, DEFAULT_ALPHA_PRICE_E18);
+
+        vm.expectEmit(address(vault));
+        emit IAlphaVaultAbi.StakeUnstuck(TOKEN1, retired, hotkey1, hotkey2, STRANDED_PILE);
+        vault.unstuckStake(TOKEN1, retired, hotkey1);
+
+        assertEq(_getVaultStake(hotkey2, NETUID1), 31 * ALPHA, "the first funded key receives it");
+    }
+
+    function test_UnstuckStake_WhileAShortfallIsOnFile_ReducesTheMissingStake() public {
+        address retired = _replaceDuringAPriceDump();
+        _setAlphaPrice(NETUID1, DEFAULT_ALPHA_PRICE_E18);
+        mock.setStake(hotkey3, _subnetColdkey(NETUID1), NETUID1, 0);
+        vault.syncBacking(TOKEN1);
+        uint256 missing = lens.missingStake(TOKEN1);
+        assertEq(missing, 30 * ALPHA, "the emptied pile is declared missing");
+
+        vault.unstuckStake(TOKEN1, retired, hotkey2);
+
+        assertEq(lens.missingStake(TOKEN1), missing - STRANDED_PILE, "the returned pile counts toward recovery");
+    }
+
+    function test_UnstuckStake_IntoAParkedPosition_LandsOnTheParkingHotkey() public {
+        address retired = _replaceDuringAPriceDump();
+        _setAlphaPrice(NETUID1, DEFAULT_ALPHA_PRICE_E18);
+        mock.setStake(hotkey3, _subnetColdkey(NETUID1), NETUID1, 0);
+        vault.syncBacking(TOKEN1);
+        vm.warp(block.timestamp + vault.recoveryWindow() + 1);
+        vault.syncBacking(TOKEN1);
+        assertTrue(vault.awaitingAttestation(TOKEN1), "the write-off parks the position");
+        uint256 parked = _parkedStake(NETUID1);
+
+        vault.unstuckStake(TOKEN1, retired, hotkey2);
+
+        assertEq(_parkedStake(NETUID1), parked + STRANDED_PILE, "the pile joins the parked backing");
     }
 
     function test_RevertWhen_UnstuckingTheCurrentClone() public {

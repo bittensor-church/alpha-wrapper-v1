@@ -86,7 +86,8 @@ later recovery.
   registry publishes the successor.
 - A stranger who claims a vacated validator name receives allocations until the
   registry replaces it; the alpha stays under the vault's coldkey.
-- Alpha a clone holds on another subnet, and dust a clone replacement leaves
-  behind, stay outside the backing.
+- Alpha a clone holds on another subnet stays outside the backing. Alpha a clone
+  replacement leaves behind rejoins it through `unstuckStake`, for whoever holds
+  shares at that moment.
 
 See [edge cases](edge-cases.md) for dissolution, transfer restrictions and minimums.
