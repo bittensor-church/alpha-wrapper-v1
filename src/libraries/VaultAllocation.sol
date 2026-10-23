@@ -66,14 +66,14 @@ library VaultAllocation {
             if (total != 0) {
                 landing = listed[0];
             } else {
-                SubnetClone(payable(clone)).setRejectStakingHotkeyGrowth(false); lifted = true;
+                SubnetClone(clone).setRejectStakingHotkeyGrowth(false); lifted = true;
             }
         }
         uint256 before = staking.getStake(landing, cloneColdkey, netuid);
         StakeOps.ensureHotkeyHasOwner(landing);
-        DepositMailbox(payable(mailbox))
+        DepositMailbox(mailbox)
             .transferStakeAndHotkey(cloneColdkey, mailboxColdkey, landing, netuid, SafeCast.toUint64(amount));
-        if (lifted) SubnetClone(payable(clone)).setRejectStakingHotkeyGrowth(true);
+        if (lifted) SubnetClone(clone).setRejectStakingHotkeyGrowth(true);
         if (landing != target) {
             uint256 landed = staking.getStake(landing, cloneColdkey, netuid) - before;
             StakeOps.move(clone, cloneColdkey, landing, target, netuid, landed, context.parking);
@@ -81,22 +81,20 @@ library VaultAllocation {
     }
 
     /// @dev Deploys the successor, admits the recorded piles while its growth flag is down, then moves them
-    ///      and the clone's TAO. A pile below the floor stays behind rather than fail the call, and so does
-    ///      TAO below the deposit the chain keeps out of a fresh account's balance.
+    ///      and all of the clone's TAO. A pile below the floor stays behind rather than fail the call.
     function replaceClone(CloneFactory factory, Context memory context, bytes32[] memory keys,
         uint256[] memory balances, bytes32 uid) external returns (address successor) {
         successor = VaultClones.deployProtectedClone(factory, context.tokenId, context.netuid, uid);
         bytes32 successorColdkey = VaultReads.coldkeyOf(successor);
-        SubnetClone(payable(successor)).setRejectStakingHotkeyGrowth(false);
+        SubnetClone(successor).setRejectStakingHotkeyGrowth(false);
         for (uint256 i; i < keys.length;) {
             if (balances[i] != 0 && !StakeOps.isBelowFloorAtReadPrice(balances[i], context.alphaPriceE18)) {
                 StakeOps.flush(context.clone, keys[i], successorColdkey, context.netuid, balances[i]);
             }
             unchecked { ++i; }
         }
-        SubnetClone(payable(successor)).setRejectStakingHotkeyGrowth(true);
-        uint256 tao = context.clone.balance;
-        if (tao >= VaultReads.existentialDeposit()) SubnetClone(payable(context.clone)).unwrapTao(payable(successor), tao);
+        SubnetClone(successor).setRejectStakingHotkeyGrowth(true);
+        SubnetClone(context.clone).transferAllTao(successorColdkey);
     }
 
     /// @dev Both sale rounds share this call's balances array: the partial round must see slots drained

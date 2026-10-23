@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { ERC1155 } from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import { ERC1155Supply } from "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -23,7 +22,7 @@ import {
     ClaimBelowNativePrecision, InsufficientShares, LockedDeposit,
     LockedBacking, MailboxNotPrepared, SubnetCloneNotPrepared,
     NetuidOutOfRange, NothingToRecover, NothingToUnwrap,
-    Parked, ParkingHotkeyUnavailable, BackingNotSecured, VaultProtectionFailed,
+    Parked, ParkingHotkeyUnavailable, BackingNotSecured,
     ShortfallOnFile, SlippageExceeded, SlotMaskOutOfRange, StakingListHasRoom,
     SubnetDissolved, SubnetNotRegistered, SupplyCapExceeded, WithdrawTooSmall,
     ZeroAddress, ZeroAmount, ZeroColdkey,
@@ -78,7 +77,6 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (!VaultReads.ownedBy(_parkingHotkey, coldkey)) revert ParkingHotkeyUnavailable();
         // Only the parking hotkey and the names the vault restores an owner to belong on its own list.
         IStaking(STAKING_PRECOMPILE).setRejectStakingHotkeyGrowth(true);
-        if (!IStaking(STAKING_PRECOMPILE).getRejectStakingHotkeyGrowth(coldkey)) revert VaultProtectionFailed();
         cloneFactory = new CloneFactory(_mailboxLogic, _subnetLogic);
         validatorRegistry = IValidatorRegistry(_validatorRegistry);
         recoveryWindow = _recoveryWindow; parkingHotkey = _parkingHotkey;
@@ -100,7 +98,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         return VaultAllocation.prepareClones(cloneFactory, subnetClone, _mailboxes, currentTokenId(netuid), netuid, uid);
     }
 
-    /// @notice Zero until `createMailbox` succeeds. Deposits go onto the mailbox's own hotkey, whose id is its coldkey.
+    /// @notice Zero until `createMailbox` succeeds.
     function getDepositAddress(address user, uint256 netuid) public view returns (address) {
         if (netuid > type(uint16).max) revert NetuidOutOfRange();
         return _mailboxes[user][netuid];
@@ -247,7 +245,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (totalSupply(tokenId) == 0) delete recovery[tokenId];
         emit UnwrappedForTao(msg.sender, tokenId, shares, refundShares, sold, taoOut);
 
-        SubnetClone(payable(clone)).unwrapTao(payable(msg.sender), taoOut);
+        SubnetClone(clone).unwrapTao(payable(msg.sender), taoOut);
     }
 
     /// @dev Claims survive transfers and full exits, including dissolution. Sub-RAO residue stays reserved.
@@ -263,7 +261,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (amount == 0) revert ClaimBelowNativePrecision();
         claimableTao[tokenId][msg.sender] = entitlement - amount; taoLiability[tokenId] = liability - amount;
         emit TaoClaimed(msg.sender, tokenId, recipient, amount);
-        SubnetClone(payable(subnetClone[tokenId])).unwrapTao(recipient, amount);
+        SubnetClone(subnetClone[tokenId]).unwrapTao(recipient, amount);
     }
 
     function _unwrapFromLiveSubnet(uint256 tokenId, uint256 shares, bytes32 userSubstrateColdkey,
@@ -328,7 +326,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (userTao == 0) revert ClaimBelowNativePrecision();
         _burn(msg.sender, tokenId, shares);
         emit DissolvedSubnetUnwrapped(msg.sender, tokenId, shares, userTao);
-        SubnetClone(payable(clone)).unwrapTao(payable(msg.sender), userTao);
+        SubnetClone(clone).unwrapTao(payable(msg.sender), userTao);
     }
 
     /// @dev Consolidates dropped validators first; weight-alignment moves below the floor or at zero price skip.
@@ -357,7 +355,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     function reclaimTaoFromMailbox(uint256 netuid) external nonReentrant {
         address mailbox = _requireMailbox(msg.sender, netuid); uint256 amount = mailbox.balance;
         if (amount == 0) revert ZeroAmount();
-        DepositMailbox(payable(mailbox)).unwrapTao(payable(msg.sender), amount);
+        DepositMailbox(mailbox).unwrapTao(payable(msg.sender), amount);
     }
 
     /// @notice Return the caller's mailbox deposit, which sits under the mailbox's own hotkey, to a coldkey.
@@ -397,7 +395,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         uint256 taoOut = mailbox.balance - balanceBefore;
         if (taoOut < minTaoOut) revert SlippageExceeded(taoOut);
         emit MailboxAlphaSoldForTao(msg.sender, netuid, amount, taoOut);
-        DepositMailbox(payable(mailbox)).unwrapTao(payable(msg.sender), taoOut);
+        DepositMailbox(mailbox).unwrapTao(payable(msg.sender), taoOut);
     }
 
     /// @dev One price read covers every floor test the allocation library runs for this call.
@@ -443,9 +441,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @notice Move the token's position to a fresh clone once the old one's staking list has fewer free
     ///         entries than the attested set plus the parking hotkey. Anyone may call it; a rejected
     ///         candidate is retried with a fresh UID.
-    /// @dev Recorded piles below the conservative floor stay behind and leave the record, as does TAO below the
-    ///      chain's existential deposit, which the successor's balance also hides; the last claim gives it up.
-    ///      The old clone keeps whatever strangers sent it. Token id, shares, claims and mailboxes are untouched.
+    /// @dev All TAO moves. Recorded piles below the conservative floor stay behind and leave the record, and the
+    ///      old clone keeps the alpha strangers sent it. Token id, shares, claims and mailboxes carry over.
     function replaceClone(uint256 tokenId, bytes32 uid) external nonReentrant {
         address clone = subnetClone[tokenId];
         if (clone == address(0)) revert SubnetCloneNotPrepared();
@@ -460,7 +457,6 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
             cloneFactory, _context(tokenId, clone, coldkey, IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid)),
             backing.keys, backing.balances, uid);
         subnetClone[tokenId] = successor;
-        taoLiability[tokenId] = Math.min(taoLiability[tokenId], successor.balance);
         _reanchor(tokenId, backing.keys, VaultReads.fetchBalances(backing.keys, VaultReads.coldkeyOf(successor), netuid));
         emit SubnetCloneReplaced(tokenId, clone, successor);
     }

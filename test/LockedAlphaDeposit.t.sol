@@ -72,8 +72,8 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
         assertEq(clone, _cloneCandidate(TOKEN1, UID));
         assertEq(vault.getDepositAddress(alice, NETUID1), mailbox);
         assertEq(vault.subnetClone(TOKEN1), clone);
-        assertEq(CloneBase(payable(mailbox)).wrapper(), address(vault));
-        assertEq(CloneBase(payable(clone)).wrapper(), address(vault));
+        assertEq(CloneBase(mailbox).wrapper(), address(vault));
+        assertEq(CloneBase(clone).wrapper(), address(vault));
         _assertMailboxProtected(mailbox);
         _assertCloneProtected(clone);
         (bytes32[] memory listed, uint64 total) = mock.getStakingHotkeys(_toSubstrate(mailbox), 0, 1);

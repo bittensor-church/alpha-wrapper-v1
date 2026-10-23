@@ -16,7 +16,7 @@ import { MockAddressMapping } from "./mocks/MockAddressMapping.sol";
 import { MockSubnetPrecompile } from "./mocks/MockSubnetPrecompile.sol";
 import { MockAlpha, DEFAULT_ALPHA_PRICE_E18 } from "./mocks/MockAlpha.sol";
 import { MockNeuron } from "./mocks/MockNeuron.sol";
-import { MockRuntimeConfiguration } from "./mocks/MockRuntimeConfiguration.sol";
+import { MockBalanceTransfer } from "./mocks/MockBalanceTransfer.sol";
 import { CloneOwner } from "src/CloneOwner.sol";
 import { RegistryTestHelper } from "./helpers/RegistryTestHelper.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
@@ -24,7 +24,7 @@ import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { ADDRESS_MAPPING_PRECOMPILE } from "src/interfaces/IAddressMapping.sol";
 import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { NEURON_PRECOMPILE } from "src/interfaces/INeuron.sol";
-import { RUNTIME_CONFIGURATION_PRECOMPILE } from "src/interfaces/IRuntimeConfiguration.sol";
+import { BALANCE_TRANSFER_PRECOMPILE } from "src/interfaces/IBalanceTransfer.sol";
 import { SUBNET_PRECOMPILE } from "src/interfaces/ISubnet.sol";
 
 abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
@@ -76,9 +76,6 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     /// @dev One TAO in native wei; the chain credits 1e9 wei per TAO RAO.
     uint256 internal constant TAO = 1 ether;
 
-    /// @dev The chain's 500 RAO existential deposit in native wei.
-    uint256 internal constant EXISTENTIAL_DEPOSIT = 500 * 1e9;
-
     /// @dev 0.002 alpha, worth the mock's 0.0001 TAO transfer minimum at 0.05 TAO per alpha.
     uint256 internal constant CRUMB = 2_000_000;
 
@@ -94,12 +91,9 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         vm.etch(SUBNET_PRECOMPILE, address(new MockSubnetPrecompile()).code);
         vm.etch(ALPHA_PRECOMPILE, address(new MockAlpha()).code);
         vm.etch(NEURON_PRECOMPILE, address(new MockNeuron()).code);
-        vm.etch(RUNTIME_CONFIGURATION_PRECOMPILE, address(new MockRuntimeConfiguration()).code);
-        MockRuntimeConfiguration(RUNTIME_CONFIGURATION_PRECOMPILE).setExistentialDeposit(EXISTENTIAL_DEPOSIT);
+        vm.etch(BALANCE_TRANSFER_PRECOMPILE, address(new MockBalanceTransfer()).code);
         MockSubnetPrecompile(SUBNET_PRECOMPILE).setRegisteredAt(uint16(NETUID1), 100);
         MockSubnetPrecompile(SUBNET_PRECOMPILE).setRegisteredAt(uint16(NETUID2), 200);
-        // Sales mint TAO on chain; the whole TAO supply covers selling any subnet at any fuzzed price.
-        vm.deal(STAKING_PRECOMPILE, 21_000_000 * TAO);
         // Etching copies code, not constructor storage; seed chain thresholds explicitly.
         MockStaking(STAKING_PRECOMPILE).setChainMinStake(CHAIN_MIN_STAKE);
         MockStaking(STAKING_PRECOMPILE).setChainMinTransfer(CHAIN_MIN_TRANSFER);

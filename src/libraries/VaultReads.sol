@@ -4,7 +4,6 @@ pragma solidity 0.8.36;
 import { IStaking, MAX_STAKING_HOTKEYS, STAKING_LIST_PAGE, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { IValidatorRegistry, MAX_VALIDATORS } from "../interfaces/IValidatorRegistry.sol";
 import { IAddressMapping, ADDRESS_MAPPING_PRECOMPILE } from "../interfaces/IAddressMapping.sol";
-import { IRuntimeConfiguration, RUNTIME_CONFIGURATION_PRECOMPILE } from "../interfaces/IRuntimeConfiguration.sol";
 import { ISubnet, SUBNET_PRECOMPILE } from "../interfaces/ISubnet.sol";
 import { VaultMath } from "./VaultMath.sol";
 import {
@@ -55,11 +54,6 @@ library VaultReads {
     /// @dev Whether the list surely takes `setSize` attested hotkeys and the parking hotkey as new entries.
     function admitsSet(bytes32 coldkey, uint256 setSize) internal view returns (bool) {
         return stakingHotkeyCount(coldkey) + setSize + 1 <= MAX_STAKING_HOTKEYS;
-    }
-
-    /// @dev The chain keeps this much of an account's TAO out of its visible balance.
-    function existentialDeposit() internal view returns (uint256 deposit) {
-        (deposit,,,) = IRuntimeConfiguration(RUNTIME_CONFIGURATION_PRECOMPILE).getBalancesConstants();
     }
 
     /// @dev One attestation: the target hotkeys and their basis-point weights.

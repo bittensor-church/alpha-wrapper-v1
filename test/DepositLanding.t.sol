@@ -373,16 +373,15 @@ contract DepositLandingTest is AlphaVaultTestBase {
         assertApproxEqAbs(lens.totalStake(TOKEN1), 21 * ALPHA, 4, "deposit and exit went through on the successor");
     }
 
-    function test_ReplaceClone_LeavesTaoBelowTheExistentialDepositBehind() public {
+    function test_ReplaceClone_MovesASingleRaoOfTao() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         (address clone,) = _blockTheNextRotation();
-        _donateToClone(clone, EXISTENTIAL_DEPOSIT - 1e9);
+        _donateToClone(clone, 1e9);
 
         vault.replaceClone(TOKEN1, FRESH_UID);
 
-        assertEq(clone.balance, EXISTENTIAL_DEPOSIT - 1e9, "TAO the successor could not show stays behind");
-        assertEq(vault.subnetClone(TOKEN1).balance, 0);
-        assertEq(vault.taoLiability(TOKEN1), 0);
+        assertEq(clone.balance, 0, "the old clone keeps no TAO");
+        assertEq(vault.subnetClone(TOKEN1).balance, 1e9, "the successor holds the single RAO");
     }
 
     function test_ReplaceClone_WhileParked_LetsTheNextAttestationRelease() public {

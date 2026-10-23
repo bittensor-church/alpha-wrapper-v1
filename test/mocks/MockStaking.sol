@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
+import { Vm } from "forge-std/Vm.sol";
 import { VaultMath } from "src/libraries/VaultMath.sol";
 import { MockAlpha } from "./MockAlpha.sol";
 import { MockSubnetPrecompile } from "./MockSubnetPrecompile.sol";
@@ -17,9 +18,13 @@ uint256 constant CHAIN_NOMINATOR_MIN_STAKE = 20e6;
 
 uint256 constant MAX_THIRD_PARTY_STAKING_HOTKEYS = 128;
 
+address constant VM_ADDRESS = address(uint160(uint256(keccak256("hevm cheat code"))));
+
 /// @dev Uses keccak256, not Frontier's blake2b. Every refusal consumes the forwarded gas and returns no data,
 ///      as a refused precompile dispatch does.
 contract MockStaking {
+    Vm private constant VM = Vm(VM_ADDRESS);
+    mapping(bytes32 => address) public evmAccountOf;
     mapping(bytes32 => mapping(bytes32 => mapping(uint256 => uint256))) private _stakes;
     uint256 public moveStakeRoundingLoss;
     uint256 public moveStakeResidual;
@@ -140,7 +145,9 @@ contract MockStaking {
     }
 
     function setRejectStakingHotkeyGrowth(bool enabled) external {
-        _rejectsStakingHotkeyGrowth[_senderColdkey()] = enabled;
+        bytes32 coldkey = _senderColdkey();
+        _rejectsStakingHotkeyGrowth[coldkey] = enabled;
+        evmAccountOf[coldkey] = msg.sender;
     }
 
     function getRejectStakingHotkeyGrowth(bytes32 coldkey) external view returns (bool) {
@@ -660,8 +667,7 @@ contract MockStaking {
     }
 
     function _creditTao(address to, uint256 taoRao) private {
-        (bool ok,) = to.call{ value: taoRao * VaultMath.TAO_NATIVE_QUANTUM }("");
-        require(ok, "MockStaking: TAO credit failed");
+        VM.deal(to, to.balance + taoRao * VaultMath.TAO_NATIVE_QUANTUM);
     }
 
     /// @dev The chain force-sells a non-owner's remainder below the nominator minimum, at the price after any sale

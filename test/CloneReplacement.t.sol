@@ -122,7 +122,7 @@ contract CloneReplacementTest is AlphaVaultTestBase {
     }
 
     function testFuzz_Replacement_PaysEveryHoldersTaoClaim(uint256 donation, uint256 aliceWeight) public {
-        donation = bound(donation, EXISTENTIAL_DEPOSIT, 1_000 * TAO);
+        donation = bound(donation, 1e9, 1_000 * TAO);
         aliceWeight = bound(aliceWeight, 1, 99);
         _depositAndWrap(alice, NETUID1, aliceWeight * ALPHA);
         _depositAndWrap(bob, NETUID1, (100 - aliceWeight) * ALPHA);
@@ -139,34 +139,10 @@ contract CloneReplacementTest is AlphaVaultTestBase {
         assertEq(lens.claimableTaoOf(alice, TOKEN1), aliceClaim, "alice's claim survives");
         assertEq(lens.claimableTaoOf(bob, TOKEN1), bobClaim, "bob's claim survives");
         assertEq(vault.subnetClone(TOKEN1).balance, donation, "the donation moved whole");
+        assertEq(clone.balance, 0, "the old clone keeps no TAO");
         if (aliceClaim != 0) _claimQuotedAmount(alice, TOKEN1);
         if (bobClaim != 0) _claimQuotedAmount(bob, TOKEN1);
         assertLe(vault.taoLiability(TOKEN1), vault.subnetClone(TOKEN1).balance, "liabilities stay backed");
-    }
-
-    /// @dev The chain hides the existential deposit from a fresh account's balance; the mock does not, so the
-    ///      hidden part is taken off the old clone's balance before the move.
-    function test_Replacement_CapsTheLiabilityAtWhatTheSuccessorShows() public {
-        _depositAndWrap(alice, NETUID1, 60 * ALPHA);
-        _depositAndWrap(bob, NETUID1, 40 * ALPHA);
-        address clone = vault.subnetClone(TOKEN1);
-        _donateToClone(clone, TAO);
-        vm.prank(alice);
-        vault.safeTransferFrom(alice, carol, TOKEN1, 1, "");
-        uint256 liability = vault.taoLiability(TOKEN1);
-        assertEq(liability, TAO, "the donation is owed in full");
-        vm.deal(clone, TAO - EXISTENTIAL_DEPOSIT);
-        _fillAndRotate(3);
-
-        vault.replaceClone(TOKEN1, UID);
-
-        assertEq(vault.taoLiability(TOKEN1), TAO - EXISTENTIAL_DEPOSIT, "the liability drops to what shows");
-        uint256 aliceClaim = lens.claimableTaoOf(alice, TOKEN1);
-        uint256 bobClaim = lens.claimableTaoOf(bob, TOKEN1);
-        assertEq(aliceClaim + bobClaim, TAO, "entitlements are kept in full");
-        assertEq(_claimQuotedAmount(alice, TOKEN1), aliceClaim, "the first claim is whole");
-        assertEq(_claimQuotedAmount(bob, TOKEN1), bobClaim - EXISTENTIAL_DEPOSIT, "the last claim gives the deposit up");
-        assertEq(vault.subnetClone(TOKEN1).balance, 0, "and pays instead of reverting");
     }
 
     function test_Replacement_ThenRecoveryParksAndReleasesOnTheSuccessor() public {

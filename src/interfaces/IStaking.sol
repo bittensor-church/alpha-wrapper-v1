@@ -46,7 +46,6 @@ interface IStaking {
 
     function setRejectStakingHotkeyGrowth(bool enabled) external;
 
-    function getRejectStakingHotkeyGrowth(bytes32 coldkey) external view returns (bool);
 
     function getStakingHotkeys(bytes32 coldkey, uint64 offset, uint16 limit) external view
         returns (bytes32[] memory hotkeys, uint64 total);

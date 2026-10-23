@@ -42,17 +42,17 @@ library StakeOps {
     function moveAdmitted(address clone, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount) internal {
         ensureHotkeyHasOwner(fromHotkey);
         ensureHotkeyHasOwner(toHotkey);
-        SubnetClone(payable(clone)).moveStake(fromHotkey, toHotkey, netuid, amount);
+        SubnetClone(clone).moveStake(fromHotkey, toHotkey, netuid, amount);
     }
 
     function flush(address holder, bytes32 hotkey, bytes32 destinationColdkey, uint16 netuid, uint256 amount) internal {
         ensureHotkeyHasOwner(hotkey);
-        CloneBase(payable(holder)).flush(destinationColdkey, hotkey, netuid, amount);
+        CloneBase(holder).flush(destinationColdkey, hotkey, netuid, amount);
     }
 
     function sell(address holder, bytes32 hotkey, uint16 netuid, uint256 amount) internal {
         ensureHotkeyHasOwner(hotkey);
-        CloneBase(payable(holder)).sellAlphaForTao(hotkey, netuid, amount);
+        CloneBase(holder).sellAlphaForTao(hotkey, netuid, amount);
     }
 
     /// @dev Use where the amount must clear the floor at the price just read, such as sizing a payout.

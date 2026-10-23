@@ -4,8 +4,8 @@ Each round attests a fresh validator and rebalances onto it, which lists it, the
 crumb under it on another subnet, which keeps its entry once the next round rotates it
 out. The clone's own moves stop one entry short of the chain's cap, kept for the parking
 hotkey, so a rebalance and a deposit onto a fresh validator revert `StakingListFull`.
-`replaceClone` moves the position to a fresh clone that lists only what it holds, the
-deposit lands there, and the token exits in full.
+`replaceClone` moves the position and all of the clone's TAO to a fresh clone that lists
+only what it holds, the deposit lands there, and the token exits in full.
 
 Gas rows: deposit and `previewUnwrap` on the fresh clone; deposit, partial exit and
 `previewUnwrap` on the full list; the replacement; deposit, `previewUnwrap` and full exit
@@ -94,9 +94,13 @@ def test_list_reaches_the_cap_and_replacement_reopens_it(env):
 
     shares = env.vault_shares(token_id)
     pile = env.stake(last_listed, env.clone_coldkey(token_id), netuid)
+    extrinsics.fund_account(h160_to_ss58(clone), config.RAO_PER_TAO)
+    tao_shown = chain.cast_balance_wei(clone)
     env.replace_clone(token_id, "0x" + secrets.token_hex(32), "Cap: replacing the clone failed")
     successor = env.clone_address(token_id)
     assert successor.lower() != clone.lower(), "the token has no fresh clone"
+    assert chain.cast_balance_wei(clone) == 0, "the old clone kept TAO"
+    assert chain.cast_balance_wei(successor) == tao_shown, "the successor shows a different TAO balance"
     assert env.vault_shares(token_id) == shares, "shares changed with the clone"
     assert listed(successor) == 1, f"the successor lists {listed(successor)} hotkeys, expected the one it holds"
     assert env.vault_total_stake(token_id) >= pile - config.ROUNDING_DUST_SLOT_RAO, "the position shrank with the clone"

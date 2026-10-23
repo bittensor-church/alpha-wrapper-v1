@@ -42,5 +42,4 @@ abstract contract CloneBase {
         if (amount > 0) { IStaking(STAKING_PRECOMPILE).removeStake(hotkey, amount, netuid); }
     }
 
-    receive() external payable { }
 }
