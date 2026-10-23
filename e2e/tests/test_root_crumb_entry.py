@@ -12,7 +12,7 @@ from alpha_e2e import config, extrinsics
 ROOT_NETUID = 0
 STRANGER = "//RootCrumbStranger"
 HOLDER = "//RootCrumbHolder"
-ROOT_STAKE_RAO = 5 * config.RAO_PER_TAO
+ROOT_STAKE_RAO = 100 * config.RAO_PER_TAO
 DIVIDEND_EPOCHS = 8
 
 
@@ -27,19 +27,21 @@ def test_selling_a_crumb_frees_its_entry_except_on_root(env):
     root_validator, root_validator_ss58 = env.hotkey_pubkeys[0], env.hotkey_ss58s[0]
     subnet_validator, subnet_validator_ss58 = env.hotkey_pubkeys[1], env.hotkey_ss58s[1]
     holder_ss58, holder = extrinsics.keypair_ss58(HOLDER), extrinsics.keypair_pubkey(HOLDER)
-    extrinsics.fund_account(extrinsics.keypair_ss58(STRANGER), 20 * config.RAO_PER_TAO)
+    extrinsics.fund_account(extrinsics.keypair_ss58(STRANGER), 120 * config.RAO_PER_TAO)
     extrinsics.fund_account(holder_ss58, config.RAO_PER_TAO)
     extrinsics.enable_subtoken(ROOT_NETUID)
     extrinsics.root_register(root_validator_ss58)
+    extrinsics.set_root_claim_threshold(0)
     assert extrinsics.is_registered_on_root(root_validator_ss58), "the root validator has no root UID"
 
     extrinsics.add_stake(root_validator_ss58, ROOT_NETUID, ROOT_STAKE_RAO, signer_uri=STRANGER)
-    for _ in range(DIVIDEND_EPOCHS):
-        if extrinsics.root_dividend_rate_bits(root_validator_ss58) != 0:
+    for epoch in range(DIVIDEND_EPOCHS):
+        if extrinsics.root_dividend_shares(root_validator_ss58) != 0:
             break
         extrinsics.wait_for_epoch(netuid, _epoch_timeout(netuid))
         extrinsics.add_stake(root_validator_ss58, ROOT_NETUID, env.chain_min_stake_tao(), signer_uri=STRANGER)
-    assert extrinsics.root_dividend_rate_bits(root_validator_ss58) != 0, (
+        print(f"  epoch {epoch + 1}: root-dividend shares {extrinsics.root_dividend_shares(root_validator_ss58)}")
+    assert extrinsics.root_dividend_shares(root_validator_ss58) != 0, (
         f"the root validator earned no root dividends within {DIVIDEND_EPOCHS} epochs"
     )
 

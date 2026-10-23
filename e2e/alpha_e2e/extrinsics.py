@@ -138,27 +138,18 @@ def remove_stake(
         ), signer_uri=signer_uri)
 
 
-def _fixed_point_bits(value) -> int:
-    if isinstance(value, dict):
-        return int(value.get("bits", 0))
-    return int(value or 0)
-
-
-def root_register(hotkey_ss58: str, *, signer_uri: str = "//Alice", chain_endpoint: str = config.CHAIN_ENDPOINT) -> str:
-    """Give a hotkey a root UID, which root dividends require; signed by the hotkey's owner."""
+def root_dividend_shares(hotkey_ss58: str, *, chain_endpoint: str = config.CHAIN_ENDPOINT) -> int:
+    """Root-dividend fund shares a hotkey's root stakers hold; non-zero once root dividends reach it."""
     with _connect(chain_endpoint) as client:
-        return _submit(client, _sdk().calls.SubtensorModule.root_register(hotkey=hotkey_ss58), signer_uri=signer_uri)
+        return int(client.query(_sdk().storage.SubtensorModule.BasketShares, [hotkey_ss58]) or 0)
 
 
-def is_registered_on_root(hotkey_ss58: str, *, chain_endpoint: str = config.CHAIN_ENDPOINT) -> bool:
+def set_root_claim_threshold(threshold_rao: int, *, chain_endpoint: str = config.CHAIN_ENDPOINT) -> str:
+    """Set via Sudo the value below which queued root dividends wait instead of reaching a hotkey's fund."""
     with _connect(chain_endpoint) as client:
-        return client.query(_sdk().storage.SubtensorModule.Uids, [0, hotkey_ss58]) is not None
-
-
-def root_dividend_rate_bits(hotkey_ss58: str, *, chain_endpoint: str = config.CHAIN_ENDPOINT) -> int:
-    """Raw bits of the root-dividend rate a hotkey's root stakers accrue; zero until root dividends reach it."""
-    with _connect(chain_endpoint) as client:
-        return _fixed_point_bits(client.query(_sdk().storage.SubtensorModule.BasketRate, [hotkey_ss58]))
+        return _submit(client, _sudo(client, _sdk().calls.SubtensorModule.sudo_set_root_claim_threshold(
+            netuid=0, new_value=threshold_rao,
+        )))
 
 
 def root_dividend_record(hotkey_ss58: str, coldkey_ss58: str, *, chain_endpoint: str = config.CHAIN_ENDPOINT) -> int:
