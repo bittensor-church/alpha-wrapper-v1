@@ -60,8 +60,8 @@ def test_stranger_cannot_grow_a_clones_staking_list(env, recovery_window):
     extrinsics.add_stake(validator_ss58, netuid, 2 * config.RAO_PER_TAO, signer_uri=STRANGER)
     extrinsics.add_stake(validator_ss58, other_netuid, 2 * config.RAO_PER_TAO, signer_uri=STRANGER)
     extrinsics.add_stake(ZERO_HOTKEY_SS58, netuid, 2 * config.RAO_PER_TAO, signer_uri=STRANGER)
-    _, dust = env.floor_boundary(other_netuid, env.chain_min_stake_tao())
-    _, gift = env.floor_boundary(netuid, 2 * env.chain_min_stake_tao())
+    _, dust = env.floor_boundary(other_netuid, 2 * env.chain_min_transfer_tao())
+    _, gift = env.floor_boundary(netuid, 2 * env.chain_min_transfer_tao())
 
     poisoned_uid = _uid()
     poisoned_clone, poisoned_mailbox = env.candidate_addresses(token_id, netuid, poisoned_uid)

@@ -49,7 +49,6 @@ error StakingListFull();
 error StakingListHasRoom();
 error NotRetiredClone();
 error UnstuckBelowFloor();
-error NoFundedHotkey();
 /// @dev No receiving key with an owner record was resolved for this attested name.
 ///      Restore an owner record or replace the registry entry; the backing timer cannot fix it.
 error AttestedHotkeyRetired(bytes32 hotkey);

@@ -91,7 +91,7 @@ honoring the rule next to each.
 | Staking `0x0805` | `getRejectLockedAlpha` | Accounts reject incoming locked alpha by default, and this flag reports that setting. |
 | Staking `0x0805` | `getColdkeyRoot` | Reports whether an account carries coldkey-swap history. |
 | Staking `0x0805` | `getOwnedHotkeys` | Lists the hotkeys an account owns; a clone candidate that owns any is contaminated. |
-| Staking `0x0805` | `getDefaultMinStake` | The minimum a partial unstake enforces; the vault applies it to every move as its conservative floor. |
+| Staking `0x0805` | `getDefaultMinStake` | The minimum a partial unstake enforces; the vault applies it to every partial sale. |
 | Staking `0x0805` | `getNominatorMinRequiredStake` | The minimum a nominator may hold; the chain can sweep smaller positions into TAO. |
 | Staking `0x0805` | `moveStake` | A same-subnet move enforces the chain's transfer minimum, which is the lower of the two minimums. A move onto a hotkey the caller does not list is refused once its staking list holds 256 entries. |
 | Staking `0x0805` | `transferStake` | Delivers alpha to another coldkey on the same subnet; the chain's transfer minimum applies. The receiver always admits a hotkey it already lists; otherwise only while its list is under the third-party cap and, once it refuses list growth, only a hotkey it owns. |
@@ -104,6 +104,7 @@ honoring the rule next to each.
 | Subnet `0x0803` | `isSubnetDissolving` | Reports a subnet whose dissolution is under way. |
 | Subnet `0x0803` | `getSubnetCapacityConfig` | Its tenth field is the owner's alpha-transfer switch. |
 | Neuron `0x0804` | `tryAssociateHotkey` | Assigns the caller's coldkey as owner only when the hotkey has none, and succeeds silently otherwise. A newly owned hotkey joins the caller's staking list, so the call is refused once that list holds 256 entries. |
+| Runtime configuration `0x0812` | `getSubtensorEconomicConstants` | Its seventh value is the transfer minimum in EVM wei, the threshold the chain enforces on every same-subnet move and transfer; the vault applies twice that amount as its move floor. |
 | Balance transfer `0x0800` | `transferAll` | Moves the caller's whole free balance to a Substrate account, signed as the caller, crediting it directly. With keep-alive off the amount includes the existential deposit the EVM balance hides, so a fresh destination always admits it and shows what the source showed. |
 | Alpha `0x0808` | `getAlphaPrice` | Prices alpha in TAO, scaled by 1e18. |
 | Alpha `0x0808` | `simSwapAlphaForTao` | Quotes the TAO a sale of a given alpha amount returns. |

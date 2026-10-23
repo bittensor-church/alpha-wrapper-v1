@@ -31,7 +31,7 @@ def test_recovery_with_a_retained_entry(env):
 
     extrinsics.fund_account(extrinsics.keypair_ss58(STRANGER), 5 * config.RAO_PER_TAO)
     extrinsics.add_stake(validator_ss58, other_netuid, 2 * config.RAO_PER_TAO, signer_uri=STRANGER)
-    _, crumb = env.floor_boundary(other_netuid, env.chain_min_stake_tao())
+    _, crumb = env.floor_boundary(other_netuid, 2 * env.chain_min_transfer_tao())
     extrinsics.transfer_stake(h160_to_ss58(clone), validator_ss58, other_netuid, crumb, signer_uri=STRANGER)
     assert env.stake(validator, clone_coldkey, other_netuid) > 0, "the crumb did not land"
 

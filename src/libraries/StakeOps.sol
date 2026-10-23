@@ -4,6 +4,7 @@ pragma solidity 0.8.36;
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { INeuron, NEURON_PRECOMPILE } from "../interfaces/INeuron.sol";
+import { IRuntimeConfiguration, RUNTIME_CONFIGURATION_PRECOMPILE } from "../interfaces/IRuntimeConfiguration.sol";
 import { CloneBase } from "../CloneBase.sol";
 import { SubnetClone } from "../SubnetClone.sol";
 import { StakingListFull } from "../VaultErrors.sol";
@@ -17,8 +18,15 @@ library StakeOps {
         return Math.mulDiv(alphaAmount, alphaPriceE18, VaultMath.ALPHA_PRICE_SCALE);
     }
 
-    /// @dev The only exposed minimum is for unstakes; using it for transfers/moves is conservative.
+    /// @dev The minimum a partial unstake enforces.
     function minStakeTao() internal view returns (uint256) { return IStaking(STAKING_PRECOMPILE).getDefaultMinStake(); }
+
+    /// @dev Twice the chain's transfer minimum, which every same-subnet move and transfer must clear.
+    function moveFloorTao() internal view returns (uint256) {
+        (,,,,,, uint256 minTransferWei,,,,,,) =
+            IRuntimeConfiguration(RUNTIME_CONFIGURATION_PRECOMPILE).getSubtensorEconomicConstants();
+        return 2 * minTransferWei / VaultMath.TAO_NATIVE_QUANTUM;
+    }
 
     function hasOwner(bytes32 hotkey) internal view returns (bool exists) {
         (exists,) = IStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey);
@@ -55,15 +63,21 @@ library StakeOps {
         CloneBase(holder).sellAlphaForTao(hotkey, netuid, amount);
     }
 
-    /// @dev Use where the amount must clear the floor at the price just read, such as sizing a payout.
-    ///      A rounded-down price can reject a valid amount; zero proves nothing and full unstakes bypass this.
-    function isBelowFloorAtReadPrice(uint256 alphaAmount, uint256 alphaPriceE18) internal view returns (bool) {
-        return alphaPriceE18 != 0 && taoValue(alphaAmount, alphaPriceE18) < minStakeTao();
+    /// @dev Use where a move or transfer must clear the floor at the price just read, such as sizing a payout.
+    ///      A rounded-down price can reject a valid amount; zero proves nothing.
+    function isBelowMoveFloorAtReadPrice(uint256 alphaAmount, uint256 alphaPriceE18) internal view returns (bool) {
+        return alphaPriceE18 != 0 && taoValue(alphaAmount, alphaPriceE18) < moveFloorTao();
     }
 
     /// @dev Use where refusing a movable amount would be worse than attempting it: rejects only an amount
     ///      below the floor even at the upper bound hidden by price rounding.
-    function isBelowFloorAtAnyPrice(uint256 alphaAmount, uint256 alphaPriceE18) internal view returns (bool) {
-        return alphaPriceE18 != 0 && taoValue(alphaAmount, alphaPriceE18 + VaultMath.ALPHA_PRICE_QUANTUM_E18) < minStakeTao();
+    function isBelowMoveFloorAtAnyPrice(uint256 alphaAmount, uint256 alphaPriceE18) internal view returns (bool) {
+        return alphaPriceE18 != 0
+            && taoValue(alphaAmount, alphaPriceE18 + VaultMath.ALPHA_PRICE_QUANTUM_E18) < moveFloorTao();
+    }
+
+    /// @dev Use where a partial sale must clear the unstake minimum at the price just read; full unstakes bypass it.
+    function isBelowSaleFloorAtReadPrice(uint256 alphaAmount, uint256 alphaPriceE18) internal view returns (bool) {
+        return alphaPriceE18 != 0 && taoValue(alphaAmount, alphaPriceE18) < minStakeTao();
     }
 }

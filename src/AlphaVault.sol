@@ -24,7 +24,7 @@ import {
     NetuidOutOfRange, NothingToRecover, NothingToUnwrap,
     Parked, ParkingHotkeyUnavailable, BackingNotSecured,
     ShortfallOnFile, SlippageExceeded, SlotMaskOutOfRange, StakingListHasRoom,
-    NotRetiredClone, SubnetDissolved, SubnetNotRegistered, SupplyCapExceeded, WithdrawTooSmall,
+    NoSharesOutstanding, NotRetiredClone, SubnetDissolved, SubnetNotRegistered, SupplyCapExceeded, WithdrawTooSmall,
     ZeroAddress, ZeroAmount, ZeroColdkey,
     ZeroHotkey
 } from "./VaultErrors.sol";
@@ -232,7 +232,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         // Do not refund a full exit as fresh sub-floor dust; partial refunds merge with remaining shares.
         if (unsold != 0 && shares == supply) {
             uint256 alphaPriceE18 = IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid);
-            if (StakeOps.isBelowFloorAtReadPrice(unsold, alphaPriceE18)) unsold = 0;
+            if (VaultAllocation.isBelowMoveFloor(unsold, alphaPriceE18)) unsold = 0;
         }
 
         uint256 refundShares = VaultMath.sharesFor(total - assets, supply - shares, unsold);
@@ -305,7 +305,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (assets == 0) revert ZeroAmount();
         if (assets < minAlphaOut) revert SlippageExceeded(assets);
 
-        if (StakeOps.isBelowFloorAtReadPrice(assets, alphaPriceE18)) { revert WithdrawTooSmall(); }
+        if (VaultAllocation.isBelowMoveFloor(assets, alphaPriceE18)) revert WithdrawTooSmall();
 
         _burn(msg.sender, tokenId, shares);
         // A parked position has one slot, so its payout leaves nothing to align.
@@ -442,7 +442,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @notice Move the token's position to a fresh clone once the old one's staking list has fewer free
     ///         entries than the attested set plus the parking hotkey. Anyone may call it; a rejected
     ///         candidate is retried with a fresh UID.
-    /// @dev All TAO moves. Recorded piles below the conservative floor stay behind and leave the record, and the
+    /// @dev All TAO moves. Recorded piles below the move floor stay behind and leave the record, and the
     ///      old clone keeps the alpha strangers sent it. Token id, shares, claims and mailboxes carry over.
     function replaceClone(uint256 tokenId, bytes32 uid) external nonReentrant {
         address clone = subnetClone[tokenId];
@@ -466,6 +466,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @notice Move a replaced clone's alpha under `fromHotkey` into the token's backing. Anyone may call it.
     function unstuckStake(uint256 tokenId, address retiredClone, bytes32 fromHotkey) external nonReentrant {
         if (!_retiredClones[tokenId][retiredClone]) revert NotRetiredClone();
+        if (totalSupply(tokenId) == 0) revert NoSharesOutstanding();
         if (VaultReads.isDissolved(tokenId)) revert SubnetDissolved();
         uint16 netuid = VaultMath.netuidOf(tokenId);
         VaultReads.requireTransfersEnabled(netuid);

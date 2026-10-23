@@ -44,7 +44,7 @@ def test_write_off_at_zero_supply_reopens_deposits_without_registry_action(env):
     stranger_ss58 = extrinsics.keypair_ss58(STRANGER)
     extrinsics.fund_account(stranger_ss58, STRANGER_FUNDING_RAO)
     extrinsics.add_stake(attested_ss58, other_netuid, 2 * config.RAO_PER_TAO, signer_uri=STRANGER)
-    _, crumb = env.floor_boundary(other_netuid, env.chain_min_stake_tao())
+    _, crumb = env.floor_boundary(other_netuid, 2 * env.chain_min_transfer_tao())
     extrinsics.transfer_stake(clone_ss58, attested_ss58, other_netuid, crumb, signer_uri=STRANGER)
 
     exits.unwrap(
@@ -55,7 +55,7 @@ def test_write_off_at_zero_supply_reopens_deposits_without_registry_action(env):
     nonce_before = registry_nonce()
 
     # A gift sized above the chain's transfer minimum and far below the raised threshold.
-    _, floor_boundary_alpha = env.floor_boundary(netuid, env.chain_min_stake_tao())
+    _, floor_boundary_alpha = env.floor_boundary(netuid, env.move_floor_tao())
     gift = floor_boundary_alpha * 3 // 2
     extrinsics.transfer_stake(clone_ss58, attested_ss58, netuid, gift)
     rebalance_receipt = env.vault_send_between_epochs(

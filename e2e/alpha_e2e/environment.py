@@ -195,8 +195,20 @@ class Environment:
         return int(lines[0]), int(lines[1])
 
     def chain_min_stake_tao(self) -> int:
-        """The minimum exposed by the staking precompile."""
+        """The minimum a partial unstake enforces; the vault's floor for sales."""
         return int(chain.cast_call(config.STAKING_PRECOMPILE, "getDefaultMinStake()(uint256)"))
+
+    def chain_min_transfer_tao(self) -> int:
+        """The minimum the chain enforces on every same-subnet move and transfer, in RAO."""
+        constants = chain.cast_call_lines(
+            config.RUNTIME_CONFIGURATION_PRECOMPILE,
+            f"getSubtensorEconomicConstants()({','.join(['uint256'] * 13)})",
+        )
+        return int(constants[6]) // config.WEI_PER_RAO
+
+    def move_floor_tao(self) -> int:
+        """The vault's floor for every move and transfer: twice the chain's transfer minimum."""
+        return 2 * self.chain_min_transfer_tao()
 
     def hotkey_in_last_seen(self, token_id: int, hotkey_pubkey: str) -> bool:
         """Whether the vault's remembered validator set still references `hotkey_pubkey`."""

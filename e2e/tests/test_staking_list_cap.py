@@ -61,7 +61,7 @@ def test_list_reaches_the_cap_and_replacement_reopens_it(env):
         [first_validator_ss58] + [ss58 for _, ss58 in validators[:rounds]], other_netuid,
         2 * env.chain_min_stake_tao(), signer_uri=STRANGER,
     )
-    _, crumb = env.floor_boundary(other_netuid, env.chain_min_stake_tao())
+    _, crumb = env.floor_boundary(other_netuid, 2 * env.chain_min_transfer_tao())
     extrinsics.transfer_stake(clone_ss58, first_validator_ss58, other_netuid, crumb, signer_uri=STRANGER)
 
     for i in range(rounds):
@@ -113,7 +113,7 @@ def test_list_reaches_the_cap_and_replacement_reopens_it(env):
     retired_coldkey = h160_to_substrate_b32(clone)
     gifted_validator, gifted_validator_ss58 = validators[0]
     extrinsics.add_stake(gifted_validator_ss58, netuid, config.RAO_PER_TAO, signer_uri=STRANGER)
-    _, gift = env.floor_boundary(netuid, 2 * env.chain_min_stake_tao())
+    _, gift = env.floor_boundary(netuid, 2 * env.move_floor_tao())
     extrinsics.transfer_stake(clone_ss58, gifted_validator_ss58, netuid, gift, signer_uri=STRANGER)
     gifted = env.stake(gifted_validator, retired_coldkey, netuid)
     assert gifted >= gift - config.ROUNDING_DUST_SLOT_RAO, "the gift did not reach the retired clone"

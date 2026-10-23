@@ -8,7 +8,7 @@ import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 contract DynamicValidatorSetTest is AlphaVaultTestBase {
     uint256 private constant DEPOSIT = 10_000 * ALPHA;
 
-    /// @dev Keeps every target of a full-cap spread above the 0.04-alpha move floor at 0.05 TAO/alpha.
+    /// @dev Keeps every target of a full-cap spread above the 0.004-alpha move floor at 0.05 TAO/alpha.
     uint256 private constant MIN_SPREADABLE = 10 * ALPHA;
 
     function _assertSpreadOnNetuid1(bytes32[] memory hks, uint256 eachStake, uint256 lastStake) private view {
@@ -117,11 +117,11 @@ contract DynamicValidatorSetTest is AlphaVaultTestBase {
 
     function test_Wrap_KeepsSmallPositionWholeWhenTargetsFallBelowFloor() public {
         bytes32[] memory hks = _setValidatorCount(NETUID1, MAX_VALIDATORS);
-        // Each slot's target is 0.01 alpha, below the 0.04-alpha move floor.
-        _depositAndWrap(alice, NETUID1, ALPHA / 10);
+        // Each slot's target is 0.001 alpha, below the 0.004-alpha move floor.
+        _depositAndWrap(alice, NETUID1, ALPHA / 100);
 
-        assertEq(_getVaultStake(hks[0], NETUID1), ALPHA / 10, "position stays where it landed");
-        assertEq(lens.totalStake(TOKEN1), ALPHA / 10, "and is fully priced");
+        assertEq(_getVaultStake(hks[0], NETUID1), ALPHA / 100, "position stays where it landed");
+        assertEq(lens.totalStake(TOKEN1), ALPHA / 100, "and is fully priced");
     }
 
     function testFuzz_Wrap_KeepsTheWholeDepositAcrossAnyValidatorCount(uint256 count, uint256 amount) public {
@@ -156,7 +156,7 @@ contract DynamicValidatorSetTest is AlphaVaultTestBase {
     function testFuzz_Unwrap_DeliversPreviewAtAnyValidatorCount(uint256 count, uint256 amount, uint256 burnBps) public {
         count = bound(count, 1, MAX_VALIDATORS);
         amount = bound(amount, MIN_SPREADABLE, MAX_SUBNET_ALPHA);
-        // At least 1% of 10 alpha clears the 0.04-alpha exit floor.
+        // At least 1% of 10 alpha clears the 0.004-alpha exit floor.
         burnBps = bound(burnBps, 100, BPS_BASE);
 
         bytes32[] memory hks = _setValidatorCount(NETUID1, count);

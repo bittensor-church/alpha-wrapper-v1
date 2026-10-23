@@ -272,7 +272,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
     }
 
     function test_MovableSourceFirst_EnablesNineSeparateDustRecoveries() public {
-        uint256 dust = ALPHA_FLOOR / 2;
+        uint256 dust = ALPHA_MOVE_FLOOR / 2;
         uint256 dustSources = 9;
         _depositAndWrap(alice, NETUID1, ALPHA);
         _buildSwapTrail(NETUID1, hotkey1, 2);
@@ -290,16 +290,16 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
             vault.recoverStray(TOKEN1, source);
         }
         _simulateHotkeyOwnerPresent(hotkey4);
-        staking.setStake(hotkey4, coldkey, NETUID1, ALPHA_FLOOR);
+        staking.setStake(hotkey4, coldkey, NETUID1, ALPHA_MOVE_FLOOR);
         vault.recoverStray(TOKEN1, hotkey4);
         for (uint256 i; i < dustSources; ++i) {
             bytes32 source = keccak256(abi.encode("dust source", i));
             vault.recoverStray(TOKEN1, source);
             assertEq(_getVaultStake(source, NETUID1), 0);
         }
-        uint256 collected = 220_000_000;
-        assertEq(_parkedStake(NETUID1), collected, "0.04 alpha plus nine 0.02 alpha piles");
-        assertEq(lens.missingStake(TOKEN1), 780_000_000);
+        uint256 collected = 22_000_000;
+        assertEq(_parkedStake(NETUID1), collected, "0.004 alpha plus nine 0.002 alpha piles");
+        assertEq(lens.missingStake(TOKEN1), 978_000_000);
         assertEq(lens.writeOffDeadline(TOKEN1), deadline);
         vm.warp(deadline);
         vault.syncBacking(TOKEN1);

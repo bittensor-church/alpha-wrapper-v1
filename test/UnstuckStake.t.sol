@@ -8,7 +8,7 @@ import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import {
     AlphaTransfersDisabled,
-    NoFundedHotkey,
+    NoSharesOutstanding,
     NotRetiredClone,
     SubnetInDissolutionBlackoutPeriod,
     UnstuckBelowFloor,
@@ -16,7 +16,8 @@ import {
 } from "src/VaultErrors.sol";
 
 contract UnstuckStakeTest is AlphaVaultTestBase {
-    uint256 private constant DUMPED_ALPHA_PRICE_E18 = DEFAULT_ALPHA_PRICE_E18 / 100;
+    uint256 private constant DUMPED_ALPHA_PRICE_E18 = DEFAULT_ALPHA_PRICE_E18 / 1000;
+    uint256 private constant CRASHED_ALPHA_PRICE_E18 = DEFAULT_ALPHA_PRICE_E18 / 10_000;
     uint256 private constant STRANDED_PILE = ALPHA;
     uint256 private constant DUST_PILE = 1_000_000;
     address private stranger = makeAddr("stranger");
@@ -93,6 +94,25 @@ contract UnstuckStakeTest is AlphaVaultTestBase {
 
         assertEq(_getStakeForColdkey(hotkey2, _toSubstrate(firstRetired), NETUID1), 0);
         assertApproxEqAbs(lens.totalStake(TOKEN1), 61 * ALPHA, 4, "the newest clone receives it");
+    }
+
+    function test_UnstuckStake_RestoresTheBackingAReplacementSkippedEntirely_WithoutANewDeposit() public {
+        _layOutBacking(30 * ALPHA, STRANDED_PILE, 30 * ALPHA);
+        uint256 shares = vault.totalSupply(TOKEN1);
+        _setAlphaPrice(NETUID1, CRASHED_ALPHA_PRICE_E18);
+        address retired = _replaceCurrentClone(keccak256("crash"), _hotkeys(hotkey1, hotkey2, hotkey4));
+        bytes32 successorColdkey = _subnetColdkey(NETUID1);
+        assertEq(lens.totalStake(TOKEN1), 0, "the crash left every pile on the retired clone");
+        _setAlphaPrice(NETUID1, DEFAULT_ALPHA_PRICE_E18);
+
+        vault.unstuckStake(TOKEN1, retired, hotkey1);
+        vault.unstuckStake(TOKEN1, retired, hotkey2);
+        vault.unstuckStake(TOKEN1, retired, hotkey3);
+
+        assertEq(lens.totalStake(TOKEN1), 61 * ALPHA, "the whole backing is back");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 61 * ALPHA, "every pile lands on the first recorded key");
+        assertEq(vault.totalSupply(TOKEN1), shares, "no shares were minted to seed the successor");
+        assertTrue(mock.getRejectStakingHotkeyGrowth(successorColdkey), "the successor still refuses growth");
     }
 
     function test_UnstuckStake_SkipsARecordedKeyTheCurrentCloneDoesNotFund() public {
@@ -204,14 +224,14 @@ contract UnstuckStakeTest is AlphaVaultTestBase {
         vault.unstuckStake(TOKEN1, retired, hotkey2);
     }
 
-    function test_RevertWhen_TheCurrentCloneHoldsNoStake() public {
+    function test_RevertWhen_NoSharesAreOutstanding() public {
         address retired = _replaceDuringAPriceDump();
         _setAlphaPrice(NETUID1, DEFAULT_ALPHA_PRICE_E18);
         uint256 shares = vault.balanceOf(alice, TOKEN1);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
 
-        vm.expectRevert(NoFundedHotkey.selector);
+        vm.expectRevert(NoSharesOutstanding.selector);
         vault.unstuckStake(TOKEN1, retired, hotkey2);
     }
 }

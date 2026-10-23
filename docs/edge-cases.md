@@ -61,9 +61,9 @@ The vault keeps locked alpha out of backing:
 ## Minimum stake size and rounding
 
 The chain uses TAO-denominated minimums: higher for partial unstakes, lower for
-transfers and same-subnet moves. The vault applies the higher one to every move
-as a conservative floor, so alpha worth less than it waits until it grows. A
-precompile rejection consumes forwarded gas.
+transfers and same-subnet moves. The vault applies twice the transfer minimum to
+every move and transfer and the unstake minimum to every partial sale, so alpha worth less
+waits until it grows. A precompile rejection consumes forwarded gas.
 
 - Small deposits revert `DepositTooSmall`; top up the mailbox to retry.
 - Small alpha exits revert `WithdrawTooSmall`. Internal moves can instead fail
