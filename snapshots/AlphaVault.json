@@ -1,13 +1,13 @@
 {
-  "createMailbox: existing": "44708",
-  "createMailbox: first on subnet": "820381",
-  "createMailbox: shared subnet": "402026",
-  "rebalance: after registry weight update": "273526",
-  "rebalance: fully rotated (10 validators)": "2947720",
-  "rebalance: release parked position (10 validators)": "3278287",
+  "createMailbox: existing": "44730",
+  "createMailbox: first on subnet": "820408",
+  "createMailbox: shared subnet": "402048",
+  "rebalance: after registry weight update": "273548",
+  "rebalance: fully rotated (10 validators)": "2947742",
+  "rebalance: release parked position (10 validators)": "3278309",
   "recoverStray: collect merged source (10 validators)": "314208",
   "recoverStray: collect one source (10 validators)": "223459",
-  "replaceClone: 3 validators": "4844857",
+  "replaceClone: 3 validators": "4867187",
   "syncBacking: loss on file (10 validators)": "1149671",
   "unwrap: full": "580896",
   "unwrap: full (10 validators)": "1260037",
@@ -17,8 +17,8 @@
   "unwrapForTao: full after a rotation (10 validators)": "942484",
   "unwrapForTao: partial tail above floor": "320012",
   "unwrapForTao: sub-floor tail refunded": "279389",
-  "wrap: first": "1267169",
-  "wrap: first (10 validators)": "3509360",
-  "wrap: subsequent": "385354",
-  "wrap: subsequent (10 validators)": "876303"
+  "wrap: first": "1267199",
+  "wrap: first (10 validators)": "3509390",
+  "wrap: subsequent": "385384",
+  "wrap: subsequent (10 validators)": "876333"
 }

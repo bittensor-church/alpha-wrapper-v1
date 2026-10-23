@@ -127,6 +127,9 @@ even while backing is intact.
    or `rebalance(netuid)` releases the parked position onto it.
 6. `StakingListFull` on any call means the clone's staking list is full. Call `replaceClone(tokenId, uid)` with a fresh random UID,
    then retry: the position, its TAO and the token id move to a fresh clone.
+7. Alpha left on a replaced clone, such as a pile too small to move at the time or a
+   later gift, joins the backing through `unstuckStake(tokenId, retiredClone, hotkey)`.
+   Anyone can call it once the pile clears the floor.
 
 Collection emits `BackingRecovered`; sync finalization emits
 `BackingParked`. A write-off emits `BackingWrittenOff` before it. Both calls

@@ -14,6 +14,8 @@ interface IAlphaVaultAbi {
     event SubnetProxyCreated(uint256 indexed tokenId, address clone);
     /// @dev The token's position now lives on `clone`; whatever strangers left on `previous` stays there.
     event SubnetCloneReplaced(uint256 indexed tokenId, address indexed previous, address clone);
+    event StakeUnstuck(
+        uint256 indexed tokenId, address indexed retiredClone, bytes32 fromHotkey, bytes32 toHotkey, uint256 amount);
     event MailboxCreated(address indexed user, uint256 indexed netuid, address mailbox);
     /// @dev `sharesBurned` is the caller's burn and `sharesRefunded` the shares minted back for alpha the
     ///      sale left unsold; a full burn's empty-vault refund rate can exceed the burn. `taoOut` is EVM wei.

@@ -9,8 +9,9 @@ import { VaultMath } from "./VaultMath.sol";
 import { VaultReads } from "./VaultReads.sol";
 import { IAlpha, ALPHA_PRECOMPILE } from "../interfaces/IAlpha.sol";
 import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
-import { LockedDeposit, ZeroAmount } from "../VaultErrors.sol";
+import { LockedDeposit, NoFundedHotkey, UnstuckBelowFloor, ZeroAmount } from "../VaultErrors.sol";
 import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
+import { CloneBase } from "../CloneBase.sol";
 import { CloneFactory } from "../CloneFactory.sol";
 import { DepositMailbox } from "../DepositMailbox.sol";
 import { SubnetClone } from "../SubnetClone.sol";
@@ -95,6 +96,29 @@ library VaultAllocation {
         }
         SubnetClone(successor).setRejectStakingHotkeyGrowth(true);
         SubnetClone(context.clone).transferAllTao(successorColdkey);
+    }
+
+    function unstuckStake(Context memory context, address retiredClone, bytes32 fromHotkey, bytes32[] memory keys)
+        external {
+        IStaking staking = IStaking(STAKING_PRECOMPILE);
+        uint16 netuid = context.netuid;
+        uint256 amount = staking.getStake(fromHotkey, VaultReads.coldkeyOf(retiredClone), netuid);
+        if (amount == 0) revert ZeroAmount();
+        if (StakeOps.isBelowFloorAtReadPrice(amount, context.alphaPriceE18)) revert UnstuckBelowFloor();
+        bytes32 landing = _fundedKey(keys, context.coldkey, netuid);
+        StakeOps.ensureHotkeyHasOwner(fromHotkey);
+        StakeOps.ensureHotkeyHasOwner(landing);
+        CloneBase(retiredClone)
+            .transferStakeAndHotkey(context.coldkey, fromHotkey, landing, netuid, SafeCast.toUint64(amount));
+        emit IAlphaVaultAbi.StakeUnstuck(context.tokenId, retiredClone, fromHotkey, landing, amount);
+    }
+
+    function _fundedKey(bytes32[] memory keys, bytes32 coldkey, uint16 netuid) private view returns (bytes32) {
+        for (uint256 i; i < keys.length;) {
+            if (IStaking(STAKING_PRECOMPILE).getStake(keys[i], coldkey, netuid) != 0) return keys[i];
+            unchecked { ++i; }
+        }
+        revert NoFundedHotkey();
     }
 
     /// @dev Both sale rounds share this call's balances array: the partial round must see slots drained

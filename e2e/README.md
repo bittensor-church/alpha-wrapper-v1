@@ -94,10 +94,11 @@ Scenario files in `tests/` cover:
   exits continue without a new attestation.
 - `test_staking_list_cap.py`: a clone's staking list walked to its last admitted
   entry, where a rebalance and a deposit onto a fresh validator are refused;
-  `replaceClone` moves the position, the deposit lands and the token exits. Gas rows:
-  deposit and `previewUnwrap` on the fresh clone; deposit, partial exit and
-  `previewUnwrap` on the full list; the replacement; deposit, `previewUnwrap` and full
-  exit on the successor.
+  `replaceClone` moves the position, the deposit lands, `unstuckStake` brings a gift
+  sent to the retired clone into the backing and the token exits. Gas rows: deposit and
+  `previewUnwrap` on the fresh clone; deposit, partial exit and `previewUnwrap` on the
+  full list; the replacement; deposit, `previewUnwrap`, `unstuckStake` and full exit on
+  the successor.
 Each module's docstring describes its sequence. These scenarios exercise specific
 recovery conditions, not an unconditional exit guarantee; see the
 [design](../docs/hotkey-swaps.md).

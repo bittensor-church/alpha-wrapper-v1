@@ -47,6 +47,9 @@ error ParkingHotkeyUnavailable();
 error StakingListFull();
 /// @dev The clone's staking list still has free entries for the attested set and the parking hotkey.
 error StakingListHasRoom();
+error NotRetiredClone();
+error UnstuckBelowFloor();
+error NoFundedHotkey();
 /// @dev No receiving key with an owner record was resolved for this attested name.
 ///      Restore an owner record or replace the registry entry; the backing timer cannot fix it.
 error AttestedHotkeyRetired(bytes32 hotkey);

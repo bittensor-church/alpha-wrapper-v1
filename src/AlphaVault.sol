@@ -24,7 +24,7 @@ import {
     NetuidOutOfRange, NothingToRecover, NothingToUnwrap,
     Parked, ParkingHotkeyUnavailable, BackingNotSecured,
     ShortfallOnFile, SlippageExceeded, SlotMaskOutOfRange, StakingListHasRoom,
-    SubnetDissolved, SubnetNotRegistered, SupplyCapExceeded, WithdrawTooSmall,
+    NotRetiredClone, SubnetDissolved, SubnetNotRegistered, SupplyCapExceeded, WithdrawTooSmall,
     ZeroAddress, ZeroAmount, ZeroColdkey,
     ZeroHotkey
 } from "./VaultErrors.sol";
@@ -47,6 +47,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
 
     mapping(address => mapping(uint256 => address)) private _mailboxes;
     mapping(uint256 => address) public subnetClone;
+    mapping(uint256 => mapping(address => bool)) private _retiredClones;
 
     mapping(uint256 => VaultReads.Slot[]) private _slots;
     mapping(uint256 => Recovery) public recovery;
@@ -457,8 +458,21 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
             cloneFactory, _context(tokenId, clone, coldkey, IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid)),
             backing.keys, backing.balances, uid);
         subnetClone[tokenId] = successor;
+        _retiredClones[tokenId][clone] = true;
         _reanchor(tokenId, backing.keys, VaultReads.fetchBalances(backing.keys, VaultReads.coldkeyOf(successor), netuid));
         emit SubnetCloneReplaced(tokenId, clone, successor);
+    }
+
+    /// @notice Move a replaced clone's alpha under `fromHotkey` into the token's backing. Anyone may call it.
+    function unstuckStake(uint256 tokenId, address retiredClone, bytes32 fromHotkey) external nonReentrant {
+        if (!_retiredClones[tokenId][retiredClone]) revert NotRetiredClone();
+        if (VaultReads.isDissolved(tokenId)) revert SubnetDissolved();
+        uint16 netuid = VaultMath.netuidOf(tokenId);
+        VaultReads.requireTransfersEnabled(netuid);
+        address clone = subnetClone[tokenId];
+        VaultAllocation.unstuckStake(
+            _context(tokenId, clone, VaultReads.coldkeyOf(clone), IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid)),
+            retiredClone, fromHotkey, VaultReads.activesOf(_slots[tokenId]));
     }
 
     /// @dev Keep resolved keys and old-key residue locations.
