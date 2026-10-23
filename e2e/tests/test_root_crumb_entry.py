@@ -30,6 +30,8 @@ def test_selling_a_crumb_frees_its_entry_except_on_root(env):
     extrinsics.fund_account(extrinsics.keypair_ss58(STRANGER), 20 * config.RAO_PER_TAO)
     extrinsics.fund_account(holder_ss58, config.RAO_PER_TAO)
     extrinsics.enable_subtoken(ROOT_NETUID)
+    extrinsics.root_register(root_validator_ss58)
+    assert extrinsics.is_registered_on_root(root_validator_ss58), "the root validator has no root UID"
 
     extrinsics.add_stake(root_validator_ss58, ROOT_NETUID, ROOT_STAKE_RAO, signer_uri=STRANGER)
     for _ in range(DIVIDEND_EPOCHS):
