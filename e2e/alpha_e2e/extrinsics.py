@@ -129,13 +129,31 @@ def add_stakes(
 
 def remove_stake(
     hotkey_ss58: str, netuid: int, amount_rao: int,
-    *, chain_endpoint: str = config.CHAIN_ENDPOINT,
+    *, signer_uri: str = "//Alice", chain_endpoint: str = config.CHAIN_ENDPOINT,
 ) -> str:
     """Sell `amount_rao` alpha back to the pool for TAO."""
     with _connect(chain_endpoint) as client:
         return _submit(client, _sdk().calls.SubtensorModule.remove_stake(
             hotkey=hotkey_ss58, netuid=netuid, amount_unstaked=amount_rao,
-        ))
+        ), signer_uri=signer_uri)
+
+
+def _fixed_point_bits(value) -> int:
+    if isinstance(value, dict):
+        return int(value.get("bits", 0))
+    return int(value or 0)
+
+
+def root_dividend_rate_bits(hotkey_ss58: str, *, chain_endpoint: str = config.CHAIN_ENDPOINT) -> int:
+    """Raw bits of the root-dividend rate a hotkey's root stakers accrue; zero until root dividends reach it."""
+    with _connect(chain_endpoint) as client:
+        return _fixed_point_bits(client.query(_sdk().storage.SubtensorModule.BasketRate, [hotkey_ss58]))
+
+
+def root_dividend_record(hotkey_ss58: str, coldkey_ss58: str, *, chain_endpoint: str = config.CHAIN_ENDPOINT) -> int:
+    """The chain's root-dividend record for a (hotkey, coldkey) pair."""
+    with _connect(chain_endpoint) as client:
+        return int(client.query(_sdk().storage.SubtensorModule.BasketClaimed, [hotkey_ss58, coldkey_ss58]) or 0)
 
 
 def lock_stake(

@@ -64,6 +64,8 @@ Scenario files in `tests/` cover:
   hotkey (a mailbox its own, a subnet clone its owner contract's), so coldkey swaps and
   locked-alpha transfers into them are refused on the real chain; an honest
   deposit still wraps and exits.
+- `test_root_crumb_entry.py`: a coldkey sells a stranger's crumbs in full; the entry on a
+  dynamic subnet leaves its staking list, the entry on the root subnet stays.
 - `test_reject_hotkey_growth.py`: a candidate that already stakes is rejected, a
   stranger cannot add a hotkey (hotkey 0x0 included) to a mailbox's or clone's
   staking list after creation, a crumb sent under a listed validator keeps its
