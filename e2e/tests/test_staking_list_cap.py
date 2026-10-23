@@ -5,19 +5,18 @@ crumb under it on another subnet, which keeps its entry once the next round rota
 out. The clone's own moves stop one entry short of the chain's cap, kept for the parking
 hotkey, so a rebalance and a deposit onto a fresh validator revert `StakingListFull`.
 `replaceClone` moves the position and all of the clone's TAO to a fresh clone that lists
-only what it holds, the deposit lands there, `unstuckStake` brings a gift sent to the
-retired clone into the backing, and the token exits in full.
+only what it holds, the deposit lands there, and the token exits in full.
 
 Gas rows: deposit and `previewUnwrap` on the fresh clone; deposit, partial exit and
-`previewUnwrap` on the full list; the replacement; deposit, `previewUnwrap`, `unstuckStake`
-and full exit on the successor.
+`previewUnwrap` on the full list; the replacement; deposit, `previewUnwrap` and full exit
+on the successor.
 """
 import secrets
 
 import pytest
 
 from alpha_e2e import chain, config, exits, extrinsics
-from alpha_e2e.substrate import h160_to_ss58, h160_to_substrate_b32
+from alpha_e2e.substrate import h160_to_ss58
 
 STRANGER = "//CapStranger"
 OWNER = "//CapOwner"
@@ -109,23 +108,6 @@ def test_list_reaches_the_cap_and_replacement_reopens_it(env):
     assert env.stake(spare, env.clone_coldkey(token_id), netuid) > 0, "the fresh validator holds the deposit"
     assert listed(clone) == OWN_CAP - PARKING_RESERVE, "the crumbs keep every entry on the old clone"
     preview_gas("Cap, successor")
-
-    retired_coldkey = h160_to_substrate_b32(clone)
-    gifted_validator, gifted_validator_ss58 = validators[0]
-    extrinsics.add_stake(gifted_validator_ss58, netuid, config.RAO_PER_TAO, signer_uri=STRANGER)
-    _, gift = env.floor_boundary(netuid, 2 * env.move_floor_tao())
-    extrinsics.transfer_stake(clone_ss58, gifted_validator_ss58, netuid, gift, signer_uri=STRANGER)
-    gifted = env.stake(gifted_validator, retired_coldkey, netuid)
-    assert gifted >= gift - config.ROUNDING_DUST_SLOT_RAO, "the gift did not reach the retired clone"
-    backing = env.vault_total_stake(token_id)
-    env.vault_send(
-        4_000_000, "Cap, retired clone: unstucking the gift failed", "unstuckStake(uint256,address,bytes32)",
-        token_id, clone, gifted_validator, label="unstuckStake",
-    )
-    assert env.stake(gifted_validator, retired_coldkey, netuid) <= config.ROUNDING_DUST_SLOT_RAO, "the retired clone kept the gift"
-    assert env.vault_total_stake(token_id) >= backing + gifted - config.ROUNDING_DUST_SLOT_RAO, (
-        "the gift did not join the backing"
-    )
 
     receipt, _ = exits.unwrap(
         env, token_id, env.vault_shares(token_id), "Cap, successor: the full exit failed", hotkeys=[spare],

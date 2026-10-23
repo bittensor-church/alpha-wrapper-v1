@@ -9,10 +9,10 @@ import { VaultMath } from "./VaultMath.sol";
 import { VaultReads } from "./VaultReads.sol";
 import { IAlpha, ALPHA_PRECOMPILE } from "../interfaces/IAlpha.sol";
 import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
-import { LockedDeposit, UnstuckBelowFloor, ZeroAmount } from "../VaultErrors.sol";
+import { LockedDeposit, ZeroAmount } from "../VaultErrors.sol";
 import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
-import { CloneBase } from "../CloneBase.sol";
 import { CloneFactory } from "../CloneFactory.sol";
+import { DepositMailbox } from "../DepositMailbox.sol";
 import { SubnetClone } from "../SubnetClone.sol";
 
 /// @dev Deployed once and linked into the vault. Holds clone preparation, deposit admission, the
@@ -57,16 +57,11 @@ library VaultAllocation {
         if (VaultReads.lockedAlphaOf(mailboxColdkey, nid) != 0) revert LockedDeposit();
     }
 
-    function collectDeposit(address mailbox, bytes32 mailboxColdkey, Context memory context, bytes32 target,
-        uint256 amount) external {
-        _transferIntoClone(mailbox, mailboxColdkey, context, target, amount);
-    }
-
     /// @dev A clone owns no hotkey, so another coldkey may only land stake on one it already lists; a clone
     ///      that lists nothing admits any hotkey while its growth flag is down, lifted and restored within
     ///      this call. Landing elsewhere than the target moves only what landed, keeping the rest in place.
-    function _transferIntoClone(address holder, bytes32 holderHotkey, Context memory context, bytes32 target,
-        uint256 amount) private {
+    function collectDeposit(address mailbox, bytes32 mailboxColdkey, Context memory context, bytes32 target,
+        uint256 amount) external {
         IStaking staking = IStaking(STAKING_PRECOMPILE);
         address clone = context.clone; bytes32 cloneColdkey = context.coldkey; uint16 netuid = context.netuid;
         bytes32 landing = target;
@@ -81,8 +76,8 @@ library VaultAllocation {
         }
         uint256 before = staking.getStake(landing, cloneColdkey, netuid);
         StakeOps.ensureHotkeyHasOwner(landing);
-        CloneBase(holder)
-            .transferStakeAndHotkey(cloneColdkey, holderHotkey, landing, netuid, SafeCast.toUint64(amount));
+        DepositMailbox(mailbox)
+            .transferStakeAndHotkey(cloneColdkey, mailboxColdkey, landing, netuid, SafeCast.toUint64(amount));
         if (lifted) SubnetClone(clone).setRejectStakingHotkeyGrowth(true);
         if (landing != target) {
             uint256 landed = staking.getStake(landing, cloneColdkey, netuid) - before;
@@ -105,28 +100,6 @@ library VaultAllocation {
         }
         SubnetClone(successor).setRejectStakingHotkeyGrowth(true);
         SubnetClone(context.clone).transferAllTao(successorColdkey);
-    }
-
-    function unstuckStake(
-        Context memory context, address retiredClone, bytes32 fromHotkey, VaultReads.Slot[] memory slots
-    ) external {
-        IStaking staking = IStaking(STAKING_PRECOMPILE);
-        uint16 netuid = context.netuid;
-        uint256 amount = staking.getStake(fromHotkey, VaultReads.coldkeyOf(retiredClone), netuid);
-        if (amount == 0) revert ZeroAmount();
-        if (StakeOps.isBelowMoveFloorAtReadPrice(amount, context.alphaPriceE18)) revert UnstuckBelowFloor();
-        bytes32 target = _unstuckTarget(VaultReads.resolveBacking(slots, context.coldkey, netuid));
-        StakeOps.ensureHotkeyHasOwner(fromHotkey);
-        _transferIntoClone(retiredClone, fromHotkey, context, target, amount);
-        emit IAlphaVaultAbi.StakeUnstuck(context.tokenId, retiredClone, fromHotkey, target, amount);
-    }
-
-    function _unstuckTarget(VaultReads.Backing memory backing) private pure returns (bytes32) {
-        for (uint256 i; i < backing.keys.length;) {
-            if (backing.balances[i] != 0) return backing.keys[i];
-            unchecked { ++i; }
-        }
-        return backing.keys[0];
     }
 
     /// @dev Both sale rounds share this call's balances array: the partial round must see slots drained

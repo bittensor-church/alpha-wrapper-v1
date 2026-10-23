@@ -281,6 +281,19 @@ def toggle_transfer(
     raise ExtrinsicError(f"toggle_transfer netuid={netuid} did not reach toggle={enabled}")
 
 
+def enable_subtoken(netuid: int, *, attempts: int = 10, chain_endpoint: str = config.CHAIN_ENDPOINT) -> str:
+    """Enable staking on a subnet via Sudo. A fresh localnet leaves root disabled; Finney enabled it by migration."""
+    with _connect(chain_endpoint) as client:
+        call = _sudo(client, _sdk().calls.AdminUtils.sudo_set_subtoken_enabled(netuid=netuid, subtoken_enabled=True))
+        for attempt in range(attempts):
+            block_hash = _submit(client, call)
+            if client.query(_sdk().storage.SubtensorModule.SubtokenEnabled, [netuid]):
+                return block_hash
+            if attempt != attempts - 1:
+                chain.wait_for_blocks(1, timeout=config.BLOCK_TIMEOUT_SECONDS)
+    raise ExtrinsicError(f"enable_subtoken netuid={netuid} did not take effect")
+
+
 def set_admin_freeze_window(
     window: int, *, chain_endpoint: str = config.CHAIN_ENDPOINT,
 ) -> str:

@@ -86,8 +86,9 @@ later recovery.
   registry publishes the successor.
 - A stranger who claims a vacated validator name receives allocations until the
   registry replaces it; the alpha stays under the vault's coldkey.
-- Alpha a clone holds on another subnet stays outside the backing. Alpha a clone
-  replacement leaves behind rejoins it through `unstuckStake`, for whoever holds
-  shares at that moment.
+- Alpha a clone holds on another subnet stays outside the backing, and so do piles
+  a clone replacement leaves behind. Anyone holding enough alpha can push a pile
+  below the move floor by dumping the price around a replacement and so destroy
+  it for holders, gaining nothing.
 
 See [edge cases](edge-cases.md) for dissolution, transfer restrictions and minimums.

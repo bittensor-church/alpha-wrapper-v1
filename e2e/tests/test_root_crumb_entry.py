@@ -29,6 +29,7 @@ def test_selling_a_crumb_frees_its_entry_except_on_root(env):
     holder_ss58, holder = extrinsics.keypair_ss58(HOLDER), extrinsics.keypair_pubkey(HOLDER)
     extrinsics.fund_account(extrinsics.keypair_ss58(STRANGER), 20 * config.RAO_PER_TAO)
     extrinsics.fund_account(holder_ss58, config.RAO_PER_TAO)
+    extrinsics.enable_subtoken(ROOT_NETUID)
 
     extrinsics.add_stake(root_validator_ss58, ROOT_NETUID, ROOT_STAKE_RAO, signer_uri=STRANGER)
     for _ in range(DIVIDEND_EPOCHS):

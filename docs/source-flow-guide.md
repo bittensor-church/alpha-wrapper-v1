@@ -63,9 +63,6 @@ cleanup, then old shares redeem the clone's unreserved TAO.
   deploy a fresh clone and owner -> lift the successor's growth flag -> transfer each recorded
   pile at or above the floor under its own hotkey -> restore the flag -> move the TAO balance ->
   point the token at the successor -> re-read balances into the record.
-- **`unstuckStake`:** require a clone this token retired, shares outstanding, a live subnet with transfers
-  enabled and a pile above the floor -> land it like a deposit on the first backing hotkey the current
-  clone holds stake under, or on the first recorded hotkey when it holds none.
 - **`wrap`:** require prepared addresses -> check backing, receivers and that the mailbox holds no lock ->
   land the mailbox's own-hotkey stake on a hotkey the clone lists, lifting the growth
   flag for the transfer when it lists nothing, then move it onto the chosen registry
