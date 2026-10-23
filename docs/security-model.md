@@ -85,56 +85,6 @@ generation also pays for the shared clone. A UID is public once submitted, so a
 front-run creation can fail and need a retry with a new UID. TAO donations
 remain allowed; alpha donations only onto a hotkey the clone already lists.
 
-## Who owns a subnet clone's hotkey
-
-The chain hands a subnet to the coldkey that owns its most convicted hotkey and
-locks the owner's cut onto that coldkey every epoch. A subnet clone owning a
-hotkey could be made subnet owner that way and frozen by the lock. A contract
-deployed with each subnet clone owns its account as a hotkey instead, which
-still refuses coldkey swaps into it. Mailboxes keep owning their
-account: a hijacked mailbox blocks one user's wrap on one subnet and the alpha
-stays reclaimable. The vault's coldkey may be made subnet owner through the
-hotkeys it holds, which is harmless: the vault reads locks and stake only for
-mailboxes and clones.
-
-## Staking lists
-
-The chain keeps, for every coldkey, the list of hotkeys it stakes under: at most
-256 entries through the coldkey's own moves, at most 128 through stake sent by
-others, and a listed hotkey is always admitted. An entry stays while the coldkey
-holds stake under that hotkey on any subnet or a root-dividend record for the
-pair.
-
-- Every clone and the vault refuse growth by others from creation on. A deposit
-  takes the one route the chain always admits: the mailbox's own hotkey, then a
-  hotkey the clone already lists, then the chosen validator.
-- A crumb a stranger sends under a listed validator keeps that validator listed
-  for good after a rotation, so a clone's list grows by one entry per validator
-  the registry drops. On the root subnet even taking the crumb out leaves the
-  entry, because rounding leaves the pair's root-dividend record off zero.
-- Owning a hotkey costs its owner an entry for good, so a throwaway contract
-  owns each subnet clone's hotkey and the vault's own list holds the parking
-  hotkey alone.
-- A clone's own moves keep the last entry for the parking hotkey, so recovery
-  can always park. A deposit or rotation onto a hotkey the full list refuses
-  reverts `StakingListFull`; a refused alignment move is skipped. An alpha exit
-  waits only when no attested validator holds stake, the list is at its reserve
-  and the first attested key is unlisted; replacement is open by then.
-- Every move or exit the clone signs pays the chain's list walk, about 8.7k gas
-  per entry: about 2.4M gas at the replacement gate instead of 0.2M. A deposit
-  pays it for every move after landing, such as weight alignment.
-- A deposit whose target holds nothing lands on the clone's first listed hotkey.
-  If that hotkey has no owner, the vault claims it and spends one entry of its
-  own list. This happens only to a rotated-out validator whose pinning crumb
-  sat on a subnet that has since dissolved and who then swapped all its subnets.
-- Once the list has fewer free entries than the attested set plus parking,
-  anyone calls `replaceClone(tokenId, uid)`: a fresh clone and owner take over
-  the recorded backing and the TAO under the same hotkeys, and the token keeps
-  its id, shares and claims. Piles below the floor, TAO below the chain's
-  existential deposit and the crumbs stay on the old clone.
-- A single-subnet swap of a validator carrying such a crumb leaves the clone's
-  stake on the old name. The vault handles it as a swap that kept the stake.
-
 ## Recovery-window tradeoff and late-recovery attack
 
 The [hotkey-swap runbook](hotkey-swaps.md) separates two failures: names with
