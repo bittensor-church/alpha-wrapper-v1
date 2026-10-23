@@ -233,7 +233,7 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares / 4, 0, 1 << 0);
 
-        assertEq(_getVaultStake(hotkey2, NETUID1), 29_997_000_000, "bit 0 excludes whichever slot comes first now");
+        assertEq(_getVaultStake(hotkey2, NETUID1), 30_006_000_000, "bit 0 excludes whichever slot comes first now");
     }
 
     function testFuzz_UnwrapForTao_SellsOnlyTheAllowedSlots(uint256 mask, uint256 burnBps) public {
@@ -652,10 +652,10 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
 
         vault.rebalance(NETUID1);
 
-        // 50 alpha by weight; the last 0.005-alpha correction is below the floor and stays put.
+        // 50 alpha by weight; the last 0.005-alpha correction clears the 0.004-alpha floor.
         assertEq(lens.totalStake(TOKEN1), 50 * ALPHA);
-        assertEq(_getVaultStake(hotkey1, NETUID1), 16_665_000_000);
-        assertEq(_getVaultStake(hotkey2, NETUID1), 16_670_000_000);
+        assertEq(_getVaultStake(hotkey1, NETUID1), 16_670_000_000);
+        assertEq(_getVaultStake(hotkey2, NETUID1), 16_665_000_000);
         assertEq(_getVaultStake(hotkey3, NETUID1), 16_665_000_000);
     }
 

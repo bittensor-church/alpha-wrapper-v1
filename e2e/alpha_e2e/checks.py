@@ -86,7 +86,7 @@ class TaoSale:
 
 
 VAULT_TAO_EXIT = TaoSale("UnwrappedForTao(address,uint256,uint256,uint256,uint256,uint256)", 3)
-MAILBOX_TAO_RECLAIM = TaoSale("MailboxAlphaSoldForTao(address,uint256,bytes32,uint256,uint256)", 1)
+MAILBOX_TAO_RECLAIM = TaoSale("MailboxAlphaSoldForTao(address,uint256,uint256,uint256)", 1)
 
 
 def assert_payout_matches_emitted(

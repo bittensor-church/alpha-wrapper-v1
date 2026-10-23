@@ -2,6 +2,7 @@
 pragma solidity 0.8.36;
 
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
+import { MAX_STAKING_HOTKEYS } from "src/interfaces/IStaking.sol";
 import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 
 // Mock-based measurements, not live-chain gas estimates; use e2e receipts for sizing.
@@ -85,6 +86,15 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         vm.snapshotGasLastCall("AlphaVault", "unwrapForTao: sub-floor tail refunded");
     }
 
+    function test_gas_replaceClone_3Validators() public {
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
+        _wrap(alice, NETUID1);
+        _fillListTo(_subnetColdkey(NETUID1), MAX_STAKING_HOTKEYS - 1);
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey4), _weights(3334, 3333, 3333));
+        vault.replaceClone(TOKEN1, keccak256("fixture-replacement"));
+        vm.snapshotGasLastCall("AlphaVault", "replaceClone: 3 validators");
+    }
+
     function test_gas_rebalance() public {
         _simulateAlphaDeposit(alice, NETUID1, 100 * ALPHA);
         _wrap(alice, NETUID1);
@@ -151,24 +161,24 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         _donateToClone(vault.subnetClone(TOKEN1), 3 * TAO);
     }
 
-    function test_gas_wrap_firstWrap_64Validators() public {
+    function test_gas_wrap_firstWrap_10Validators() public {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
-        vm.snapshotGasLastCall("AlphaVault", "wrap: first (64 validators)");
+        vm.snapshotGasLastCall("AlphaVault", "wrap: first (10 validators)");
     }
 
-    function test_gas_wrap_subsequentWrap_64Validators() public {
+    function test_gas_wrap_subsequentWrap_10Validators() public {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
 
         _simulateAlphaDeposit(bob, NETUID1, 5 * ALPHA);
         _wrap(bob, NETUID1);
-        vm.snapshotGasLastCall("AlphaVault", "wrap: subsequent (64 validators)");
+        vm.snapshotGasLastCall("AlphaVault", "wrap: subsequent (10 validators)");
     }
 
-    function test_gas_unwrap_partial_64Validators() public {
+    function test_gas_unwrap_partial_10Validators() public {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
@@ -176,10 +186,10 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
 
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
-        vm.snapshotGasLastCall("AlphaVault", "unwrap: partial (64 validators)");
+        vm.snapshotGasLastCall("AlphaVault", "unwrap: partial (10 validators)");
     }
 
-    function test_gas_unwrap_full_64Validators() public {
+    function test_gas_unwrap_full_10Validators() public {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
@@ -187,10 +197,10 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
 
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
-        vm.snapshotGasLastCall("AlphaVault", "unwrap: full (64 validators)");
+        vm.snapshotGasLastCall("AlphaVault", "unwrap: full (10 validators)");
     }
 
-    function test_gas_unwrapForTao_full_64Validators() public {
+    function test_gas_unwrapForTao_full_10Validators() public {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
@@ -198,11 +208,11 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
 
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares, 0);
-        vm.snapshotGasLastCall("AlphaVault", "unwrapForTao: full (64 validators)");
+        vm.snapshotGasLastCall("AlphaVault", "unwrapForTao: full (10 validators)");
     }
 
     // A registry rotation must not widen the TAO path, which reads only recorded keys.
-    function test_gas_unwrapForTao_fullyRotated_64Validators() public {
+    function test_gas_unwrapForTao_fullyRotated_10Validators() public {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
@@ -212,10 +222,10 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
 
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares, 0);
-        vm.snapshotGasLastCall("AlphaVault", "unwrapForTao: full after a rotation (64 validators)");
+        vm.snapshotGasLastCall("AlphaVault", "unwrapForTao: full after a rotation (10 validators)");
     }
 
-    function test_gas_rebalance_fullyRotated_64Validators() public {
+    function test_gas_rebalance_fullyRotated_10Validators() public {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
@@ -223,20 +233,20 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         _setValidators(NETUID1, _hotkeysFrom("rotated", MAX_VALIDATORS), _evenWeights(MAX_VALIDATORS));
 
         vault.rebalance(NETUID1);
-        vm.snapshotGasLastCall("AlphaVault", "rebalance: fully rotated (64 validators)");
+        vm.snapshotGasLastCall("AlphaVault", "rebalance: fully rotated (10 validators)");
     }
 
-    function test_gas_syncBacking_64Validators() public {
+    function test_gas_syncBacking_10Validators() public {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
         _buildSwapTrail(NETUID1, _attestedHotkeys(NETUID1)[0], 2);
 
         vault.syncBacking(TOKEN1);
-        vm.snapshotGasLastCall("AlphaVault", "syncBacking: loss on file (64 validators)");
+        vm.snapshotGasLastCall("AlphaVault", "syncBacking: loss on file (10 validators)");
     }
 
-    function test_gas_recoverStray_64Validators() public {
+    function test_gas_recoverStray_10Validators() public {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
@@ -245,14 +255,14 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
 
         vault.recoverStray(TOKEN1, tip);
-        vm.snapshotGasLastCall("AlphaVault", "recoverStray: collect one source (64 validators)");
+        vm.snapshotGasLastCall("AlphaVault", "recoverStray: collect one source (10 validators)");
 
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), 10 * ALPHA);
         assertEq(_parkedStake(NETUID1), 10 * ALPHA);
     }
 
-    function test_gas_recoverStray_merged_64Validators() public {
+    function test_gas_recoverStray_merged_10Validators() public {
         bytes32[] memory hotkeys = _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
         bytes32 source = keccak256("merged-recovery");
@@ -262,7 +272,7 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
 
         vault.recoverStray(TOKEN1, source);
-        vm.snapshotGasLastCall("AlphaVault", "recoverStray: collect merged source (64 validators)");
+        vm.snapshotGasLastCall("AlphaVault", "recoverStray: collect merged source (10 validators)");
 
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), 10 * ALPHA);
@@ -270,7 +280,7 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(source, NETUID1), 0);
     }
 
-    function test_gas_rebalance_releaseParked_64Validators() public {
+    function test_gas_rebalance_releaseParked_10Validators() public {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
@@ -281,19 +291,19 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         _reattestCurrentSet(NETUID1);
 
         vault.rebalance(NETUID1);
-        vm.snapshotGasLastCall("AlphaVault", "rebalance: release parked position (64 validators)");
+        vm.snapshotGasLastCall("AlphaVault", "rebalance: release parked position (10 validators)");
 
         assertFalse(vault.awaitingAttestation(TOKEN1));
         assertEq(_parkedStake(NETUID1), 0);
     }
 
-    function test_gas_previewUnwrap_64Validators() public {
+    function test_gas_previewUnwrap_10Validators() public {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
         uint256 shares = vault.balanceOf(alice, TOKEN1);
 
         lens.previewUnwrap(TOKEN1, shares / 2);
-        vm.snapshotGasLastCall("AlphaVaultLens", "previewUnwrap (64 validators)");
+        vm.snapshotGasLastCall("AlphaVaultLens", "previewUnwrap (10 validators)");
     }
 }

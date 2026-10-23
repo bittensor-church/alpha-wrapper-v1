@@ -56,7 +56,7 @@ jobs:
 
     services:
       subtensor:
-        image: ghcr.io/raofoundation/subtensor-localnet:v478@sha256:743922761409312d562d9338addd7e4c621aac87c16b5db2d698c5b3651e6051
+        image: ghcr.io/raofoundation/subtensor-localnet:v481@sha256:c2eb81b1a39d89ad7bcca5e36a3e7f39f589a6fa422be66d5d03b59a8584957e
         ports:
           - 9944:9944
           - 9945:9945

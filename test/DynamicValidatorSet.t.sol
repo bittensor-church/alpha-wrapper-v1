@@ -4,11 +4,11 @@ pragma solidity 0.8.36;
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 
-/// @dev Even weights over 64 validators are 156 bps each and 172 bps for the last; over 3, 3333, 3333 and 3334.
+/// @dev Even weights over 10 validators are 1000 bps each; over 3, 3333, 3333 and 3334.
 contract DynamicValidatorSetTest is AlphaVaultTestBase {
     uint256 private constant DEPOSIT = 10_000 * ALPHA;
 
-    /// @dev Keeps every target of a 64-validator spread above the 0.04-alpha move floor at 0.05 TAO/alpha.
+    /// @dev Keeps every target of a full-cap spread above the 0.004-alpha move floor at 0.05 TAO/alpha.
     uint256 private constant MIN_SPREADABLE = 10 * ALPHA;
 
     function _assertSpreadOnNetuid1(bytes32[] memory hks, uint256 eachStake, uint256 lastStake) private view {
@@ -19,7 +19,7 @@ contract DynamicValidatorSetTest is AlphaVaultTestBase {
         bytes32[] memory hks = _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _depositAndWrap(alice, NETUID1, DEPOSIT);
 
-        _assertSpreadOnNetuid1(hks, 156 * ALPHA, 172 * ALPHA);
+        _assertSpreadOnNetuid1(hks, 1_000 * ALPHA, 1_000 * ALPHA);
         assertEq(lens.totalStake(TOKEN1), DEPOSIT);
     }
 
@@ -52,15 +52,15 @@ contract DynamicValidatorSetTest is AlphaVaultTestBase {
         bytes32[] memory wide = _setValidatorCount(NETUID1, MAX_VALIDATORS);
         vault.rebalance(NETUID1);
 
-        _assertSpreadOnNetuid1(wide, 156 * ALPHA, 172 * ALPHA);
+        _assertSpreadOnNetuid1(wide, 1_000 * ALPHA, 1_000 * ALPHA);
         assertEq(_lastSeen(TOKEN1).length, MAX_VALIDATORS);
     }
 
-    /// @dev The dropped 0.172 alpha clears the move floor; most of the 63-way deficits it leaves (0.002 alpha) do not.
-    function test_Rebalance_DrainsDroppedBalanceTooSmallToSpread() public {
+    /// @dev The dropped 1 alpha clears the move floor; the 9-way deficits it leaves (0.111 alpha) do too.
+    function test_Rebalance_DrainsDroppedBalanceAndSpreadsIt() public {
         bytes32[] memory wide = _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-        assertEq(_getVaultStake(wide[MAX_VALIDATORS - 1], NETUID1), 172_000_000, "172 bps of 10 alpha");
+        assertEq(_getVaultStake(wide[MAX_VALIDATORS - 1], NETUID1), ALPHA, "1000 bps of 10 alpha");
 
         _setValidatorCount(NETUID1, MAX_VALIDATORS - 1);
         vault.rebalance(NETUID1);
@@ -117,11 +117,11 @@ contract DynamicValidatorSetTest is AlphaVaultTestBase {
 
     function test_Wrap_KeepsSmallPositionWholeWhenTargetsFallBelowFloor() public {
         bytes32[] memory hks = _setValidatorCount(NETUID1, MAX_VALIDATORS);
-        // Each slot's target is at most 0.0172 alpha, below the 0.04-alpha move floor.
-        _depositAndWrap(alice, NETUID1, ALPHA);
+        // Each slot's target is 0.001 alpha, below the 0.004-alpha move floor.
+        _depositAndWrap(alice, NETUID1, ALPHA / 100);
 
-        assertEq(_getVaultStake(hks[0], NETUID1), ALPHA, "position stays where it landed");
-        assertEq(lens.totalStake(TOKEN1), ALPHA, "and is fully priced");
+        assertEq(_getVaultStake(hks[0], NETUID1), ALPHA / 100, "position stays where it landed");
+        assertEq(lens.totalStake(TOKEN1), ALPHA / 100, "and is fully priced");
     }
 
     function testFuzz_Wrap_KeepsTheWholeDepositAcrossAnyValidatorCount(uint256 count, uint256 amount) public {
@@ -156,7 +156,7 @@ contract DynamicValidatorSetTest is AlphaVaultTestBase {
     function testFuzz_Unwrap_DeliversPreviewAtAnyValidatorCount(uint256 count, uint256 amount, uint256 burnBps) public {
         count = bound(count, 1, MAX_VALIDATORS);
         amount = bound(amount, MIN_SPREADABLE, MAX_SUBNET_ALPHA);
-        // At least 1% of 10 alpha clears the 0.04-alpha exit floor.
+        // At least 1% of 10 alpha clears the 0.004-alpha exit floor.
         burnBps = bound(burnBps, 100, BPS_BASE);
 
         bytes32[] memory hks = _setValidatorCount(NETUID1, count);

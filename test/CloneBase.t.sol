@@ -3,6 +3,7 @@ pragma solidity 0.8.36;
 
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { CloneBase } from "src/CloneBase.sol";
+import { DepositMailbox } from "src/DepositMailbox.sol";
 import { SubnetClone } from "src/SubnetClone.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
@@ -15,7 +16,7 @@ contract CloneBaseTest is AlphaVaultTestBase {
 
     function setUp() public override {
         super.setUp();
-        directClone = SubnetClone(payable(Clones.clone(address(subnetLogic))));
+        directClone = SubnetClone(Clones.clone(address(subnetLogic)));
         directClone.initialize(address(this));
         directCloneColdkey = _toSubstrate(address(directClone));
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, directCloneColdkey, NETUID1, 50 * ALPHA);
@@ -61,7 +62,29 @@ contract CloneBaseTest is AlphaVaultTestBase {
 
         vm.prank(bob);
         vm.expectRevert(CloneBase.NotWrapper.selector);
-        CloneBase(payable(mailbox)).flush(_toSubstrate(bob), hotkey1, NETUID1, 10 * ALPHA);
+        CloneBase(mailbox).flush(_toSubstrate(bob), hotkey1, NETUID1, 10 * ALPHA);
+    }
+
+    function test_TransferStakeAndHotkey_NoOpOnZero() public {
+        DepositMailbox directMailbox = DepositMailbox(Clones.clone(address(mailboxLogic)));
+        directMailbox.initialize(address(this));
+        MockStaking(STAKING_PRECOMPILE).setTransferStakeReverts(true);
+
+        directMailbox.transferStakeAndHotkey(directCloneColdkey, hotkey1, hotkey2, uint16(NETUID1), 0);
+
+        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey2, directCloneColdkey, NETUID1), 0);
+    }
+
+    function test_RevertWhen_NonWrapperTransfersMailboxAlphaAndHotkey() public {
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
+        address mailbox = vault.getDepositAddress(alice, NETUID1);
+
+        vm.prank(bob);
+        vm.expectRevert(CloneBase.NotWrapper.selector);
+        DepositMailbox(mailbox)
+            .transferStakeAndHotkey(
+                _toSubstrate(bob), _toSubstrate(mailbox), hotkey1, uint16(NETUID1), uint64(10 * ALPHA)
+            );
     }
 
     function test_RevertWhen_NonWrapperSellsMailboxAlpha() public {
@@ -70,7 +93,7 @@ contract CloneBaseTest is AlphaVaultTestBase {
 
         vm.prank(bob);
         vm.expectRevert(CloneBase.NotWrapper.selector);
-        CloneBase(payable(mailbox)).sellAlphaForTao(hotkey1, NETUID1, 10 * ALPHA);
+        CloneBase(mailbox).sellAlphaForTao(hotkey1, NETUID1, 10 * ALPHA);
     }
 
     function test_RevertWhen_NonWrapperMovesSubnetCloneStake() public {
@@ -79,7 +102,16 @@ contract CloneBaseTest is AlphaVaultTestBase {
 
         vm.prank(bob);
         vm.expectRevert(CloneBase.NotWrapper.selector);
-        SubnetClone(payable(vaultClone)).moveStake(hotkey1, hotkey2, NETUID1, 1 * ALPHA);
+        SubnetClone(vaultClone).moveStake(hotkey1, hotkey2, NETUID1, 1 * ALPHA);
+    }
+
+    function test_RevertWhen_NonWrapperTogglesTheGrowthFlag() public {
+        _prepareMailbox(alice, NETUID1);
+        address vaultClone = vault.subnetClone(TOKEN1);
+
+        vm.prank(bob);
+        vm.expectRevert(CloneBase.NotWrapper.selector);
+        SubnetClone(vaultClone).setRejectStakingHotkeyGrowth(false);
     }
 
     function test_RevertWhen_NonWrapperUnwrapsSubnetCloneTao() public {
@@ -89,7 +121,16 @@ contract CloneBaseTest is AlphaVaultTestBase {
 
         vm.prank(bob);
         vm.expectRevert(CloneBase.NotWrapper.selector);
-        SubnetClone(payable(vaultClone)).unwrapTao(payable(bob), 5 * TAO);
+        SubnetClone(vaultClone).unwrapTao(payable(bob), 5 * TAO);
+    }
+
+    function test_RevertWhen_NonWrapperMovesSubnetCloneTao() public {
+        _prepareMailbox(alice, NETUID1);
+        address vaultClone = vault.subnetClone(TOKEN1);
+
+        vm.prank(bob);
+        vm.expectRevert(CloneBase.NotWrapper.selector);
+        SubnetClone(vaultClone).transferAllTao(_toSubstrate(bob));
     }
 
     function test_RevertWhen_MailboxIsInitializedAgain() public {
@@ -97,14 +138,14 @@ contract CloneBaseTest is AlphaVaultTestBase {
 
         vm.prank(bob);
         vm.expectRevert(CloneBase.AlreadyInitialized.selector);
-        CloneBase(payable(mailbox)).initialize(bob);
+        CloneBase(mailbox).initialize(bob);
     }
 
     function test_RevertWhen_CallerInitializesACloneForAnotherWrapper() public {
         address fresh = Clones.clone(address(mailboxLogic));
 
         vm.expectRevert(CloneBase.UnauthorizedInitializer.selector);
-        CloneBase(payable(fresh)).initialize(bob);
+        CloneBase(fresh).initialize(bob);
     }
 
     function test_RevertWhen_MailboxImplementationIsInitialized() public {

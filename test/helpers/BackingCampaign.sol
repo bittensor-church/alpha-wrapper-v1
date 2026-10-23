@@ -3,7 +3,7 @@ pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { AlphaVaultTestBase } from "../AlphaVaultTestBase.sol";
-import { CHAIN_MIN_STAKE, MockStaking } from "../mocks/MockStaking.sol";
+import { CHAIN_MIN_TRANSFER, MockStaking } from "../mocks/MockStaking.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
@@ -44,7 +44,7 @@ function backingErrors(uint256 extra) pure returns (bytes4[] memory errors, uint
     next = 5;
 }
 
-/// @dev Campaign deposits of 10 alpha or more clear the minimum stake at every campaign price.
+/// @dev Campaign deposits of 10 alpha or more clear the move floor at every campaign price.
 function wrapErrors() pure returns (bytes4[] memory errors) {
     uint256 next;
     (errors, next) = backingErrors(3);
@@ -86,6 +86,13 @@ function recoverErrors() pure returns (bytes4[] memory errors) {
     errors[0] = NothingToRecover.selector;
     errors[1] = BackingShortfall.selector;
     errors[2] = IAlphaVaultAbi.ConsolidationBelowFloor.selector;
+}
+
+/// @dev A replacement opens the backing record and nothing else that the campaign can refuse.
+function replaceErrors() pure returns (bytes4[] memory errors) {
+    errors = new bytes4[](2);
+    errors[0] = ShortfallOnFile.selector;
+    errors[1] = BackingShortfall.selector;
 }
 
 /// @dev What a refused call asked for, so the refusal can be checked against the state that justifies it.
@@ -143,9 +150,8 @@ abstract contract BackingCampaignHandler is Test {
     function wrap(uint256 actorSeed, uint256 amount, uint256 hotkeySeed) external {
         address actor = _actor(actorSeed);
         bytes32 hotkey = _attested(hotkeySeed);
-        // The chain refuses stake operations on a hotkey without an owner record, so nothing lands there.
-        if (!harness.depositTo(actor, bound(amount, 10, 1_000) * 1e9, hotkey)) return;
-        uint256 deposit = harness.mailboxStake(actor, hotkey);
+        harness.depositTo(actor, bound(amount, 10, 1_000) * 1e9);
+        uint256 deposit = harness.mailboxStake(actor);
         vm.prank(actor);
         try vault.wrap(netuid, hotkey, 0) {
             ++wraps;
@@ -286,7 +292,7 @@ abstract contract BackingCampaignHandler is Test {
             } else {
                 assertLt(
                     harness.taoValueAtRead(harness.leastAssetsFor(attempt.shares)),
-                    CHAIN_MIN_STAKE,
+                    2 * CHAIN_MIN_TRANSFER,
                     "refused an exit above the floor"
                 );
             }
@@ -557,7 +563,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
             if (held > richest) richest = held;
             if (held != 0) exposed = true;
         }
-        return !exposed || taoValueAtRead(richest) < CHAIN_MIN_STAKE;
+        return !exposed || taoValueAtRead(richest) < MOVE_FLOOR;
     }
 
     function nothingToCollectFrom(bytes32 source) external view returns (bool) {
@@ -570,7 +576,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
     }
 
     function _belowFloorAtAnyPrice(uint256 alpha) private view returns (bool) {
-        return alpha != 0 && alpha * (_alphaPriceRead(NETUID1) + 1e9) / 1e18 < CHAIN_MIN_STAKE;
+        return alpha != 0 && alpha * (_alphaPriceRead(NETUID1) + 1e9) / 1e18 < MOVE_FLOOR;
     }
 
     function _successorOf(bytes32 hotkey) private view returns (bytes32) {
@@ -630,13 +636,13 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
             + _getStakeForColdkey(vault.parkingHotkey(), coldkey, NETUID1);
     }
 
-    function depositTo(address user, uint256 amount, bytes32 hotkey) external returns (bool deposited) {
-        (deposited,) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey);
-        if (deposited) _simulateAlphaDepositHotkey(user, NETUID1, amount, hotkey);
+    function depositTo(address user, uint256 amount) external {
+        _simulateAlphaDeposit(user, NETUID1, amount);
     }
 
-    function mailboxStake(address user, bytes32 hotkey) external view returns (uint256) {
-        return _getStakeForColdkey(hotkey, _mailboxColdkey(user, NETUID1), NETUID1);
+    function mailboxStake(address user) external view returns (uint256) {
+        bytes32 mailboxColdkey = _mailboxColdkey(user, NETUID1);
+        return _getStakeForColdkey(mailboxColdkey, mailboxColdkey, NETUID1);
     }
 
     function attest(bytes32[] memory set) external {

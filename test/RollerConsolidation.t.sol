@@ -10,9 +10,9 @@ import { ALPHA_PRECOMPILE, IAlpha } from "src/interfaces/IAlpha.sol";
 import { WithdrawTooSmall } from "src/VaultErrors.sol";
 
 contract RollerConsolidationTest is AlphaVaultTestBase {
-    /// @dev The largest pile worth less than the 2e6-RAO minimum stake even at 0.05 TAO/alpha plus the
-    ///      price read's 1e9 quantum: 0.04 alpha minus one RAO.
-    uint256 private constant DUST = 39_999_999;
+    /// @dev The largest pile worth less than the 2e5-RAO move floor even at 0.05 TAO/alpha plus the
+    ///      price read's 1e9 quantum: 0.004 alpha minus one RAO.
+    uint256 private constant DUST = 3_999_999;
 
     /// @dev At a price the EVM reads as zero (5e-10 TAO/alpha) the chain moves only piles of 200,000 alpha
     ///      or more, so positions there are sized in millions of alpha.
@@ -20,7 +20,7 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
 
     function _seedDustOnlyVault() private returns (uint256 tokenId) {
         _registerSubnet(99, hotkey4);
-        _simulateAlphaDepositHotkey(alice, 99, 10 * ALPHA, hotkey4);
+        _simulateAlphaDeposit(alice, 99, 10 * ALPHA);
         _wrapHotkey(alice, 99, hotkey4);
         tokenId = vault.currentTokenId(99);
         _plantVaultStake(hotkey4, 99, DUST);
@@ -47,11 +47,11 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
     function test_Wrap_ConsolidatesRotatedOutStakeUsingFreshDeposit() public {
         uint256 tokenId = _seedDustOnlyVault();
 
-        _simulateAlphaDepositHotkey(bob, 99, 5 * ALPHA, hotkey1);
+        _simulateAlphaDeposit(bob, 99, 5 * ALPHA);
         _wrapHotkey(bob, 99, hotkey1);
 
-        // 5e9 * (1e19 + 1e9) / (39,999,999 + 1): the dust already backs alice's 1e19 shares.
-        assertEq(vault.balanceOf(bob, tokenId), 1_250_000_000_125_000_000_000, "priced against the dust");
+        // 5e9 * (1e19 + 1e9) / (3,999,999 + 1): the dust already backs alice's 1e19 shares.
+        assertEq(vault.balanceOf(bob, tokenId), 12_500_000_001_250_000_000_000, "priced against the dust");
         assertEq(_getVaultStake(hotkey4, 99), 0, "rotated-out dust consolidated by the roll");
         assertEq(lens.totalStake(tokenId), 5 * ALPHA + DUST, "rotated-out stake folded into the current-set backing");
         bytes32[] memory seen = _lastSeen(tokenId);
@@ -93,7 +93,7 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
     function test_Rebalance_FoldsDustAfterShortCreditedDrain() public {
         _setRegBlock(99, 300);
         _setValidators(99, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
-        _simulateAlphaDepositHotkey(alice, 99, 300 * ALPHA, hotkey1);
+        _simulateAlphaDeposit(alice, 99, 300 * ALPHA);
         _wrapHotkey(alice, 99, hotkey1);
         uint256 tokenId = vault.currentTokenId(99);
 
@@ -146,8 +146,8 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
         vm.prank(alice);
         vault.unwrapForTao(tokenId, shares, 0);
 
-        // 39,999,999 RAO of alpha at 0.05 TAO, rounded down to the RAO.
-        assertEq(alice.balance, 1_999_999 * VaultMath.TAO_NATIVE_QUANTUM, "full dust value recovered as TAO");
+        // 3,999,999 RAO of alpha at 0.05 TAO, rounded down to the RAO.
+        assertEq(alice.balance, 199_999 * VaultMath.TAO_NATIVE_QUANTUM, "full dust value recovered as TAO");
         assertEq(lens.totalStake(tokenId), 0, "nothing left behind");
     }
 

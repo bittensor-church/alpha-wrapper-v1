@@ -6,7 +6,7 @@ Substrate extrinsics.
 ## Requirements
 
 - Localnet at `ws://127.0.0.1:9944` / `http://127.0.0.1:9944`. CI runs
-  `ghcr.io/raofoundation/subtensor-localnet:v478`, pinned by digest in
+  `ghcr.io/raofoundation/subtensor-localnet:v481`, pinned by digest in
   `.github/workflows/e2e.yml`; use the same image locally.
 - Dev Alice funded, as the localnet genesis does. Bootstrap funds every other
   account it uses from Alice.
@@ -60,18 +60,25 @@ Scenario files in `tests/` cover:
   `scripts/plan_tao_exit.py`), both mailbox reclaims, emissions, rotation and observability.
 - `test_transfers_off.py`, `test_convicted_alpha.py`: disabled transfers and locks.
 - `test_locked_deposit.py`: poisoned candidates are rejected before deployment
-  and a fresh UID creates protected mailboxes and subnet clones that own their
-  own hotkeys, so coldkey swaps and locked-alpha transfers into them are refused
-  on the real chain; an honest deposit still wraps and exits.
+  and a fresh UID creates protected mailboxes and subnet clones, each an owned
+  hotkey (a mailbox its own, a subnet clone its owner contract's), so coldkey swaps and
+  locked-alpha transfers into them are refused on the real chain; an honest
+  deposit still wraps and exits.
+- `test_reject_hotkey_growth.py`: a candidate that already stakes is rejected, a
+  stranger cannot add a hotkey (hotkey 0x0 included) to a mailbox's or clone's
+  staking list after creation, a crumb sent under a listed validator keeps its
+  entry after a rotation, and deposits land before and after a full exit.
+- `test_empty_token_write_off.py`: a crumb keeps the attested validator listed after the
+  last exit, so a gift to the emptied token lands, is swept and written off; the token
+  stays open and the next deposit wraps without a registry update.
+- `test_retained_entries_recovery.py`: with such a crumb retained, a stranger cuts
+  the trail behind a validator's rename; the watcher parks the position, an owner
+  update releases, and deposits and exits continue.
 - `test_subnet_dissolved.py`: refunds and mailbox recovery.
 - `test_min_stake_floor.py`, `test_dust_dos.py`, `test_min_stake_liveness.py`:
   minimums, top-ups, dust and repeated position changes.
 - `test_claimable_tao.py`: forced-sale proceeds become claimable, and the swept
   position's loss is written off once a short recovery window expires.
-- `test_empty_token_write_off.py`: a gift to an emptied token is swept and written off;
-  the token stays open and the next deposit wraps without a registry update.
-- `test_zero_hotkey.py`: alpha the vault or a mailbox holds on hotkey 0x0 is collected with
-  `recoverStray` and reclaimed like under any other hotkey; a wrap still cannot name it.
 - `test_parked_stake.py`: a rename that leaves the stake and the owner record behind,
   where exits keep paying from the old name and follow the successor once the owner
   names it; and a rename that carries the stake, which exits follow before the registry
@@ -85,6 +92,12 @@ Scenario files in `tests/` cover:
   old one redeems its dissolution refund.
 - `test_validator_coldkey_swap.py`: a validator swaps its coldkey; wraps, rebalances and
   exits continue without a new attestation.
+- `test_staking_list_cap.py`: a clone's staking list walked to its last admitted
+  entry, where a rebalance and a deposit onto a fresh validator are refused;
+  `replaceClone` moves the position, the deposit lands and the token exits. Gas rows:
+  deposit and `previewUnwrap` on the fresh clone; deposit, partial exit and
+  `previewUnwrap` on the full list; the replacement; deposit, `previewUnwrap` and full
+  exit on the successor.
 Each module's docstring describes its sequence. These scenarios exercise specific
 recovery conditions, not an unconditional exit guarantee; see the
 [design](../docs/hotkey-swaps.md).

@@ -3,7 +3,7 @@ import re
 
 import pytest
 
-from alpha_e2e import chain, checks, config, exits, extrinsics
+from alpha_e2e import chain, checks, config, exits
 from alpha_e2e.checks import run_observability_script
 from alpha_e2e.substrate import h160_to_ss58
 
@@ -17,12 +17,8 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
     for subnet_index, netuid in enumerate(env.netuids):
         mailbox = env.mailbox_address(netuid)
         print(f"  netuid {netuid} mailbox: {mailbox} ({h160_to_ss58(mailbox)})")
-        hotkey_pubkey = env.subnet_hotkey_pubkeys(subnet_index)[0]
-        extrinsics.transfer_stake(
-            h160_to_ss58(mailbox), env.hotkey_ss58s[subnet_index * config.VALIDATORS_PER_SUBNET], netuid,
-            config.DEPOSIT_RAO,
-        )
-        mailbox_stake = env.stake(hotkey_pubkey, env.mailbox_coldkey(netuid), netuid)
+        env.send_to_mailbox(netuid, env.hotkey_ss58s[subnet_index * config.VALIDATORS_PER_SUBNET], config.DEPOSIT_RAO)
+        mailbox_stake = env.mailbox_deposit(netuid)
         assert mailbox_stake >= config.DEPOSIT_RAO - config.ROUNDING_DUST_SLOT_RAO, (
             f"mailbox {mailbox} holds {mailbox_stake} RAO after a {config.DEPOSIT_RAO} RAO transfer"
         )
@@ -32,7 +28,7 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
         hotkey_pubkey = env.subnet_hotkey_pubkeys(subnet_index)[0]
         min_shares_out = 0
         if subnet_index == 0:
-            deposit_alpha = env.stake(hotkey_pubkey, env.mailbox_coldkey(netuid), netuid)
+            deposit_alpha = env.mailbox_deposit(netuid)
             quoted_shares = env.preview_wrap(env.token_ids[subnet_index], deposit_alpha)
             checks.assert_first_deposit_shares(quoted_shares, deposit_alpha, "previewWrap on an empty position")
             env.assert_vault_reverts_with(
@@ -52,7 +48,7 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
         token_id = env.token_ids[subnet_index]
         hotkeys = env.subnet_hotkey_pubkeys(subnet_index)
         receipt = wrap_receipts[subnet_index]
-        deposited = env.deposited(receipt, netuid, hotkeys[0])
+        deposited = env.deposited(receipt, netuid)
         shares = env.vault_shares(token_id)
         print(f"  netuid {netuid} (tokenId {token_id}): deposited {deposited} RAO, shares={shares}")
         checks.assert_first_deposit_shares(shares, deposited, f"netuid {netuid}")
@@ -200,33 +196,28 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
         )
 
     reclaim_netuid = env.netuids[0]
-    reclaim_hotkey_pubkey = env.hotkey_pubkeys[0]
     reclaim_hotkey_ss58 = env.hotkey_ss58s[0]
-
-    extrinsics.transfer_stake(
-        h160_to_ss58(env.mailbox_address(reclaim_netuid)), reclaim_hotkey_ss58, reclaim_netuid, config.DEPOSIT_RAO,
-    )
-    exits.reclaim_mailbox_alpha_as_tao(env, reclaim_netuid, reclaim_hotkey_pubkey, "mailbox sale")
-
-    extrinsics.transfer_stake(
-        h160_to_ss58(env.mailbox_address(reclaim_netuid)), reclaim_hotkey_ss58, reclaim_netuid, config.DEPOSIT_RAO,
-    )
     mailbox_coldkey = env.mailbox_coldkey(reclaim_netuid)
+
+    env.send_to_mailbox(reclaim_netuid, reclaim_hotkey_ss58, config.DEPOSIT_RAO)
+    exits.reclaim_mailbox_alpha_as_tao(env, reclaim_netuid, "mailbox sale")
+
+    env.send_to_mailbox(reclaim_netuid, reclaim_hotkey_ss58, config.DEPOSIT_RAO)
     reclaim_receipt = env.vault_send_between_epochs(
         reclaim_netuid, 1_500_000, "reclaimAlphaFromMailbox failed",
-        "reclaimAlphaFromMailbox(uint256,bytes32,bytes32)",
-        reclaim_netuid, reclaim_hotkey_pubkey, env.wrapper_substrate_coldkey,
+        "reclaimAlphaFromMailbox(uint256,bytes32)",
+        reclaim_netuid, env.wrapper_substrate_coldkey,
     )
     reclaim_block = chain.receipt_block_number(reclaim_receipt, "reclaimAlphaFromMailbox")
-    released = -env.stake_change(mailbox_coldkey, reclaim_netuid, [reclaim_hotkey_pubkey], reclaim_block)
-    returned = env.stake_change(env.wrapper_substrate_coldkey, reclaim_netuid, [reclaim_hotkey_pubkey], reclaim_block)
+    released = -env.stake_change(mailbox_coldkey, reclaim_netuid, [mailbox_coldkey], reclaim_block)
+    returned = env.stake_change(env.wrapper_substrate_coldkey, reclaim_netuid, [mailbox_coldkey], reclaim_block)
     assert released >= config.DEPOSIT_RAO - config.ROUNDING_DUST_SLOT_RAO, (
         f"the mailbox released {released} RAO of a {config.DEPOSIT_RAO} RAO deposit"
     )
     assert abs(returned - released) <= config.ROUNDING_DUST_SLOT_RAO, (
         f"the user got back {returned} RAO of the {released} RAO the mailbox released"
     )
-    leftover = env.stake(reclaim_hotkey_pubkey, mailbox_coldkey, reclaim_netuid, reclaim_block)
+    leftover = env.stake(mailbox_coldkey, mailbox_coldkey, reclaim_netuid, reclaim_block)
     assert leftover <= config.ROUNDING_DUST_SLOT_RAO, f"the mailbox still holds {leftover} RAO after the reclaim"
 
     tao_exit_netuid = env.netuids[1]
@@ -294,7 +285,7 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
         emission_netuid, emission_hotkeys[0], env.hotkey_ss58s[0],
         50 * config.RAO_PER_ALPHA, 1_500_000, "Phase 14 wrap failed",
     )
-    emission_deposited = env.deposited(receipt, emission_netuid, emission_hotkeys[0])
+    emission_deposited = env.deposited(receipt, emission_netuid)
     backing_at_wrap = env.total_stake_across(
         emission_clone, emission_netuid, emission_hotkeys, chain.receipt_block_number(receipt, "Phase 14 wrap"),
     )
@@ -323,7 +314,7 @@ def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
         rotation_netuid, rotated_out_hotkey, env.hotkey_ss58s[3],
         60 * config.RAO_PER_ALPHA, 1_500_000, "Phase 15 wrap failed",
     )
-    rotation_deposited = env.deposited(receipt, rotation_netuid, rotated_out_hotkey)
+    rotation_deposited = env.deposited(receipt, rotation_netuid)
     rotation_clone_coldkey = env.clone_coldkey(rotation_token_id)
     rotated_out_stake = env.stake(rotated_out_hotkey, rotation_clone_coldkey, rotation_netuid)
     assert rotated_out_stake != 0, "Phase 15: no stake under the validator to rotate out"

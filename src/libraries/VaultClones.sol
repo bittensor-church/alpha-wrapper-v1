@@ -20,25 +20,36 @@ library VaultClones {
         VaultReads.requireNotDissolving(nid);
         clone = subnetClone[tokenId];
         if (clone == address(0)) {
-            clone = factory.deploySubnetClone(tokenId, nid, uid);
-            _initializeClone(clone);
+            clone = deployProtectedClone(factory, tokenId, nid, uid);
             subnetClone[tokenId] = clone;
             emit IAlphaVaultAbi.SubnetProxyCreated(tokenId, clone);
         }
         mailbox = mailboxes[msg.sender][netuid];
         if (mailbox == address(0)) {
             mailbox = factory.deployMailbox(msg.sender, nid, uid);
-            _initializeClone(mailbox);
+            bytes32 mailboxColdkey = VaultReads.coldkeyOf(mailbox);
+            _initializeClone(mailbox, mailboxColdkey, mailboxColdkey);
             mailboxes[msg.sender][netuid] = mailbox;
             emit IAlphaVaultAbi.MailboxCreated(msg.sender, netuid, mailbox);
         }
     }
 
-    function _initializeClone(address clone) private {
-        CloneBase(payable(clone)).initialize(address(this));
+    /// @dev A subnet clone must own no hotkey: the chain hands a subnet to whoever owns its most convicted
+    ///      hotkey and then locks the owner's cut onto that coldkey, which would freeze the clone. A
+    ///      throwaway contract owns the clone's account instead, which still refuses coldkey swaps into it.
+    function deployProtectedClone(CloneFactory factory, uint256 tokenId, uint16 netuid, bytes32 uid)
+        internal returns (address clone) {
+        clone = factory.deploySubnetClone(tokenId, netuid, uid);
         bytes32 coldkey = VaultReads.coldkeyOf(clone);
-        if (!VaultReads.ownedBy(coldkey, coldkey) || !IStaking(STAKING_PRECOMPILE).getRejectLockedAlpha(coldkey)) {
-            revert IAlphaVaultAbi.CloneProtectionFailed(clone);
-        }
+        address owner = factory.deployCloneOwner(coldkey, netuid);
+        _initializeClone(clone, coldkey, VaultReads.coldkeyOf(owner));
+    }
+
+    function _initializeClone(address clone, bytes32 coldkey, bytes32 owner) private {
+        CloneBase(clone).initialize(address(this));
+        IStaking staking = IStaking(STAKING_PRECOMPILE);
+        if (
+            !VaultReads.ownedBy(coldkey, owner) || !staking.getRejectLockedAlpha(coldkey)
+        ) revert IAlphaVaultAbi.CloneProtectionFailed(clone);
     }
 }

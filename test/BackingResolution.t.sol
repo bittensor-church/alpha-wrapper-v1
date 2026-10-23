@@ -242,8 +242,8 @@ contract BackingResolutionTest is AlphaVaultTestBase {
 
     /// @dev No edge distinguishes a dust sweep from an erased swap trail; neither permits immediate repricing.
     function testFuzz_RevertWhen_EmptiedWithoutAnEdge_AtAnyPriceOrSize(uint256 deposit, uint256 priceRao) public {
-        // From the 0.04 alpha deposit floor at 0.05 TAO/alpha; prices 0.001 to 0.2 TAO/alpha in whole RAO.
-        deposit = bound(deposit, 4e7, 100_000 * ALPHA);
+        // From the 0.004 alpha deposit floor at 0.05 TAO/alpha; prices 0.001 to 0.2 TAO/alpha in whole RAO.
+        deposit = bound(deposit, ALPHA_MOVE_FLOOR, 100_000 * ALPHA);
         uint256 netuid = 5;
         _registerSubnet(netuid, hotkey1);
         _depositAndWrap(alice, netuid, deposit);

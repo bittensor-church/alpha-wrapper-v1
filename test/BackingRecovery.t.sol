@@ -44,7 +44,6 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     /// @dev The registry nonce setUp's attestation leaves on NETUID1.
     uint256 private constant SETUP_NONCE = 1;
     uint256 private constant GIFT = 3_000_000;
-    address private donor = makeAddr("donor");
 
     /// @dev Swaps hotkey1's slot away along an unfollowed trail and declares the loss.
     function _declaredShortfall() private returns (uint256 shares) {
@@ -126,7 +125,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
     function test_RevertWhen_WrappingWhileAShortfallIsOnFile() public {
         _declaredShortfall();
-        _simulateAlphaDepositHotkey(bob, NETUID1, 6 * ALPHA, hotkey2);
+        _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
 
         vm.expectRevert(ShortfallOnFile.selector);
         _wrapHotkey(bob, NETUID1, hotkey2);
@@ -549,12 +548,8 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         assertEq(vault.totalSupply(TOKEN1), 0, "nobody holds the token");
     }
 
-    function _giftToEmptyToken(bytes32 hotkey, uint256 amount) private {
-        MockStaking mock = MockStaking(STAKING_PRECOMPILE);
-        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
-        mock.setStake(hotkey, _toSubstrate(donor), NETUID1, amount);
-        vm.prank(donor);
-        mock.transferStake(cloneColdkey, hotkey, NETUID1, NETUID1, amount);
+    function _plantUnheldStake(bytes32 hotkey, uint256 amount) private {
+        MockStaking(STAKING_PRECOMPILE).setStake(hotkey, _subnetColdkey(NETUID1), NETUID1, amount);
     }
 
     function _rootSweep(bytes32 hotkey) private {
@@ -569,9 +564,9 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
     function test_WriteOffAtZeroSupply_ReopensDepositsWithoutRegistryAction() public {
         _exitEveryShare();
-        _giftToEmptyToken(hotkey3, GIFT);
+        _plantUnheldStake(hotkey3, GIFT);
         vault.rebalance(NETUID1);
-        assertEq(vault.recordedSlots(TOKEN1)[2].tracked, GIFT, "the gift is recorded");
+        assertEq(vault.recordedSlots(TOKEN1)[2].tracked, GIFT, "the unheld stake is recorded");
 
         _rootSweep(hotkey3);
         _declareAndWriteOff();
@@ -588,11 +583,11 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function testFuzz_WriteOffAtZeroSupply_ReopensTheEmptyToken(uint256 rawGift) public {
-        uint256 gift = bound(rawGift, 2_000_000, ALPHA_FLOOR - 1);
+        uint256 gift = bound(rawGift, 2_000_000, ALPHA_MOVE_FLOOR - 1);
         _exitEveryShare();
-        _giftToEmptyToken(hotkey3, gift);
+        _plantUnheldStake(hotkey3, gift);
         vault.rebalance(NETUID1);
-        assertEq(vault.recordedSlots(TOKEN1)[2].tracked, gift, "the gift is recorded");
+        assertEq(vault.recordedSlots(TOKEN1)[2].tracked, gift, "the unheld stake is recorded");
 
         _rootSweep(hotkey3);
         vault.syncBacking(TOKEN1);
@@ -618,8 +613,8 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
     function test_WriteOffAtZeroSupply_KeepsTheLocatedAlphaForTheNextDepositor() public {
         _exitEveryShare();
-        _giftToEmptyToken(hotkey1, 50_000_000);
-        _giftToEmptyToken(hotkey3, 30_000_000);
+        _plantUnheldStake(hotkey1, 50_000_000);
+        _plantUnheldStake(hotkey3, 30_000_000);
         vault.rebalance(NETUID1);
         assertEq(lens.totalStake(TOKEN1), 80_000_000, "the vault records stake nobody holds shares for");
 
@@ -645,7 +640,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_SubFloorBacking_DeclaresWritesOffAndRemainsRecoverable() public {
-        uint256 dust = ALPHA_FLOOR / 2;
+        uint256 dust = ALPHA_MOVE_FLOOR / 2;
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 coldkey = _subnetColdkey(NETUID1);
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, coldkey, NETUID1, dust);
@@ -716,7 +711,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         _parkedPosition();
         _reattestCurrentSet(NETUID1);
 
-        _simulateAlphaDepositHotkey(bob, NETUID1, 6 * ALPHA, hotkey2);
+        _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
         _wrapHotkey(bob, NETUID1, hotkey2);
 
         assertEq(vault.balanceOf(bob, TOKEN1), 6e18, "6 alpha against 30 alpha on 3e19 shares");
@@ -887,7 +882,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         uint256 tokenId = hourVault.currentTokenId(NETUID1);
         vm.prank(alice);
         (address mailbox,) = hourVault.createMailbox(NETUID1, keccak256("fixture-creation"));
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, _toSubstrate(mailbox), NETUID1, 10 * ALPHA);
+        MockStaking(STAKING_PRECOMPILE).setStake(_toSubstrate(mailbox), _toSubstrate(mailbox), NETUID1, 10 * ALPHA);
         vm.prank(alice);
         hourVault.wrap(NETUID1, hotkey1, 0);
 
@@ -955,7 +950,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
         _reattestCurrentSet(NETUID1);
         cohorts.recapitalizationDeposit = cohorts.backingAfterWriteOff == 0
-            ? bound(recapitalizationSeed, ALPHA_FLOOR, ALPHA)
+            ? bound(recapitalizationSeed, ALPHA_MOVE_FLOOR, ALPHA)
             : bound(recapitalizationSeed, cohorts.backingAfterWriteOff / 4, cohorts.backingAfterWriteOff * 4);
         _addRecapitalizer(cohorts);
         for (uint256 i; i < hiddenSlotCount; ++i) {

@@ -3,14 +3,18 @@
 The wrapper keeps Bittensor alpha staked and issues transferable ERC-1155 shares.
 A live position can normally redeem for staked alpha or sell it for native TAO.
 Recovery, chain minimums and subnet state can temporarily prevent exits.
-Emissions raise the backing without minting shares.
+Emissions raise the backing behind each share.
 
 ## Contracts
 
 - `AlphaVault`: deposits, shares, exits and permissionless maintenance.
 - `AlphaVaultLens`: read-only backing and payout quotes.
 - `SubnetClone`: one vault-controlled coldkey per subnet registration, isolating
-  that position's stake and TAO from other positions.
+  that position's stake and TAO from other positions, replaced by a fresh one
+  once its staking list is full.
+- `CloneOwner`: a throwaway contract that owns one subnet clone's account as a
+  hotkey, so the staking-list entry that ownership adds lands on its list
+  instead of the vault's.
 - `DepositMailbox`: one accepted address per user and netuid. The vault only
   credits the caller's own mailbox.
 - `CloneFactory`: a vault-owned deployer that checks each candidate account

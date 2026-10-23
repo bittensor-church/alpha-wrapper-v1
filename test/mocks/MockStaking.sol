@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
+import { Vm } from "forge-std/Vm.sol";
 import { VaultMath } from "src/libraries/VaultMath.sol";
 import { MockAlpha } from "./MockAlpha.sol";
 import { MockSubnetPrecompile } from "./MockSubnetPrecompile.sol";
 import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { SUBNET_PRECOMPILE } from "src/interfaces/ISubnet.sol";
+import { MAX_STAKING_HOTKEYS, STAKING_LIST_PAGE } from "src/interfaces/IStaking.sol";
 
 /// @dev Fixtures must seed minimums after `vm.etch`, which copies code but not storage.
 uint256 constant CHAIN_MIN_STAKE = 2e6;
@@ -14,9 +16,15 @@ uint256 constant CHAIN_MIN_TRANSFER = 1e5;
 
 uint256 constant CHAIN_NOMINATOR_MIN_STAKE = 20e6;
 
+uint256 constant MAX_THIRD_PARTY_STAKING_HOTKEYS = 128;
+
+address constant VM_ADDRESS = address(uint160(uint256(keccak256("hevm cheat code"))));
+
 /// @dev Uses keccak256, not Frontier's blake2b. Every refusal consumes the forwarded gas and returns no data,
 ///      as a refused precompile dispatch does.
 contract MockStaking {
+    Vm private constant VM = Vm(VM_ADDRESS);
+    mapping(bytes32 => address) public evmAccountOf;
     mapping(bytes32 => mapping(bytes32 => mapping(uint256 => uint256))) private _stakes;
     uint256 public moveStakeRoundingLoss;
     uint256 public moveStakeResidual;
@@ -59,10 +67,91 @@ contract MockStaking {
         if (previous == 0 && amount != 0) {
             _insert(_stakers[hotkey][netuid], _stakerSlot[hotkey], netuid, coldkey);
             _insert(_positions[coldkey][netuid], _positionSlot[coldkey], netuid, hotkey);
+            if (_netuidsStaked[coldkey][hotkey]++ == 0) _listStakingHotkey(coldkey, hotkey);
         } else if (previous != 0 && amount == 0) {
             _remove(_stakers[hotkey][netuid], _stakerSlot[hotkey], netuid, coldkey);
             _remove(_positions[coldkey][netuid], _positionSlot[coldkey], netuid, hotkey);
+            if (--_netuidsStaked[coldkey][hotkey] == 0) _unlistStakingHotkey(coldkey, hotkey);
         }
+    }
+
+    /// @dev The chain's `StakingHotkeys`: every hotkey a coldkey has a position under, in the order they were
+    ///      added, plus the hotkeys it associated to itself. An entry leaves once the pair holds no position.
+    mapping(bytes32 => bytes32[]) private _stakingHotkeys;
+    mapping(bytes32 => mapping(bytes32 => uint256)) private _stakingHotkeySlot;
+    mapping(bytes32 => mapping(bytes32 => uint256)) private _netuidsStaked;
+    mapping(bytes32 => bool) private _rejectsStakingHotkeyGrowth;
+    /// @dev Entries a stranger's crumbs keep listed, modelled as synthetic hotkeys that never leave; one write
+    ///      instead of one stake per entry, for campaigns that fill a list over and over.
+    mapping(bytes32 => uint256) private _pinnedEntries;
+
+    function pinStakingEntries(bytes32 coldkey, uint256 total) external {
+        uint256 listed = _stakingHotkeys[coldkey].length;
+        _pinnedEntries[coldkey] = total > listed ? total - listed : 0;
+    }
+
+    function _listLength(bytes32 coldkey) private view returns (uint256) {
+        return _stakingHotkeys[coldkey].length + _pinnedEntries[coldkey];
+    }
+
+    function _listStakingHotkey(bytes32 coldkey, bytes32 hotkey) private {
+        if (_stakingHotkeySlot[coldkey][hotkey] != 0) return;
+        _stakingHotkeys[coldkey].push(hotkey);
+        _stakingHotkeySlot[coldkey][hotkey] = _stakingHotkeys[coldkey].length;
+    }
+
+    function _unlistStakingHotkey(bytes32 coldkey, bytes32 hotkey) private {
+        uint256 slot = _stakingHotkeySlot[coldkey][hotkey];
+        if (slot == 0) return;
+        bytes32[] storage listed = _stakingHotkeys[coldkey];
+        for (uint256 i = slot; i < listed.length; ++i) {
+            listed[i - 1] = listed[i];
+            _stakingHotkeySlot[coldkey][listed[i]] = i;
+        }
+        listed.pop();
+        delete _stakingHotkeySlot[coldkey][hotkey];
+    }
+
+    /// @dev A listed hotkey is always admitted. The coldkey's own moves grow the list up to the overall cap; another
+    ///      coldkey's transfers only up to the third-party cap, and not at all onto a hotkey the receiver neither
+    ///      owns nor lists once it rejects growth.
+    function _requireListRoom(bytes32 originColdkey, bytes32 destinationColdkey, bytes32 hotkey) private view {
+        if (_stakingHotkeySlot[destinationColdkey][hotkey] != 0) return;
+        uint256 listed = _listLength(destinationColdkey);
+        if (originColdkey == destinationColdkey) {
+            if (listed >= MAX_STAKING_HOTKEYS) _fail();
+            return;
+        }
+        bool owned = _hasOwnerRecord(hotkey) && ownerOf(hotkey) == destinationColdkey;
+        if (_rejectsStakingHotkeyGrowth[destinationColdkey] && !owned) _fail();
+        if (listed >= MAX_THIRD_PARTY_STAKING_HOTKEYS) _fail();
+    }
+
+    function getStakingHotkeys(bytes32 coldkey, uint64 offset, uint16 limit)
+        external
+        view
+        returns (bytes32[] memory hotkeys, uint64 total)
+    {
+        if (limit == 0 || limit > STAKING_LIST_PAGE) _fail();
+        bytes32[] storage listed = _stakingHotkeys[coldkey];
+        uint256 length = _listLength(coldkey);
+        total = uint64(length);
+        uint256 start = offset < length ? offset : length;
+        uint256 end = start + limit < length ? start + limit : length;
+        hotkeys = new bytes32[](end - start);
+        for (uint256 i = start; i < end; ++i) {
+            hotkeys[i - start] = i < listed.length ? listed[i] : keccak256(abi.encode("pinned", coldkey, i));
+        }
+    }
+
+    function setRejectStakingHotkeyGrowth(bool enabled) external {
+        bytes32 coldkey = _senderColdkey();
+        _rejectsStakingHotkeyGrowth[coldkey] = enabled;
+        evmAccountOf[coldkey] = msg.sender;
+    }
+
+    function getRejectStakingHotkeyGrowth(bytes32 coldkey) external view returns (bool) {
+        return _rejectsStakingHotkeyGrowth[coldkey];
     }
 
     function _insert(
@@ -243,24 +332,51 @@ contract MockStaking {
         uint256 destination_netuid,
         uint256 amount
     ) external payable {
+        _transfer(destination_coldkey, hotkey, hotkey, origin_netuid, destination_netuid, amount);
+    }
+
+    function transferStakeAndHotkey(
+        bytes32 destination_coldkey,
+        bytes32 origin_hotkey,
+        bytes32 destination_hotkey,
+        uint16 origin_netuid,
+        uint16 destination_netuid,
+        uint64 alpha_amount
+    ) external {
+        _transfer(
+            destination_coldkey, origin_hotkey, destination_hotkey, origin_netuid, destination_netuid, alpha_amount
+        );
+    }
+
+    function _transfer(
+        bytes32 destinationColdkey,
+        bytes32 originHotkey,
+        bytes32 destinationHotkey,
+        uint256 originNetuid,
+        uint256 destinationNetuid,
+        uint256 amount
+    ) private {
         if (transferStakeReverts) _fail();
         bytes32 origin = _senderColdkey();
-        amount = _requestedAlpha(hotkey, origin, origin_netuid, amount);
-        if (destination_coldkey == origin && origin_netuid == destination_netuid) _fail();
-        _requireMovable(hotkey, hotkey, origin, origin_netuid, amount);
-        _requireTransfersEnabled(origin_netuid);
-        uint256 carriedLock = _carriedLock(origin, origin_netuid, amount);
-        if (carriedLock != 0) {
-            if (!_acceptsLockedAlpha[destination_coldkey]) _fail();
-            bytes32 destinationLockHotkey = lockHotkey[destination_coldkey][destination_netuid];
-            if (destinationLockHotkey != bytes32(0) && destinationLockHotkey != hotkey) _fail();
-            _reduceLock(origin, origin_netuid, carriedLock);
-            _keyLock(destination_coldkey, destination_netuid, hotkey);
-            lockedAlpha[destination_coldkey][destination_netuid] += carriedLock;
+        amount = _requestedAlpha(originHotkey, origin, originNetuid, amount);
+        if (destinationColdkey == origin && originHotkey == destinationHotkey && originNetuid == destinationNetuid) {
+            _fail();
         }
-        _writeStake(hotkey, origin, origin_netuid, _stakes[hotkey][origin][origin_netuid] - amount);
+        _requireMovable(originHotkey, destinationHotkey, origin, originNetuid, amount);
+        _requireTransfersEnabled(originNetuid);
+        _requireListRoom(origin, destinationColdkey, destinationHotkey);
+        uint256 carriedLock = _carriedLock(origin, originNetuid, amount);
+        if (carriedLock != 0) {
+            if (!_acceptsLockedAlpha[destinationColdkey]) _fail();
+            bytes32 destinationLockHotkey = lockHotkey[destinationColdkey][destinationNetuid];
+            if (destinationLockHotkey != bytes32(0) && destinationLockHotkey != destinationHotkey) _fail();
+            _reduceLock(origin, originNetuid, carriedLock);
+            _keyLock(destinationColdkey, destinationNetuid, destinationHotkey);
+            lockedAlpha[destinationColdkey][destinationNetuid] += carriedLock;
+        }
+        _writeStake(originHotkey, origin, originNetuid, _stakes[originHotkey][origin][originNetuid] - amount);
         uint256 credited = amount > transferStakeRoundingLoss ? amount - transferStakeRoundingLoss : 0;
-        _addStake(hotkey, destination_coldkey, destination_netuid, credited);
+        _addStake(destinationHotkey, destinationColdkey, destinationNetuid, credited);
     }
 
     function setTransferStakeRoundingLoss(uint256 loss) external {
@@ -294,6 +410,7 @@ contract MockStaking {
         amount = _requestedAlpha(origin_hotkey, coldkey, origin_netuid, amount);
         if (origin_hotkey == destination_hotkey && origin_netuid == destination_netuid) _fail();
         _requireMovable(origin_hotkey, destination_hotkey, coldkey, origin_netuid, amount);
+        _requireListRoom(coldkey, coldkey, destination_hotkey);
         uint256 moved = amount > moveStakeResidual ? amount - moveStakeResidual : 0;
         _writeStake(origin_hotkey, coldkey, origin_netuid, _stakes[origin_hotkey][coldkey][origin_netuid] - moved);
         _addStake(destination_hotkey, coldkey, destination_netuid, moved - moveStakeRoundingLoss);
@@ -372,11 +489,14 @@ contract MockStaking {
         return owner == bytes32(0) ? keccak256(abi.encodePacked("owner:", hotkey)) : owner;
     }
 
-    /// @dev The neuron mock's association: an ownerless hotkey goes to `coldkey`; an owned one stays put.
+    /// @dev The neuron mock's association: an ownerless hotkey goes to `coldkey`, which also lists it as a
+    ///      staking hotkey the way the chain's account creation does; an owned one stays put.
     function associate(bytes32 hotkey, bytes32 coldkey) external {
         if (_hasOwnerRecord(hotkey)) return;
+        _requireListRoom(coldkey, coldkey, hotkey);
         hotkeyDeleted[hotkey] = false;
         _assignOwner(hotkey, coldkey);
+        _listStakingHotkey(coldkey, hotkey);
     }
 
     function getHotkeyOwner(bytes32 hotkey) external view returns (bool, bytes32) {
@@ -431,7 +551,7 @@ contract MockStaking {
     /// @dev An incoming coldkey swap narrowed to one subnet. It models the rules a swap runs against the
     ///      destination: the destination is refused when it is itself a hotkey, and refused when it already
     ///      holds stake, which the chain tests across all subnets and this fixture tests on `netuid`. On a
-    ///      swap the source's stake, owned hotkeys, locks and accept-locked flag all land on the destination.
+    ///      swap the source's stake, owned hotkeys, locks and both account flags all land on the destination.
     function simulateColdkeySwap(bytes32 source, bytes32 destination, uint256 netuid, bytes32[] calldata hotkeys)
         external
     {
@@ -447,6 +567,7 @@ contract MockStaking {
         delete lockedAlpha[source][netuid];
         delete lockHotkey[source][netuid];
         _acceptsLockedAlpha[destination] = _acceptsLockedAlpha[source];
+        _rejectsStakingHotkeyGrowth[destination] = _rejectsStakingHotkeyGrowth[source];
         _coldkeyRoot[destination] = _rootOf(source);
         bytes32[] memory sourceHotkeys = _ownedHotkeys[source];
         for (uint256 i; i < sourceHotkeys.length; ++i) {
@@ -546,8 +667,7 @@ contract MockStaking {
     }
 
     function _creditTao(address to, uint256 taoRao) private {
-        (bool ok,) = to.call{ value: taoRao * VaultMath.TAO_NATIVE_QUANTUM }("");
-        require(ok, "MockStaking: TAO credit failed");
+        VM.deal(to, to.balance + taoRao * VaultMath.TAO_NATIVE_QUANTUM);
     }
 
     /// @dev The chain force-sells a non-owner's remainder below the nominator minimum, at the price after any sale

@@ -33,22 +33,35 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
             Clones.predictDeterministicAddress(vault.cloneFactory().mailboxLogic(), salt, address(vault.cloneFactory()));
     }
 
-    function _cloneCandidate(bytes32 uid) private view returns (address) {
-        bytes32 salt = keccak256(abi.encode("subnet-v1", TOKEN1, uid));
-        return
-            Clones.predictDeterministicAddress(vault.cloneFactory().subnetLogic(), salt, address(vault.cloneFactory()));
+    function _assertMailboxProtected(address mailbox) private view {
+        bytes32 coldkey = _toSubstrate(mailbox);
+        _assertProtected(mailbox, coldkey);
+        bytes32[] memory owned = mock.getOwnedHotkeys(coldkey);
+        assertEq(owned.length, 1, "a mailbox owns its own account as a hotkey");
+        assertEq(owned[0], coldkey);
     }
 
-    function _assertProtected(address clone) private view {
+    /// @dev A subnet clone's hotkey belongs to a contract that owns nothing else and never acts again.
+    function _assertCloneProtected(address clone) private view {
+        bytes32 coldkey = _toSubstrate(clone);
+        (, bytes32 owner) = mock.getHotkeyOwner(coldkey);
+        _assertProtected(clone, owner);
+        assertTrue(owner != _toSubstrate(address(vault)), "the vault does not own a subnet clone's hotkey");
+        assertEq(mock.getOwnedHotkeys(coldkey).length, 0, "a subnet clone owns no hotkey");
+        bytes32[] memory owned = mock.getOwnedHotkeys(owner);
+        assertEq(owned.length, 1, "the owner owns the clone's hotkey and nothing else");
+        assertEq(owned[0], coldkey);
+        assertEq(_stakingHotkeyCount(owner), 1, "the owner lists the one hotkey it claimed");
+    }
+
+    function _assertProtected(address clone, bytes32 expectedOwner) private view {
         bytes32 coldkey = _toSubstrate(clone);
         (bool exists, bytes32 owner) = mock.getHotkeyOwner(coldkey);
-        assertTrue(exists);
-        assertEq(owner, coldkey, "a clone owns its own account as a hotkey");
+        assertTrue(exists, "the clone's account is a hotkey");
+        assertEq(owner, expectedOwner);
         assertTrue(mock.getRejectLockedAlpha(coldkey));
         assertEq(mock.rejectLockedAlphaCalls(coldkey), 0, "creation must not dispatch a redundant flag write");
-        bytes32[] memory owned = mock.getOwnedHotkeys(coldkey);
-        assertEq(owned.length, 1);
-        assertEq(owned[0], coldkey);
+        assertTrue(mock.getRejectStakingHotkeyGrowth(coldkey), "a clone refuses staking-list growth by others");
     }
 
     function test_CreateMailbox_PreparesBothBeforePublishingAddresses() public {
@@ -56,13 +69,63 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
         assertEq(vault.subnetClone(TOKEN1), address(0));
         (address mailbox, address clone) = _create(alice, UID);
         assertEq(mailbox, _mailboxCandidate(alice, UID));
-        assertEq(clone, _cloneCandidate(UID));
+        assertEq(clone, _cloneCandidate(TOKEN1, UID));
         assertEq(vault.getDepositAddress(alice, NETUID1), mailbox);
         assertEq(vault.subnetClone(TOKEN1), clone);
-        assertEq(CloneBase(payable(mailbox)).wrapper(), address(vault));
-        assertEq(CloneBase(payable(clone)).wrapper(), address(vault));
-        _assertProtected(mailbox);
-        _assertProtected(clone);
+        assertEq(CloneBase(mailbox).wrapper(), address(vault));
+        assertEq(CloneBase(clone).wrapper(), address(vault));
+        _assertMailboxProtected(mailbox);
+        _assertCloneProtected(clone);
+        (bytes32[] memory listed, uint64 total) = mock.getStakingHotkeys(_toSubstrate(mailbox), 0, 1);
+        assertEq(total, 1, "a mailbox lists the hotkey it claimed");
+        assertEq(listed[0], _toSubstrate(mailbox));
+        assertEq(_stakingHotkeyCount(_toSubstrate(clone)), 0, "a subnet clone lists nothing until it stakes");
+        (, bytes32 owner) = mock.getHotkeyOwner(_toSubstrate(clone));
+        assertEq(owner, _toSubstrate(_ownerCandidate(clone)), "the owner is the contract derived from the clone");
+        assertEq(_stakingHotkeyCount(_toSubstrate(address(vault))), 1, "the vault lists parking only");
+    }
+
+    function test_Vault_ListsParkingOnly_HoweverManyClonesItCreates() public {
+        _registerSubnet(99, hotkey5);
+        _create(alice, UID);
+        vm.prank(alice);
+        vault.createMailbox(NETUID2, UID);
+        vm.prank(alice);
+        vault.createMailbox(99, UID);
+
+        bytes32 vaultColdkey = _toSubstrate(address(vault));
+        assertEq(_stakingHotkeyCount(vaultColdkey), 1);
+        bytes32[] memory owned = mock.getOwnedHotkeys(vaultColdkey);
+        assertEq(owned.length, 1, "the vault owns the parking hotkey and nothing else");
+        assertEq(owned[0], PARKING_HOTKEY);
+    }
+
+    function test_RevertWhen_CloneOwnerCandidateIsPreclaimed() public {
+        address candidate = _ownerCandidate(_cloneCandidate(TOKEN1, UID));
+        mock.setHotkeyOwner(_toSubstrate(candidate), _toSubstrate(bob));
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IAlphaVaultAbi.CloneContaminated.selector, candidate));
+        vault.createMailbox(NETUID1, UID);
+
+        (, address clone) = _create(alice, NEXT_UID);
+        _assertCloneProtected(clone);
+    }
+
+    function test_Vault_RefusesStakingListGrowthByOthers() public {
+        bytes32 vaultColdkey = _toSubstrate(address(vault));
+        assertTrue(mock.getRejectStakingHotkeyGrowth(vaultColdkey));
+        assertEq(_stakingHotkeyCount(vaultColdkey), 1, "the parking hotkey is the vault's only entry");
+        mock.setHotkeyOwned(hotkey5, true);
+        mock.setStake(hotkey5, _toSubstrate(bob), NETUID1, ALPHA);
+        mock.setStake(PARKING_HOTKEY, _toSubstrate(bob), NETUID1, ALPHA);
+
+        vm.prank(bob);
+        _expectChainRefusal();
+        mock.transferStake(vaultColdkey, hotkey5, NETUID1, NETUID1, ALPHA);
+        vm.prank(bob);
+        mock.transferStake(vaultColdkey, PARKING_HOTKEY, NETUID1, NETUID1, ALPHA);
+
+        assertEq(_stakingHotkeyCount(vaultColdkey), 1, "a gift onto the parking hotkey adds no entry");
     }
 
     function test_RevertWhen_MailboxCandidateAcceptsLockedAlpha() public {
@@ -88,7 +151,7 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
         (address sameMailbox, address sameClone) = _create(alice, NEXT_UID);
         assertEq(sameMailbox, aliceMailbox);
         assertEq(sameClone, clone);
-        _assertProtected(bobMailbox);
+        _assertMailboxProtected(bobMailbox);
     }
 
     function test_CreateMailbox_NewGenerationReusesMailboxButCreatesNewSubnetClone() public {
@@ -98,7 +161,7 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
         assertEq(sameMailbox, mailbox);
         assertTrue(newClone != oldClone);
         assertEq(vault.subnetClone(TOKEN1), oldClone);
-        _assertProtected(newClone);
+        _assertCloneProtected(newClone);
     }
 
     function test_RevertWhen_WrappingBeforePreparation() public {
@@ -120,7 +183,7 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
     }
 
     function test_RevertWhen_SubnetCloneCandidateIsPreclaimed() public {
-        address candidate = _cloneCandidate(UID);
+        address candidate = _cloneCandidate(TOKEN1, UID);
         mock.setHotkeyOwner(_toSubstrate(candidate), _toSubstrate(bob));
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IAlphaVaultAbi.CloneContaminated.selector, candidate));
@@ -129,18 +192,18 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
 
     function test_CreateMailbox_FreshUidSidestepsPreclaimedCandidates() public {
         mock.setHotkeyOwner(_toSubstrate(_mailboxCandidate(alice, UID)), _toSubstrate(bob));
-        mock.setHotkeyOwner(_toSubstrate(_cloneCandidate(UID)), _toSubstrate(bob));
+        mock.setHotkeyOwner(_toSubstrate(_cloneCandidate(TOKEN1, UID)), _toSubstrate(bob));
 
         (address mailbox, address clone) = _create(alice, NEXT_UID);
 
         assertEq(mailbox, _mailboxCandidate(alice, NEXT_UID));
-        assertEq(clone, _cloneCandidate(NEXT_UID));
-        _assertProtected(mailbox);
-        _assertProtected(clone);
+        assertEq(clone, _cloneCandidate(TOKEN1, NEXT_UID));
+        _assertMailboxProtected(mailbox);
+        _assertCloneProtected(clone);
     }
 
     function test_RevertWhen_CloneCandidateIsASwapDestination() public {
-        address candidate = _cloneCandidate(UID);
+        address candidate = _cloneCandidate(TOKEN1, UID);
         mock.setColdkeyRoot(_toSubstrate(candidate), _toSubstrate(bob));
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IAlphaVaultAbi.CloneContaminated.selector, candidate));
@@ -148,16 +211,42 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
     }
 
     function test_RevertWhen_CloneCandidateOwnsOtherHotkeys() public {
-        address candidate = _cloneCandidate(UID);
+        address candidate = _cloneCandidate(TOKEN1, UID);
         mock.setHotkeyOwner(hotkey5, _toSubstrate(candidate));
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IAlphaVaultAbi.CloneContaminated.selector, candidate));
         vault.createMailbox(NETUID1, UID);
     }
 
+    function test_RevertWhen_MailboxCandidateAlreadyStakes() public {
+        address candidate = _mailboxCandidate(alice, UID);
+        mock.setStake(hotkey5, _toSubstrate(candidate), NETUID2, 1);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IAlphaVaultAbi.CloneContaminated.selector, candidate));
+        vault.createMailbox(NETUID1, UID);
+    }
+
+    function test_RevertWhen_CloneCandidateAlreadyStakes() public {
+        address candidate = _cloneCandidate(TOKEN1, UID);
+        mock.setStake(hotkey5, _toSubstrate(candidate), NETUID2, 1);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IAlphaVaultAbi.CloneContaminated.selector, candidate));
+        vault.createMailbox(NETUID1, UID);
+    }
+
+    function test_CreateMailbox_FreshUidSidestepsStakingCandidates() public {
+        mock.setStake(hotkey5, _toSubstrate(_mailboxCandidate(alice, UID)), NETUID2, 1);
+        mock.setStake(hotkey5, _toSubstrate(_cloneCandidate(TOKEN1, UID)), NETUID2, 1);
+
+        (address mailbox, address clone) = _create(alice, NEXT_UID);
+
+        _assertMailboxProtected(mailbox);
+        _assertCloneProtected(clone);
+    }
+
     /// @dev Stake and conviction may use different hotkeys; neither may enter backing through a poisoned candidate.
     function test_RevertWhen_CloneCandidateHoldsLockedAlphaOnAnotherHotkey() public {
-        address candidate = _cloneCandidate(UID);
+        address candidate = _cloneCandidate(TOKEN1, UID);
         bytes32 coldkey = _toSubstrate(candidate);
         mock.setStake(hotkey5, coldkey, NETUID1, 40 * ALPHA);
         mock.setLockedAlpha(coldkey, NETUID1, hotkey1, 40 * ALPHA);
@@ -173,13 +262,13 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
         vm.deal(clone, TAO);
         assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 0);
-        _assertProtected(clone);
+        _assertCloneProtected(clone);
     }
 
     function test_RevertWhen_MailboxHoldsLockedAlpha() public {
         _simulateAlphaDeposit(alice, NETUID1, 100 * ALPHA);
         mock.setLockedAlpha(_mailboxColdkey(alice, NETUID1), NETUID1, hotkey5, 1);
-        vm.expectCall(STAKING_PRECOMPILE, abi.encodeWithSelector(IStaking.transferStake.selector), 0);
+        vm.expectCall(STAKING_PRECOMPILE, abi.encodeWithSelector(IStaking.transferStakeAndHotkey.selector), 0);
         vm.prank(alice);
         vm.expectRevert(LockedDeposit.selector);
         vault.wrap(NETUID1, hotkey1, 0);
@@ -207,5 +296,8 @@ contract LockedAlphaDepositTest is AlphaVaultTestBase {
         vm.prank(bob);
         vm.expectRevert(CloneFactory.NotVault.selector);
         factory.deployMailbox(alice, uint16(NETUID1), UID);
+        vm.prank(bob);
+        vm.expectRevert(CloneFactory.NotVault.selector);
+        factory.deployCloneOwner(hotkey5, uint16(NETUID1));
     }
 }
