@@ -140,10 +140,9 @@ funds. Collection emits `BackingRecovered`; sync finalization emits
 `BackingParked`. A write-off emits `BackingWrittenOff` before it. Both calls
 are permissionless.
 
-Declaration cost grows with the number of located keys. The E2E scenarios allow
-4M gas per sync for small sets. For large sets (up to 10 validators), simulate the
-actual chain call and budget above that estimate; mock snapshots do not include
-native dispatch costs. Keep funds for retries when a chain restriction blocks collection.
+Declaration cost grows with the number of located keys: simulate the call and
+budget above the estimate. Keep funds for retries when a chain restriction
+blocks collection.
 
 ## Exit behavior and accepted tradeoffs
 
