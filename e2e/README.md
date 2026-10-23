@@ -68,6 +68,9 @@ Scenario files in `tests/` cover:
   stranger cannot add a hotkey (hotkey 0x0 included) to a mailbox's or clone's
   staking list after creation, a crumb sent under a listed validator keeps its
   entry after a rotation, and deposits land before and after a full exit.
+- `test_empty_token_write_off.py`: a crumb keeps the attested validator listed after the
+  last exit, so a gift to the emptied token lands, is swept and written off; the token
+  stays open and the next deposit wraps without a registry update.
 - `test_retained_entries_recovery.py`: with such a crumb retained, a stranger cuts
   the trail behind a validator's rename; the watcher parks the position, an owner
   update releases, and deposits and exits continue.
