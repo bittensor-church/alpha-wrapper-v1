@@ -98,14 +98,15 @@ library VaultAllocation {
         SubnetClone(context.clone).transferAllTao(successorColdkey);
     }
 
-    function unstuckStake(Context memory context, address retiredClone, bytes32 fromHotkey, bytes32[] memory keys)
-        external {
+    function unstuckStake(
+        Context memory context, address retiredClone, bytes32 fromHotkey, VaultReads.Slot[] memory slots
+    ) external {
         IStaking staking = IStaking(STAKING_PRECOMPILE);
         uint16 netuid = context.netuid;
         uint256 amount = staking.getStake(fromHotkey, VaultReads.coldkeyOf(retiredClone), netuid);
         if (amount == 0) revert ZeroAmount();
         if (StakeOps.isBelowFloorAtReadPrice(amount, context.alphaPriceE18)) revert UnstuckBelowFloor();
-        bytes32 landing = _fundedKey(keys, context.coldkey, netuid);
+        bytes32 landing = _fundedKey(VaultReads.resolveBacking(slots, context.coldkey, netuid));
         StakeOps.ensureHotkeyHasOwner(fromHotkey);
         StakeOps.ensureHotkeyHasOwner(landing);
         CloneBase(retiredClone)
@@ -113,9 +114,9 @@ library VaultAllocation {
         emit IAlphaVaultAbi.StakeUnstuck(context.tokenId, retiredClone, fromHotkey, landing, amount);
     }
 
-    function _fundedKey(bytes32[] memory keys, bytes32 coldkey, uint16 netuid) private view returns (bytes32) {
-        for (uint256 i; i < keys.length;) {
-            if (IStaking(STAKING_PRECOMPILE).getStake(keys[i], coldkey, netuid) != 0) return keys[i];
+    function _fundedKey(VaultReads.Backing memory backing) private pure returns (bytes32) {
+        for (uint256 i; i < backing.keys.length;) {
+            if (backing.balances[i] != 0) return backing.keys[i];
             unchecked { ++i; }
         }
         revert NoFundedHotkey();

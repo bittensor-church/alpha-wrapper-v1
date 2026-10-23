@@ -472,7 +472,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         address clone = subnetClone[tokenId];
         VaultAllocation.unstuckStake(
             _context(tokenId, clone, VaultReads.coldkeyOf(clone), IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid)),
-            retiredClone, fromHotkey, VaultReads.activesOf(_slots[tokenId]));
+            retiredClone, fromHotkey, _slots[tokenId]);
     }
 
     /// @dev Keep resolved keys and old-key residue locations.

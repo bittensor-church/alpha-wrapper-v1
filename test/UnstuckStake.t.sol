@@ -108,6 +108,18 @@ contract UnstuckStakeTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(hotkey2, NETUID1), 31 * ALPHA, "the first funded key receives it");
     }
 
+    function test_UnstuckStake_FollowsASwappedRecordedKeyToItsSuccessor() public {
+        address retired = _replaceDuringAPriceDump();
+        _setAlphaPrice(NETUID1, DEFAULT_ALPHA_PRICE_E18);
+        _simulateFollowedSwap(NETUID1, hotkey1, hotkey5);
+
+        vm.expectEmit(address(vault));
+        emit IAlphaVaultAbi.StakeUnstuck(TOKEN1, retired, hotkey2, hotkey5, STRANDED_PILE);
+        vault.unstuckStake(TOKEN1, retired, hotkey2);
+
+        assertEq(_getVaultStake(hotkey5, NETUID1), 31 * ALPHA, "the successor of the swapped key receives it");
+    }
+
     function test_UnstuckStake_WhileAShortfallIsOnFile_ReducesTheMissingStake() public {
         address retired = _replaceDuringAPriceDump();
         _setAlphaPrice(NETUID1, DEFAULT_ALPHA_PRICE_E18);
