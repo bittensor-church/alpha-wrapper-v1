@@ -34,9 +34,6 @@ library VaultClones {
         }
     }
 
-    /// @dev A subnet clone must own no hotkey: the chain hands a subnet to whoever owns its most convicted
-    ///      hotkey and then locks the owner's cut onto that coldkey, which would freeze the clone. A
-    ///      throwaway contract owns the clone's account instead, which still refuses coldkey swaps into it.
     function deployProtectedClone(CloneFactory factory, uint256 tokenId, uint16 netuid, bytes32 uid)
         internal returns (address clone) {
         clone = factory.deploySubnetClone(tokenId, netuid, uid);

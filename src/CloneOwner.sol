@@ -3,8 +3,9 @@ pragma solidity 0.8.36;
 
 import { INeuron, NEURON_PRECOMPILE } from "./interfaces/INeuron.sol";
 
-/// @dev Owns one subnet clone's account as a hotkey and never acts again. Owning a hotkey costs the owner a
-///      staking-list entry for good, and a throwaway owner keeps that entry off the vault's own list.
+/// @dev Makes a subnet clone's account a hotkey, which refuses coldkey swaps into it, without the clone owning
+///      it: the chain hands a subnet to the coldkey owning its most convicted hotkey and locks the owner's cut
+///      onto that coldkey.
 contract CloneOwner {
     constructor(bytes32 hotkey) { INeuron(NEURON_PRECOMPILE).tryAssociateHotkey(hotkey); }
 }
