@@ -21,7 +21,6 @@ import pytest
 
 from alpha_e2e import chain, checks, config, exits, extrinsics
 from alpha_e2e.checks import run_observability_script
-from alpha_e2e.substrate import h160_to_substrate_b32
 
 
 @pytest.mark.scenario
@@ -61,7 +60,6 @@ def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subne
 
     parked_netuid = env.netuids[2]
     parked_mailbox = env.mailbox_address(parked_netuid)
-    parked_mailbox_coldkey = h160_to_substrate_b32(parked_mailbox)
     print(f"  User mailbox on netuid {parked_netuid}: {parked_mailbox}")
 
     env.send_to_mailbox(parked_netuid, env.hotkey_ss58s[6], config.DEPOSIT_RAO)

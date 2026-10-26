@@ -2,9 +2,8 @@
 pragma solidity 0.8.36;
 
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
-import { MockStaking } from "./mocks/MockStaking.sol";
-import { VaultReads } from "src/libraries/VaultReads.sol";
-import { MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { VaultMath } from "src/libraries/VaultMath.sol";
+import { MAX_STAKING_HOTKEYS } from "src/interfaces/IStaking.sol";
 import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 
 /// @dev Every entry point keeps working on a replaced clone, at realistic deposits, validator counts and prices.
@@ -108,17 +107,10 @@ contract CloneReplacementTest is AlphaVaultTestBase {
         bytes32[] memory previous = lens.lastSeenHotkeys(TOKEN1);
         total = _stakeAcross(set, _toSubstrate(user), NETUID1);
         for (uint256 i; i < previous.length; ++i) {
-            if (!_containsKey(set, previous[i])) {
+            if (!VaultMath.contains(set, previous[i])) {
                 total += _getStakeForColdkey(previous[i], _toSubstrate(user), NETUID1);
             }
         }
-    }
-
-    function _containsKey(bytes32[] memory set, bytes32 key) private pure returns (bool) {
-        for (uint256 i; i < set.length; ++i) {
-            if (set[i] == key) return true;
-        }
-        return false;
     }
 
     function testFuzz_Replacement_PaysEveryHoldersTaoClaim(uint256 donation, uint256 aliceWeight) public {
