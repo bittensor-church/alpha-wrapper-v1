@@ -70,7 +70,7 @@ library VaultMath {
         return balance > reserved ? balance - reserved : 0;
     }
 
-    /// @dev A fixed dissolution refund needs no virtual offsets: deposits can no longer inflate it.
+    /// @dev A fixed dissolution refund needs no virtual offsets: deposits cannot inflate it after dissolution.
     function proRata(uint256 total, uint256 shares, uint256 supply) internal pure returns (uint256) {
         return Math.mulDiv(total, shares, supply);
     }

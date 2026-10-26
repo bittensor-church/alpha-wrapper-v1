@@ -15,11 +15,8 @@ import { CloneFactory } from "../CloneFactory.sol";
 import { DepositMailbox } from "../DepositMailbox.sol";
 import { SubnetClone } from "../SubnetClone.sol";
 
-/// @dev Deployed once and linked into the vault. Holds clone preparation, deposit admission, the
-///      receiving-key rules, consolidation of dropped validators, payout gathering, weight alignment
-///      and TAO sales.
-///      Stake movement runs by delegatecall, so clones and hotkey association still see the vault as
-///      caller and logs still originate from the vault. Callers retain the backing gates, reentrancy
+/// @dev Deployed once and linked into the vault, which calls it by delegatecall: clones and hotkey association
+///      see the vault as caller and logs originate from the vault. Callers keep the backing gates, reentrancy
 ///      guard and accounting; this library writes only the clone records handed to it by storage reference.
 library VaultAllocation {
     /// @dev What collection does with a pile below the floor.
@@ -36,7 +33,6 @@ library VaultAllocation {
         bytes32 parking;
     }
 
-    /// @dev Delegatecall keeps the vault as the initializer and the depositor as msg.sender.
     function prepareClones(CloneFactory factory, mapping(uint256 => address) storage subnetClone,
         mapping(address => mapping(uint256 => address)) storage mailboxes, uint256 tokenId, uint256 netuid,
         bytes32 uid) external returns (address mailbox, address clone) {
@@ -85,8 +81,8 @@ library VaultAllocation {
         }
     }
 
-    /// @dev Deploys the successor, admits the recorded piles while its growth flag is down, then moves them
-    ///      and all of the clone's TAO. A pile below the floor stays behind rather than fail the call.
+    /// @dev A fresh clone lists nothing, so its growth flag is down while the old clone transfers in. A pile
+    ///      below the floor stays behind rather than fail the call.
     function replaceClone(CloneFactory factory, Context memory context, bytes32[] memory keys,
         uint256[] memory balances, bytes32 uid) external returns (address successor) {
         successor = VaultClones.deployProtectedClone(factory, context.tokenId, context.netuid, uid);
@@ -351,21 +347,18 @@ library VaultAllocation {
         return false;
     }
 
-    /// @dev Fetch current backing before weight alignment. Runs inside the vault's reentrancy guard.
+    /// @dev Runs inside the vault's reentrancy guard.
     function rebalance(Context memory context, bytes32[] memory hotkeys, uint16[] memory weights) external {
         uint256[] memory balances = VaultReads.fetchBalances(hotkeys, context.coldkey, context.netuid);
         _alignToWeights(context, hotkeys, weights, balances);
     }
 
-    /// @dev Gather an alpha payout onto one slot and measure recipient credit, leaving the rest of the
-    ///      backing where it lies. The vault checks slippage and settles its record after this returns;
-    ///      failures revert all stake moves.
+    /// @dev The vault checks slippage and settles its record after this returns; failures revert all stake moves.
     function deliver(Context memory context, bytes32[] memory hotkeys, uint256[] memory balances,
         bytes32 userColdkey, uint256 assets) external returns (uint256 alphaOut) {
         return _gatherAndFlush(context, hotkeys, balances, userColdkey, assets);
     }
 
-    /// @dev `deliver`, then align the remainder to the attested weights.
     function deliverAndAlign(Context memory context, bytes32[] memory hotkeys, uint16[] memory weights,
         uint256[] memory balances, bytes32 userColdkey, uint256 assets) external returns (uint256 alphaOut) {
         alphaOut = _gatherAndFlush(context, hotkeys, balances, userColdkey, assets);

@@ -30,9 +30,8 @@ import {
 } from "./VaultErrors.sol";
 
 /// @notice ERC-1155 shares of staked alpha, isolated by subnet registration in vault-controlled clones.
-/// @dev No vault admin. Registry signers choose weights; watchers handle unresolved swaps.
-///      Missing backing parks a position with holders on the vault's own hotkey until the registry publishes a
-///      newer set. See docs/hotkey-swaps.md for the exit restrictions and recovery policy.
+/// @dev Registry signers choose weights; watchers handle unresolved swaps. Missing backing parks a position on
+///      the vault's own hotkey until the registry publishes a newer set; see docs/hotkey-swaps.md.
 contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @dev One shortfall clock per token. A parked position rests on `parkingHotkey` until the
     ///      registry nonce moves past `parkedAtNonce`; zero means the position is not parked.
@@ -111,8 +110,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     }
 
     /// @notice Move the caller's mailbox deposit onto one currently attested hotkey and mint shares.
-    /// @dev Consolidates dropped validators and aligns weights. Unresolved backing blocks collection. Only alpha
-    ///      on the mailbox's own hotkey is collected; mailbox reclaim handles alpha under any other key.
+    /// @dev Consolidates dropped validators and aligns weights. Unresolved backing blocks collection.
     ///      A mailbox holding conviction-locked alpha is refused; reclaim it to a coldkey that accepts locks.
     function wrap(uint256 netuid, bytes32 chosenHotkey, uint256 minSharesOut) external nonReentrant {
         if (chosenHotkey == bytes32(0)) revert ZeroHotkey();
@@ -180,7 +178,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @notice Sell backing for native TAO; prefer `unwrap` to avoid moving the pool price.
     /// @dev Sells from recorded keys without registry alignment. Pool fees and price impact apply.
     ///      Unsold alpha is refunded as shares, except a full-supply burn discards a sub-floor remainder.
-    ///      Full drains bypass the stake minimum, not ownership, backing or pool checks.
+    ///      Full drains bypass the stake minimum.
     /// @param minTaoOut Minimum native TAO in EVM wei (18 decimals, unlike alpha's 9).
     function unwrapForTao(uint256 tokenId, uint256 shares, uint256 minTaoOut) external nonReentrant {
         _unwrapForTao(tokenId, shares, minTaoOut, 0);

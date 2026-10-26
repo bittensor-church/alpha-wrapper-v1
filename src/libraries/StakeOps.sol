@@ -10,8 +10,7 @@ import { StakingListFull } from "../VaultErrors.sol";
 import { VaultMath } from "./VaultMath.sol";
 import { VaultReads } from "./VaultReads.sol";
 
-/// @dev Stake movement through vault-controlled accounts, and the floor tests that keep an amount the
-///      chain would refuse from burning the gas forwarded to it. Compiled into each caller.
+/// @dev The floor tests keep an amount the chain would refuse from burning the gas forwarded to it.
 library StakeOps {
     function taoValue(uint256 alphaAmount, uint256 alphaPriceE18) internal pure returns (uint256) {
         return Math.mulDiv(alphaAmount, alphaPriceE18, VaultMath.ALPHA_PRICE_SCALE);

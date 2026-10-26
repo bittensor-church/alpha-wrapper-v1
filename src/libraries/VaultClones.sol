@@ -7,9 +7,8 @@ import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
 import { VaultReads } from "./VaultReads.sol";
 
-/// @dev Creation of the per-registration subnet clone and of the caller's own deposit mailbox. Runs
-///      inside a delegatecall from the vault, so the vault is the initializer and `msg.sender` is the
-///      depositor. Compiled into each caller.
+/// @dev Runs inside a delegatecall from the vault, so the vault is the initializer and `msg.sender` is the
+///      depositor.
 library VaultClones {
     /// @dev Publish an address only once its protection is verified.
     function prepareClones(CloneFactory factory, mapping(uint256 => address) storage subnetClone,

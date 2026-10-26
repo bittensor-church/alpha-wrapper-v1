@@ -27,7 +27,7 @@ interface IStaking {
     function getNominatorMinRequiredStake() external view returns (uint256);
 
     /// @notice Partial-unstake minimum in TAO RAO.
-    /// @dev Transfers/moves have a lower minimum, absent from this interface; this is a conservative bound.
+    /// @dev Same-subnet moves and transfers enforce a lower minimum, so this bound is conservative for them.
     function getDefaultMinStake() external view returns (uint256);
 
     /// @notice The coldkey's conviction lock on a subnet, rolled forward to the current block.
