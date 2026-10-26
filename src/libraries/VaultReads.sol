@@ -51,9 +51,11 @@ library VaultReads {
         return isListed(coldkey, hotkey, total);
     }
 
-    /// @dev Whether the list surely takes `setSize` attested hotkeys and the parking hotkey as new entries.
-    function admitsSet(bytes32 coldkey, uint256 setSize) internal view returns (bool) {
-        return stakingHotkeyCount(coldkey) + setSize + 1 <= MAX_STAKING_HOTKEYS;
+    /// @dev Half the cap: every move and exit a clone signs pays the chain's walk of its whole list.
+    uint256 internal constant REPLACEMENT_LIST_LENGTH = MAX_STAKING_HOTKEYS / 2;
+
+    function replacementOpen(bytes32 coldkey) internal view returns (bool) {
+        return stakingHotkeyCount(coldkey) >= REPLACEMENT_LIST_LENGTH;
     }
 
     /// @dev One attestation: the target hotkeys and their basis-point weights.

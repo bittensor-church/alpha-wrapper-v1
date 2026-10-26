@@ -59,7 +59,7 @@ cleanup, then old shares redeem the clone's unreserved TAO.
   claims its own, a throwaway owner contract claims the clone's) refusing staking-list growth ->
   verify -> publish accepted addresses. All steps are atomic.
 - **`replaceClone`:** require a prepared, live clone with transfers enabled -> check backing ->
-  require fewer free list entries than the attested set plus the parking hotkey ->
+  require a list at least half full ->
   deploy a fresh clone and owner -> lift the successor's growth flag -> transfer each recorded
   pile at or above the floor under its own hotkey -> restore the flag -> move the TAO balance ->
   point the token at the successor -> re-read balances into the record.

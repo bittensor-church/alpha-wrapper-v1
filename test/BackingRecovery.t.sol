@@ -583,7 +583,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function testFuzz_WriteOffAtZeroSupply_ReopensTheEmptyToken(uint256 rawGift) public {
-        uint256 gift = bound(rawGift, 2_000_000, ALPHA_MOVE_FLOOR - 1);
+        uint256 gift = bound(rawGift, 2_000_000, ALPHA_FLOOR - 1);
         _exitEveryShare();
         _plantUnheldStake(hotkey3, gift);
         vault.rebalance(NETUID1);
@@ -640,7 +640,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_SubFloorBacking_DeclaresWritesOffAndRemainsRecoverable() public {
-        uint256 dust = ALPHA_MOVE_FLOOR / 2;
+        uint256 dust = ALPHA_FLOOR / 2;
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 coldkey = _subnetColdkey(NETUID1);
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, coldkey, NETUID1, dust);
@@ -950,7 +950,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
         _reattestCurrentSet(NETUID1);
         cohorts.recapitalizationDeposit = cohorts.backingAfterWriteOff == 0
-            ? bound(recapitalizationSeed, ALPHA_MOVE_FLOOR, ALPHA)
+            ? bound(recapitalizationSeed, ALPHA_FLOOR, ALPHA)
             : bound(recapitalizationSeed, cohorts.backingAfterWriteOff / 4, cohorts.backingAfterWriteOff * 4);
         _addRecapitalizer(cohorts);
         for (uint256 i; i < hiddenSlotCount; ++i) {

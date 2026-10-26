@@ -55,7 +55,7 @@ def test_write_off_at_zero_supply_reopens_deposits_without_registry_action(env):
     nonce_before = registry_nonce()
 
     # A gift sized above the chain's transfer minimum and far below the raised threshold.
-    _, floor_boundary_alpha = env.floor_boundary(netuid, env.move_floor_tao())
+    _, floor_boundary_alpha = env.floor_boundary(netuid, env.chain_min_stake_tao())
     gift = floor_boundary_alpha * 3 // 2
     extrinsics.transfer_stake(clone_ss58, attested_ss58, netuid, gift)
     rebalance_receipt = env.vault_send_between_epochs(

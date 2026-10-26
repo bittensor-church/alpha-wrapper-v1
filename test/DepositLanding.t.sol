@@ -3,6 +3,7 @@ pragma solidity 0.8.36;
 
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
+import { VaultReads } from "src/libraries/VaultReads.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { IStaking, MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import {
@@ -489,17 +490,40 @@ contract DepositLandingTest is AlphaVaultTestBase {
         vault.replaceClone(TOKEN1, FRESH_UID);
     }
 
-    function test_ReplacementOpensOnceTheListIsWithinOneSetOfTheCap() public {
+    function test_ReplacementOpensAtHalfTheCap() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 cloneColdkey = _subnetColdkey(NETUID1);
-        _fillListTo(cloneColdkey, MAX_STAKING_HOTKEYS - 3 - 1);
+        _fillListTo(cloneColdkey, VaultReads.REPLACEMENT_LIST_LENGTH - 1);
         vm.expectRevert(StakingListHasRoom.selector);
         vault.replaceClone(TOKEN1, FRESH_UID);
 
-        _fillListTo(cloneColdkey, MAX_STAKING_HOTKEYS - 3);
+        _fillListTo(cloneColdkey, VaultReads.REPLACEMENT_LIST_LENGTH);
         vault.replaceClone(TOKEN1, FRESH_UID);
 
         assertEq(_stakingHotkeyCount(_subnetColdkey(NETUID1)), 3, "the successor lists the attested set");
+    }
+
+    function testFuzz_Replacement_OpensOnlyFromTheThreshold(uint256 entries) public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        entries = bound(entries, 3, MAX_STAKING_HOTKEYS - 1);
+        _fillListTo(_subnetColdkey(NETUID1), entries);
+
+        if (entries < VaultReads.REPLACEMENT_LIST_LENGTH) vm.expectRevert(StakingListHasRoom.selector);
+        vault.replaceClone(TOKEN1, FRESH_UID);
+
+        if (entries >= VaultReads.REPLACEMENT_LIST_LENGTH) {
+            assertEq(_stakingHotkeyCount(_subnetColdkey(NETUID1)), 3, "the successor lists the attested set");
+        }
+    }
+
+    function test_Replacement_NeedsNoValidatorSet() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _fillListTo(_subnetColdkey(NETUID1), VaultReads.REPLACEMENT_LIST_LENGTH);
+        registry.setRaw(NETUID1, new bytes32[](0), new uint16[](0));
+
+        vault.replaceClone(TOKEN1, FRESH_UID);
+
+        assertApproxEqAbs(lens.totalStake(TOKEN1), 30 * ALPHA, 2, "the position moved without a registry read");
     }
 
     function test_RevertWhen_ReplacingAnUnpreparedToken() public {

@@ -6,18 +6,18 @@ import { ClaimBelowNativePrecision, NothingToUnwrap, ZeroAmount } from "src/Vaul
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 
 contract AlphaVaultRoundingTest is AlphaVaultTestBase {
-    /// @dev At 0.05 TAO/alpha the deposit floor is 0.004 alpha. Virtual shares keep any deposit above it worth
+    /// @dev At 0.05 TAO/alpha the deposit floor is 0.04 alpha. Virtual shares keep any deposit above it worth
     ///      at least one share, even against a whole subnet's alpha in emissions.
     function testFuzz_Wrap_MintsSharesForEveryDepositAboveTheFloor(uint256 emissions, uint256 deposit) public {
         emissions = bound(emissions, 0, MAX_SUBNET_ALPHA / 2);
-        deposit = bound(deposit, ALPHA_MOVE_FLOOR, MAX_SUBNET_ALPHA / 2);
+        deposit = bound(deposit, ALPHA_FLOOR, MAX_SUBNET_ALPHA / 2);
         _depositAndWrap(alice, NETUID1, ALPHA);
         _simulateEmissions(NETUID1, emissions);
 
         assertGt(_depositAndWrap(bob, NETUID1, deposit), 0);
     }
 
-    /// @dev At 0.2 TAO/alpha the deposit floor is 0.001 alpha. With one share left over 11M alpha of emissions,
+    /// @dev At 0.2 TAO/alpha the deposit floor is 0.01 alpha. With one share left over 11M alpha of emissions,
     ///      0.01 alpha mints 1e7 * (1 + 1e9) / (11e15 + 2) = 0.9 shares, floored to none.
     function test_RevertWhen_DepositIsWorthLessThanOneShare() public {
         _setAlphaPrice(NETUID1, 0.2e18);

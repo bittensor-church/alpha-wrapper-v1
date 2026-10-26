@@ -9,8 +9,8 @@ import { MockStaking } from "./mocks/MockStaking.sol";
 
 contract RecoveryDustTest is AlphaVaultTestBase {
     uint256 private constant EXPECTED = 6 * ALPHA / 10;
-    uint256 private constant DUST = ALPHA_MOVE_FLOOR / 2;
-    /// @dev 3333 bps of EXPECTED: above the floor at 0.05 TAO/alpha, below the 0.2 alpha floor at 0.001.
+    uint256 private constant DUST = ALPHA_FLOOR / 2;
+    /// @dev 3333 bps of EXPECTED: above the floor at 0.05 TAO/alpha, below the 0.2 alpha floor at 0.01.
     uint256 private constant THIRD_SLOT = 199_980_000;
 
     function _missingPosition() private returns (bytes32[] memory tips) {
@@ -47,7 +47,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         (, uint256 deadline) = _emptyRecovery();
         _plant(hotkey1, DUST);
         assertEq(lens.locatedStake(TOKEN1), DUST);
-        assertEq(lens.missingStake(TOKEN1), 598_000_000, "recorded dust is located backing");
+        assertEq(lens.missingStake(TOKEN1), 580_000_000, "recorded dust is located backing");
         vm.warp(deadline - 1);
         vm.expectRevert(BackingUnchanged.selector);
         vault.syncBacking(TOKEN1);
@@ -77,7 +77,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
 
         assertEq(_parkedStake(NETUID1), THIRD_SLOT + DUST);
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
-        assertEq(lens.missingStake(TOKEN1), 398_020_000);
+        assertEq(lens.missingStake(TOKEN1), 380_020_000);
         assertEq(lens.writeOffDeadline(TOKEN1), deadline);
     }
 
@@ -100,7 +100,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
         assertEq(_parkedStake(NETUID1), 0);
         uint256 deadline = lens.writeOffDeadline(TOKEN1);
-        // 0.002 alpha at 0.1 TAO/alpha is exactly the 2e5 RAO floor.
+        // 0.02 alpha at 0.1 TAO/alpha is exactly the 2e6 RAO floor.
         _setAlphaPrice(NETUID1, 0.1e18);
         vm.warp(deadline);
         vm.expectEmit(true, false, false, true, address(vault));
@@ -114,7 +114,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         (bytes32[] memory tips, uint256 deadline) = _emptyRecovery();
         vault.recoverStray(TOKEN1, tips[2]);
         _plant(hotkey1, DUST);
-        _setAlphaPrice(NETUID1, 0.001e18);
+        _setAlphaPrice(NETUID1, 0.01e18);
         vm.warp(deadline);
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), THIRD_SLOT, "the entire parked balance remains backing");
@@ -138,7 +138,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
 
     function test_FailedAboveFloorCollection_DoesNotUseTheDustException() public {
         (, uint256 deadline) = _emptyRecovery();
-        _plant(hotkey1, ALPHA_MOVE_FLOOR);
+        _plant(hotkey1, ALPHA_FLOOR);
         _plant(hotkey2, DUST);
         MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(true);
         vm.warp(deadline);
@@ -155,7 +155,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         uint256 tokenId = vault.currentTokenId(netuid);
         bytes32 coldkey = _subnetColdkey(netuid);
         for (uint256 i; i < count; ++i) {
-            uint256 balance = movable && i == count - 1 ? ALPHA_MOVE_FLOOR : dust;
+            uint256 balance = movable && i == count - 1 ? ALPHA_FLOOR : dust;
             MockStaking(STAKING_PRECOMPILE).setStake(keys[i], coldkey, netuid, balance);
             located += balance;
         }
@@ -174,19 +174,17 @@ contract RecoveryDustTest is AlphaVaultTestBase {
     }
 
     function test_TenDustBalances_DoNotBlockWriteOffEvenWhenTheirSumExceedsTheFloor() public {
-        _smallSet(10, ALPHA_MOVE_FLOOR - 1, false);
+        _smallSet(10, ALPHA_FLOOR - 1, false);
     }
 
     function test_OneBalanceAtTheFloor_CollectsAllNineDustBalances() public {
-        _smallSet(10, ALPHA_MOVE_FLOOR - 1, true);
+        _smallSet(10, ALPHA_FLOOR - 1, true);
     }
 
     function testFuzz_SmallSets_OnlySkipIndividuallySubFloorBalances(uint256 rawCount, uint256 rawDust, bool movable)
         public
     {
-        _smallSet(
-            bound(rawCount, 2, 10), bound(rawDust, VaultReads.TRACKED_SLACK_RAO + 1, ALPHA_MOVE_FLOOR - 1), movable
-        );
+        _smallSet(bound(rawCount, 2, 10), bound(rawDust, VaultReads.TRACKED_SLACK_RAO + 1, ALPHA_FLOOR - 1), movable);
     }
 
     /// @dev A 0.3-alpha slot sits below the 0.4-alpha nominator minimum at 0.05 TAO/alpha. The chain's sweep runs

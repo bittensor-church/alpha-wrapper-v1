@@ -125,9 +125,11 @@ even while backing is intact.
 5. After completion with shares outstanding, registry governance publishes a newer set even if all backing returned.
    Remove any lost or captured name, naming the intended successor. The next wrap
    or `rebalance(netuid)` releases the parked position onto it.
-6. `StakingListFull` on any call means the clone's staking list is full. Call `replaceClone(tokenId, uid)` with a fresh random UID,
-   then retry: the position, its TAO and the token id move to a fresh clone;
-   piles below the move floor stay on the old clone.
+6. The lens's `stakingListEntries(tokenId)` reports the clone's staking list. From
+   128 entries, half the chain's cap, anyone can call `replaceClone(tokenId, uid)`
+   with a fresh random UID; `StakingListFull` on any call means the same. The
+   position, its TAO and the token id move to a fresh clone; piles below the
+   floor stay on the old clone.
 
 Collection emits `BackingRecovered`; sync finalization emits
 `BackingParked`. A write-off emits `BackingWrittenOff` before it. Both calls

@@ -33,7 +33,7 @@ def test_root_sweep_tao_becomes_claimable_and_the_loss_is_written_off(env):
     token_id = env.token_ids[0]
     hotkeys = env.subnet_hotkey_pubkeys(0)
 
-    _, floor_boundary_alpha = env.floor_boundary(netuid, env.move_floor_tao())
+    _, floor_boundary_alpha = env.floor_boundary(netuid, env.chain_min_stake_tao())
     wrap_receipt = env.deposit_and_wrap(
         netuid, hotkeys[0], env.hotkey_ss58s[0], floor_boundary_alpha * 3 // 2, 1_500_000, "Sweep: wrap failed",
     )

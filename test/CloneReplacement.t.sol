@@ -12,7 +12,7 @@ contract CloneReplacementTest is AlphaVaultTestBase {
     bytes32 private constant UID = keccak256("replacement-uid");
     address private carol = makeAddr("carol");
 
-    /// @dev Ten alpha spread ten ways keeps every slot above the 0.004-alpha move floor at 0.05 TAO per alpha.
+    /// @dev Ten alpha spread ten ways keeps every slot above the 0.04-alpha floor at 0.05 TAO per alpha.
     uint256 private constant MIN_SPREADABLE = 10 * ALPHA;
 
     struct Quotes {
@@ -93,7 +93,7 @@ contract CloneReplacementTest is AlphaVaultTestBase {
         vault.unwrapForTao(TOKEN1, bobShares, 0);
         assertGt(bob.balance - taoBefore, 0, "the TAO exit pays from the successor");
         assertEq(vault.totalSupply(TOKEN1), 0, "the last holder's full burn leaves no shares");
-        assertLe(lens.totalStake(TOKEN1), ALPHA_SALE_FLOOR, "a full-supply sale leaves at most a sub-floor remainder");
+        assertLe(lens.totalStake(TOKEN1), ALPHA_FLOOR, "a full-supply sale leaves at most a sub-floor remainder");
     }
 
     function _fundedSlots() private view returns (uint256 funded) {

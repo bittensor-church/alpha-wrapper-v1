@@ -6,10 +6,10 @@ subnets):
   1. A position reduced to dust under a validator that dropped out of the
      set: the alpha exit is refused cheaply with a clear error, the TAO
      exit still pays out in full, and the vault works normally afterwards.
-  2. A market crash that devalues a position below the vault's move floor:
+  2. A market crash that devalues a position below the vault's floor:
      the alpha exit is refused clearly instead of failing forever, the TAO
      exit still pays out, and deposits keep working at the crashed price.
-  3. A small holder alongside a large one, its slice below the move floor:
+  3. A small holder alongside a large one, its slice below the floor:
      both exits refuse without touching the large holder's backing, and a
      top-up lets the small holder leave with exactly its slice; the large
      holder exits unharmed.
@@ -23,8 +23,8 @@ from alpha_e2e.substrate import h160_to_ss58, h160_to_substrate_b32
 
 @pytest.mark.scenario
 def test_rotated_out_dust_cannot_lock_the_vault(env):
-    move_floor = env.move_floor_tao()
-    print(f"  vault move floor = {move_floor} RAO")
+    floor = env.chain_min_stake_tao()
+    print(f"  vault floor = {floor} RAO")
 
     netuid = env.netuids[0]
     token_id = env.token_ids[0]
@@ -32,7 +32,7 @@ def test_rotated_out_dust_cannot_lock_the_vault(env):
     rotated_out_hotkey_pubkey = hotkeys[0]
     kept_hotkey_b_pubkey = hotkeys[1]
 
-    _, floor_boundary_alpha = env.floor_boundary(netuid, move_floor)
+    _, floor_boundary_alpha = env.floor_boundary(netuid, floor)
     env.deposit_and_wrap(
         netuid, rotated_out_hotkey_pubkey, env.hotkey_ss58s[0], floor_boundary_alpha * 3 // 2,
         1_500_000, "Rotated-out dust: wrap failed",
@@ -44,7 +44,7 @@ def test_rotated_out_dust_cannot_lock_the_vault(env):
         hotkeys=hotkeys,
     )
     dust_residue = env.stake(rotated_out_hotkey_pubkey, clone_coldkey, netuid)
-    assert env.alpha_value_tao(netuid, dust_residue) < move_floor, (
+    assert env.alpha_value_tao(netuid, dust_residue) < floor, (
         f"Rotated-out dust: residual {dust_residue} alpha RAO is not sub-floor"
     )
     env.set_validator(netuid, kept_hotkey_b_pubkey)
@@ -70,7 +70,7 @@ def test_rotated_out_dust_cannot_lock_the_vault(env):
     exits.assert_drained(env, token_id, hotkeys, tao_exit_receipt, "Rotated-out dust: TAO exit")
     print("  TAO exit drained the dust in full and paid out per the chain quote")
 
-    _, floor_boundary_alpha = env.floor_boundary(netuid, move_floor)
+    _, floor_boundary_alpha = env.floor_boundary(netuid, floor)
     env.deposit_and_wrap(
         netuid, kept_hotkey_b_pubkey, env.hotkey_ss58s[1], floor_boundary_alpha * 3 // 2, 1_500_000,
         "Rotated-out dust: follow-up wrap failed",
@@ -83,7 +83,7 @@ def test_rotated_out_dust_cannot_lock_the_vault(env):
 
 @pytest.mark.scenario
 def test_price_crash_cannot_lock_exits(env):
-    move_floor = env.move_floor_tao()
+    floor = env.chain_min_stake_tao()
 
     netuid = env.netuids[1]
     token_id = env.token_ids[1]
@@ -93,7 +93,7 @@ def test_price_crash_cannot_lock_exits(env):
     sell_hotkey_pubkey = hotkeys[1]
     sell_hotkey_ss58 = env.hotkey_ss58s[4]
 
-    crash_price, floor_boundary_alpha = env.floor_boundary(netuid, move_floor)
+    crash_price, floor_boundary_alpha = env.floor_boundary(netuid, floor)
     # Just above the floor, so the crash helper's roughly halved price drops the whole position under it.
     env.deposit_and_wrap(
         netuid, position_hotkey_pubkey, position_hotkey_ss58, floor_boundary_alpha * 12 // 10, 1_500_000,
@@ -104,7 +104,7 @@ def test_price_crash_cannot_lock_exits(env):
 
     env.crash_price_until_below(
         netuid, sell_hotkey_pubkey, sell_hotkey_ss58,
-        env.total_stake_across(clone_coldkey, netuid, hotkeys), move_floor * 9 // 10, "Price crash",
+        env.total_stake_across(clone_coldkey, netuid, hotkeys), floor * 9 // 10, "Price crash",
     )
 
     crashed_shares = env.vault_shares(token_id)
@@ -125,7 +125,7 @@ def test_price_crash_cannot_lock_exits(env):
     exits.assert_drained(env, token_id, hotkeys, tao_exit_receipt, "Price crash: TAO exit")
     print("  TAO exit paid out the devalued position in full")
 
-    _, floor_boundary_alpha = env.floor_boundary(netuid, move_floor)
+    _, floor_boundary_alpha = env.floor_boundary(netuid, floor)
     env.deposit_and_wrap(
         netuid, position_hotkey_pubkey, position_hotkey_ss58, floor_boundary_alpha * 3 // 2, 1_500_000,
         "Price crash: post-crash wrap failed",
@@ -138,7 +138,7 @@ def test_price_crash_cannot_lock_exits(env):
 
 @pytest.mark.scenario
 def test_sub_floor_co_holder_cannot_be_locked_in_or_leak_the_other_holder(env):
-    move_floor = env.move_floor_tao()
+    floor = env.chain_min_stake_tao()
 
     netuid = env.netuids[2]
     token_id = env.token_ids[2]
@@ -149,7 +149,7 @@ def test_sub_floor_co_holder_cannot_be_locked_in_or_leak_the_other_holder(env):
 
     extrinsics.fund_account(h160_to_ss58(config.SECOND_HOLDER_ADDRESS), 10 * config.RAO_PER_TAO)
 
-    _, floor_boundary_alpha = env.floor_boundary(netuid, move_floor)
+    _, floor_boundary_alpha = env.floor_boundary(netuid, floor)
     large_deposit = floor_boundary_alpha * 10
     small_deposit = floor_boundary_alpha * 12 // 10
     env.deposit_and_wrap(
@@ -178,11 +178,11 @@ def test_sub_floor_co_holder_cannot_be_locked_in_or_leak_the_other_holder(env):
     large_holder_value = env.alpha_value_tao(
         netuid, env.holder_assets(token_id, config.WRAPPER_USER_ADDRESS),
     )
-    assert small_holder_value < move_floor, (
+    assert small_holder_value < floor, (
         f"Co-holder: small slice not below the floor "
-        f"({small_holder_value} RAO, floor {move_floor})"
+        f"({small_holder_value} RAO, floor {floor})"
     )
-    assert large_holder_value >= move_floor * 2, (
+    assert large_holder_value >= floor * 2, (
         f"Co-holder: large holder not clear of the floor ({large_holder_value} RAO)"
     )
 
@@ -207,7 +207,7 @@ def test_sub_floor_co_holder_cannot_be_locked_in_or_leak_the_other_holder(env):
     )
     print("  Both exits refused the sub-floor slice cleanly")
 
-    _, floor_boundary_alpha = env.floor_boundary(netuid, move_floor)
+    _, floor_boundary_alpha = env.floor_boundary(netuid, floor)
     env.deposit_and_wrap(
         netuid, position_hotkey_pubkey, position_hotkey_ss58, floor_boundary_alpha * 2, 1_500_000,
         "Co-holder: top-up wrap failed",

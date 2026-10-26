@@ -310,20 +310,20 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     }
 
     function test_FirstWrapperInflationAttack_CostsTheNextDepositorOneRao() public {
-        _simulateAlphaDeposit(alice, NETUID1, ALPHA_MOVE_FLOOR);
+        _simulateAlphaDeposit(alice, NETUID1, ALPHA_FLOOR);
         _wrap(alice, NETUID1);
-        assertEq(vault.balanceOf(alice, TOKEN1), 4e15, "the smallest deposit the vault accepts");
+        assertEq(vault.balanceOf(alice, TOKEN1), 4e16, "the smallest deposit the vault accepts");
 
         // A 100,000-alpha gift to the clone (5,000 TAO at 0.05) lands like an emission.
         _simulateEmissions(NETUID1, 100_000 * ALPHA);
 
         uint256 bobShares = _depositAndWrap(bob, NETUID1, 1_000 * ALPHA);
-        // 1e12 * (4e15 + 1e9) / (1e14 + 4e6 + 1), floored.
-        assertEq(bobShares, 40_000_008_399_999);
+        // 1e12 * (4e16 + 1e9) / (1e14 + 4e7 + 1), floored.
+        assertEq(bobShares, 399_999_850_000_055);
 
         vm.prank(bob);
         vault.unwrap(TOKEN1, bobShares, _toSubstrate(bob), 0);
-        // bobShares * (1.01e14 + 4e6 + 1) / (4e15 + bobShares + 1e9), floored.
+        // bobShares * (1.01e14 + 4e7 + 1) / (4e16 + bobShares + 1e9), floored.
         assertEq(_userStakeAcrossHotkeys(bob, NETUID1), 1_000 * ALPHA - 1, "the gift costs bob one RAO");
     }
 
@@ -764,14 +764,14 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     }
 
     function test_RevertWhen_DissolvedSliceIsBelowOneRao() public {
-        uint256 aliceShares = _depositAndWrap(alice, NETUID1, ALPHA_MOVE_FLOOR);
+        uint256 aliceShares = _depositAndWrap(alice, NETUID1, ALPHA_FLOOR);
         _depositAndWrap(bob, NETUID1, 100_000 * ALPHA);
 
         _simulateDissolutionStarted(NETUID1);
         _simulateTaoAwardedOnDissolution(TOKEN1, TAO / 1000);
         _simulateDissolutionCompleted(NETUID1);
 
-        // 1e15 * 4e15 / (4e15 + 1e23) = 39,999,998 wei, below one RAO.
+        // 1e15 * 4e16 / (4e16 + 1e23) = 399,999,840 wei, below one RAO.
         (, uint256 quoted) = lens.previewUnwrap(TOKEN1, aliceShares);
         assertEq(quoted, 0, "a slice below one RAO quotes nothing");
 
@@ -1291,7 +1291,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     }
 
     function testFuzz_WrapMintsTheQuoteUnderAnyBoundAtOrBelowIt(uint256 depositAlpha, uint256 boundBps) public {
-        depositAlpha = bound(depositAlpha, ALPHA_MOVE_FLOOR, MAX_SUBNET_ALPHA);
+        depositAlpha = bound(depositAlpha, ALPHA_FLOOR, MAX_SUBNET_ALPHA);
         boundBps = bound(boundBps, 0, VaultMath.BPS_BASE);
         _simulateAlphaDeposit(alice, NETUID1, depositAlpha);
         uint256 quoted = lens.previewWrap(TOKEN1, depositAlpha);
@@ -1305,7 +1305,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     }
 
     function testFuzz_RevertWhen_MinSharesOutExceedsTheQuote(uint256 depositAlpha, uint256 excess) public {
-        depositAlpha = bound(depositAlpha, ALPHA_MOVE_FLOOR, MAX_SUBNET_ALPHA);
+        depositAlpha = bound(depositAlpha, ALPHA_FLOOR, MAX_SUBNET_ALPHA);
         _simulateAlphaDeposit(alice, NETUID1, depositAlpha);
         uint256 quoted = lens.previewWrap(TOKEN1, depositAlpha);
         excess = bound(excess, 1, type(uint256).max - quoted);
@@ -1316,7 +1316,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     }
 
     function testFuzz_RevertWhen_MinAlphaOutExceedsTheQuote(uint256 depositAlpha, uint256 burn, uint256 excess) public {
-        depositAlpha = bound(depositAlpha, ALPHA_MOVE_FLOOR, MAX_SUBNET_ALPHA);
+        depositAlpha = bound(depositAlpha, ALPHA_FLOOR, MAX_SUBNET_ALPHA);
         burn = bound(burn, 1e9, _depositAndWrap(alice, NETUID1, depositAlpha));
         uint256 quoted = burn / 1e9;
         excess = bound(excess, 1, type(uint256).max - quoted);
@@ -1527,7 +1527,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     }
 
     function testFuzz_WrapUnwrapRoundTripPreservesAlpha(uint256 d) public {
-        d = bound(d, ALPHA_MOVE_FLOOR, MAX_SUBNET_ALPHA);
+        d = bound(d, ALPHA_FLOOR, MAX_SUBNET_ALPHA);
 
         uint256 shares = _depositAndWrap(alice, NETUID1, d);
 
@@ -1563,10 +1563,10 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     /// @dev The planted layout keeps the deposit's total, so supply stays d * 1e9 on stake d and a burn of
     ///      s shares is worth exactly floor(s / 1e9) RAO.
     function testFuzz_UnwrapConservesAlpha(uint256 b1, uint256 b2, uint256 b3, uint256 burnPct) public {
-        // 0.2 alpha per slot keeps a 1% burn of the smallest total above the 0.004-alpha floor.
-        b1 = bound(b1, ALPHA / 5, MAX_SUBNET_ALPHA / 3);
-        b2 = bound(b2, ALPHA / 5, MAX_SUBNET_ALPHA / 3);
-        b3 = bound(b3, ALPHA / 5, MAX_SUBNET_ALPHA / 3);
+        // 2 alpha per slot keeps a 1% burn of the smallest total above the 0.04-alpha floor.
+        b1 = bound(b1, 2 * ALPHA, MAX_SUBNET_ALPHA / 3);
+        b2 = bound(b2, 2 * ALPHA, MAX_SUBNET_ALPHA / 3);
+        b3 = bound(b3, 2 * ALPHA, MAX_SUBNET_ALPHA / 3);
         burnPct = bound(burnPct, 1, 99);
 
         uint256 d = b1 + b2 + b3;
@@ -1585,8 +1585,8 @@ contract AlphaVaultTest is AlphaVaultTestBase {
 
     function testFuzz_RevertWhen_UnwrapPaysBelowTheFloor(uint256 burnShares) public {
         _depositAndWrap(alice, NETUID1, 100 * ALPHA);
-        // 1e20 shares on 1e11 RAO: a burn of s shares is worth floor(s / 1e9) RAO, from 1 RAO to just below 0.004 alpha.
-        burnShares = bound(burnShares, 1e9, ALPHA_MOVE_FLOOR * 1e9 - 1);
+        // 1e20 shares on 1e11 RAO: a burn of s shares is worth floor(s / 1e9) RAO, from 1 RAO to just below 0.04 alpha.
+        burnShares = bound(burnShares, 1e9, ALPHA_FLOOR * 1e9 - 1);
 
         vm.prank(alice);
         vm.expectRevert(WithdrawTooSmall.selector);
@@ -1596,8 +1596,8 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     /// @dev k * 10,000 + 7 RAO: the two weighted slices floor 7 * 3334 and 7 * 3333 bps to 2 RAO each, and
     ///      the last slot takes the remaining 3.
     function testFuzz_WrapLandsExactlyOnTargets(uint256 k) public {
-        // 1,201 * 3333 RAO is the smallest slice that clears the 0.004-alpha floor.
-        k = bound(k, 1201, MAX_SUBNET_ALPHA / 10_000);
+        // 12,002 * 3333 RAO is the smallest slice that clears the 0.04-alpha floor.
+        k = bound(k, 12_002, MAX_SUBNET_ALPHA / 10_000);
         uint256 d = k * 10_000 + 7;
 
         _simulateAlphaDeposit(alice, NETUID1, d);
@@ -1610,8 +1610,8 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     }
 
     function testFuzz_RotatedOutStakeReclaimedAcrossRotation(uint256 b1, uint256 b2, uint256 b3) public {
-        // hotkey1 stays above the 0.004-alpha floor so the roller can start there while hotkey3 fuzzes down to zero.
-        b1 = bound(b1, ALPHA_MOVE_FLOOR, MAX_SUBNET_ALPHA / 3);
+        // hotkey1 stays above the 0.04-alpha floor so the roller can start there while hotkey3 fuzzes down to zero.
+        b1 = bound(b1, ALPHA_FLOOR, MAX_SUBNET_ALPHA / 3);
         b2 = bound(b2, 0, MAX_SUBNET_ALPHA / 3);
         b3 = bound(b3, 0, MAX_SUBNET_ALPHA / 3);
 
@@ -1670,6 +1670,6 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         }
 
         uint256 minMatchable = maxOver < maxUnder ? maxOver : maxUnder;
-        assertLt(minMatchable, ALPHA_MOVE_FLOOR, "rebalance reaches floor-bounded fixpoint");
+        assertLt(minMatchable, ALPHA_FLOOR, "rebalance reaches floor-bounded fixpoint");
     }
 }

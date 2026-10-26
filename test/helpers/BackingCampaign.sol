@@ -3,7 +3,7 @@ pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { AlphaVaultTestBase } from "../AlphaVaultTestBase.sol";
-import { CHAIN_MIN_TRANSFER, MockStaking } from "../mocks/MockStaking.sol";
+import { CHAIN_MIN_STAKE, MockStaking } from "../mocks/MockStaking.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
@@ -292,7 +292,7 @@ abstract contract BackingCampaignHandler is Test {
             } else {
                 assertLt(
                     harness.taoValueAtRead(harness.leastAssetsFor(attempt.shares)),
-                    2 * CHAIN_MIN_TRANSFER,
+                    CHAIN_MIN_STAKE,
                     "refused an exit above the floor"
                 );
             }
@@ -563,7 +563,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
             if (held > richest) richest = held;
             if (held != 0) exposed = true;
         }
-        return !exposed || taoValueAtRead(richest) < MOVE_FLOOR;
+        return !exposed || taoValueAtRead(richest) < CHAIN_MIN_STAKE;
     }
 
     function nothingToCollectFrom(bytes32 source) external view returns (bool) {
@@ -576,7 +576,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
     }
 
     function _belowFloorAtAnyPrice(uint256 alpha) private view returns (bool) {
-        return alpha != 0 && alpha * (_alphaPriceRead(NETUID1) + 1e9) / 1e18 < MOVE_FLOOR;
+        return alpha != 0 && alpha * (_alphaPriceRead(NETUID1) + 1e9) / 1e18 < CHAIN_MIN_STAKE;
     }
 
     function _successorOf(bytes32 hotkey) private view returns (bytes32) {

@@ -22,7 +22,7 @@ import { SubnetClone } from "../SubnetClone.sol";
 ///      caller and logs still originate from the vault. Callers retain the backing gates, reentrancy
 ///      guard and accounting; this library writes only the clone records handed to it by storage reference.
 library VaultAllocation {
-    /// @dev What collection does with a pile below the move floor.
+    /// @dev What collection does with a pile below the floor.
     enum CollectionPolicy { RevertBelowFloor, LeaveBelowFloor }
 
     /// @dev One position under one alpha price: the caller reads the price once and every floor test in
@@ -43,9 +43,9 @@ library VaultAllocation {
         return VaultClones.prepareClones(factory, subnetClone, mailboxes, tokenId, netuid, uid);
     }
 
-    /// @notice Whether a move or transfer of `alphaAmount` falls below the vault's move floor at the given price.
-    function isBelowMoveFloor(uint256 alphaAmount, uint256 alphaPriceE18) external view returns (bool) {
-        return StakeOps.isBelowMoveFloorAtReadPrice(alphaAmount, alphaPriceE18);
+    /// @notice Whether `alphaAmount` falls below the vault's floor at the given price.
+    function isBelowFloor(uint256 alphaAmount, uint256 alphaPriceE18) external view returns (bool) {
+        return StakeOps.isBelowFloorAtReadPrice(alphaAmount, alphaPriceE18);
     }
 
     function admitDeposit(bytes32 mailboxColdkey, uint16 nid) external view
@@ -53,7 +53,7 @@ library VaultAllocation {
         totalDeposit = IStaking(STAKING_PRECOMPILE).getStake(mailboxColdkey, mailboxColdkey, nid);
         if (totalDeposit == 0) revert ZeroAmount();
         alphaPriceE18 = IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(nid);
-        if (StakeOps.isBelowMoveFloorAtReadPrice(totalDeposit, alphaPriceE18)) { revert IAlphaVaultAbi.DepositTooSmall(); }
+        if (StakeOps.isBelowFloorAtReadPrice(totalDeposit, alphaPriceE18)) { revert IAlphaVaultAbi.DepositTooSmall(); }
         if (VaultReads.lockedAlphaOf(mailboxColdkey, nid) != 0) revert LockedDeposit();
     }
 
@@ -93,7 +93,7 @@ library VaultAllocation {
         bytes32 successorColdkey = VaultReads.coldkeyOf(successor);
         SubnetClone(successor).setRejectStakingHotkeyGrowth(false);
         for (uint256 i; i < keys.length;) {
-            if (balances[i] != 0 && !StakeOps.isBelowMoveFloorAtReadPrice(balances[i], context.alphaPriceE18)) {
+            if (balances[i] != 0 && !StakeOps.isBelowFloorAtReadPrice(balances[i], context.alphaPriceE18)) {
                 StakeOps.flush(context.clone, keys[i], successorColdkey, context.netuid, balances[i]);
             }
             unchecked { ++i; }
@@ -147,7 +147,7 @@ library VaultAllocation {
 
         uint256 maxChunk = balance - minLeftover; uint256 chunk = maxChunk < remaining ? maxChunk : remaining;
         // Keep gas-consuming simulation failures away from provably sub-floor inputs.
-        if (StakeOps.isBelowSaleFloorAtReadPrice(chunk, alphaPriceE18)) return 0;
+        if (StakeOps.isBelowFloorAtReadPrice(chunk, alphaPriceE18)) return 0;
 
         uint256 chunkQuote = IAlpha(ALPHA_PRECOMPILE).simSwapAlphaForTao(netuid, SafeCast.toUint64(chunk));
         if (chunkQuote < StakeOps.minStakeTao()) return 0;
@@ -270,15 +270,15 @@ library VaultAllocation {
 
         // Each step settles one cached target, so N-1 steps bound the loop.
         // Settlement rereads actual chain balances afterwards.
-        uint256 moveFloorTao = StakeOps.moveFloorTao();
+        uint256 minStakeTao = StakeOps.minStakeTao();
         for (uint256 round; round < lastIndex;) {
-            if (!_rebalanceStep(context, hotkeys, balances, targets, moveFloorTao)) break;
+            if (!_rebalanceStep(context, hotkeys, balances, targets, minStakeTao)) break;
             unchecked { ++round; }
         }
     }
 
     function _rebalanceStep(Context memory context, bytes32[] memory hotkeys, uint256[] memory balances,
-        uint256[] memory targets, uint256 moveFloorTao) private returns (bool) {
+        uint256[] memory targets, uint256 minStakeTao) private returns (bool) {
         uint256 overIndex; uint256 maxOver;
         uint256 underIndex; uint256 maxUnder;
         for (uint256 i; i < balances.length;) {
@@ -296,7 +296,7 @@ library VaultAllocation {
 
         uint256 moveAmount = maxOver < maxUnder ? maxOver : maxUnder;
         // A rejected precompile call consumes forwarded gas. Skip unproven moves and tolerate weight drift.
-        if (context.alphaPriceE18 == 0 || StakeOps.taoValue(moveAmount, context.alphaPriceE18) < moveFloorTao) { return false; }
+        if (context.alphaPriceE18 == 0 || StakeOps.taoValue(moveAmount, context.alphaPriceE18) < minStakeTao) { return false; }
         // A full staking list is no reason to hold an exit; alignment waits for the clone's replacement.
         if (!VaultReads.admitsMove(context.coldkey, hotkeys[underIndex], context.netuid, context.parking)) return false;
         StakeOps.moveAdmitted(context.clone, hotkeys[overIndex], hotkeys[underIndex], context.netuid, moveAmount);
@@ -307,7 +307,7 @@ library VaultAllocation {
 
     /// @dev Move all dropped-key backing onto tracked destinations before rewriting the record.
     ///      Recovery may leave a below-floor pile in place; other callers refuse it.
-    /// @return leftBelowFloor True only when the richest source/destination is below the move floor.
+    /// @return leftBelowFloor True only when the richest source/destination is below the floor.
     function consolidateRotatedStake(Context memory context, bytes32[] memory sourceKeys, bytes32[] memory currentSet,
         CollectionPolicy policy) external returns (bool leftBelowFloor) {
         if (!_anyRotatedOut(sourceKeys, currentSet)) return false;
@@ -316,7 +316,7 @@ library VaultAllocation {
         if (!hasRotatedOutBalance) return false;
         // The pile starts at the largest balance and only grows, up to rounding on each move,
         // so its starting size bounds every hop to within that rounding.
-        if (StakeOps.isBelowMoveFloorAtAnyPrice(richestBalance, context.alphaPriceE18)) {
+        if (StakeOps.isBelowFloorAtAnyPrice(richestBalance, context.alphaPriceE18)) {
             if (policy == CollectionPolicy.LeaveBelowFloor) return true;
             revert IAlphaVaultAbi.ConsolidationBelowFloor();
         }
@@ -386,7 +386,7 @@ library VaultAllocation {
         uint256 deliverable = balances[deliveryIndex];
         if (balances[deliveryIndex] < assets) {
             // Start with the largest slot; reject an unmovable pile before forwarding gas to the chain.
-            if (StakeOps.isBelowMoveFloorAtAnyPrice(balances[deliveryIndex], context.alphaPriceE18)) {
+            if (StakeOps.isBelowFloorAtAnyPrice(balances[deliveryIndex], context.alphaPriceE18)) {
                 revert IAlphaVaultAbi.GatherBelowFloor();
             }
             // Re-read every hop: requesting a cached sum can exceed the balance after chain rounding.

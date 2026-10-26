@@ -231,7 +231,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         // Do not refund a full exit as fresh sub-floor dust; partial refunds merge with remaining shares.
         if (unsold != 0 && shares == supply) {
             uint256 alphaPriceE18 = IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid);
-            if (VaultAllocation.isBelowMoveFloor(unsold, alphaPriceE18)) unsold = 0;
+            if (VaultAllocation.isBelowFloor(unsold, alphaPriceE18)) unsold = 0;
         }
 
         uint256 refundShares = VaultMath.sharesFor(total - assets, supply - shares, unsold);
@@ -304,7 +304,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (assets == 0) revert ZeroAmount();
         if (assets < minAlphaOut) revert SlippageExceeded(assets);
 
-        if (VaultAllocation.isBelowMoveFloor(assets, alphaPriceE18)) revert WithdrawTooSmall();
+        if (VaultAllocation.isBelowFloor(assets, alphaPriceE18)) revert WithdrawTooSmall();
 
         _burn(msg.sender, tokenId, shares);
         // A parked position has one slot, so its payout leaves nothing to align.
@@ -438,10 +438,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         emit BackingRecovered(tokenId, parkingHotkey, parked - before);
     }
 
-    /// @notice Move the token's position to a fresh clone once the old one's staking list has fewer free
-    ///         entries than the attested set plus the parking hotkey. Anyone may call it; a rejected
-    ///         candidate is retried with a fresh UID.
-    /// @dev All TAO moves. Recorded piles below the move floor stay behind and leave the record, and the
+    /// @notice Move the token's position to a fresh clone once the old one's staking list is half full.
+    ///         Anyone may call it; a rejected candidate is retried with a fresh UID.
+    /// @dev All TAO moves. Recorded piles below the floor stay behind and leave the record, and the
     ///      old clone keeps the alpha strangers sent it. Token id, shares, claims and mailboxes carry over.
     function replaceClone(uint256 tokenId, bytes32 uid) external nonReentrant {
         address clone = subnetClone[tokenId];
@@ -451,8 +450,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         VaultReads.requireTransfersEnabled(netuid);
         bytes32 coldkey = VaultReads.coldkeyOf(clone);
         (, VaultReads.Backing memory backing) = _openBacking(tokenId, coldkey, netuid);
-        VaultReads.ValidatorSet memory set = VaultReads.resolveValidators(validatorRegistry, netuid);
-        if (VaultReads.admitsSet(coldkey, set.hotkeys.length)) revert StakingListHasRoom();
+        if (!VaultReads.replacementOpen(coldkey)) revert StakingListHasRoom();
         address successor = VaultAllocation.replaceClone(
             cloneFactory, _context(tokenId, clone, coldkey, IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid)),
             backing.keys, backing.balances, uid);

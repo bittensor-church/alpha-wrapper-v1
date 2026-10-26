@@ -7,16 +7,16 @@ from alpha_e2e.checks import assert_gas_within
 
 @pytest.mark.scenario
 def test_min_stake_floor(env):
-    move_floor = env.move_floor_tao()
-    print(f"  vault move floor = {move_floor} RAO")
+    floor = env.chain_min_stake_tao()
+    print(f"  vault floor = {floor} RAO")
 
-    # The vault applies twice the chain's transfer minimum to deposits, which the chain moves at half that bar;
+    # The vault applies the chain's unstake minimum to deposits, which the chain moves at a lower bar;
     # this leg checks the refusal is cheap and labelled, not that a chain call was avoided.
     gate_netuid = env.netuids[0]
     gate_hotkey_pubkey = env.hotkey_pubkeys[0]
     gate_hotkey_ss58 = env.hotkey_ss58s[0]
 
-    gate_price, gate_boundary = env.floor_boundary(gate_netuid, move_floor)
+    gate_price, gate_boundary = env.floor_boundary(gate_netuid, floor)
     # Two of these park below the boundary individually but clear it together.
     sub_floor_alpha = gate_boundary * 2 // 3
     print(f"  Alpha price={gate_price} -> floor boundary={gate_boundary} alpha RAO, "
@@ -27,7 +27,7 @@ def test_min_stake_floor(env):
     except extrinsics.ExtrinsicError as error:
         raise AssertionError(
             "Floor gate: parking transfer refused - the deposit must sit between the "
-            f"chain's transfer minimum and the vault's move floor ({sub_floor_alpha} alpha = 2/3 "
+            f"chain's transfer minimum and the vault's floor ({sub_floor_alpha} alpha = 2/3 "
             "of the boundary); has either moved past this test's sizing?"
         ) from error
 
@@ -39,7 +39,7 @@ def test_min_stake_floor(env):
     assert_gas_within(
         gate_refusal_receipt, config.REVERT_GAS_BOUND, "Floor gate: sub-floor wrap refusal",
     )
-    print("  wrap refused a deposit below the move floor as DepositTooSmall, "
+    print("  wrap refused a deposit below the floor as DepositTooSmall, "
           "without burning the gas budget")
 
     env.send_to_mailbox(gate_netuid, gate_hotkey_ss58, sub_floor_alpha)
@@ -57,7 +57,7 @@ def test_min_stake_floor(env):
     kept_hotkey_b_pubkey = dust_hotkeys[1]
     kept_hotkey_b_ss58 = env.hotkey_ss58s[7]
 
-    dust_price, dust_boundary = env.floor_boundary(dust_netuid, move_floor)
+    dust_price, dust_boundary = env.floor_boundary(dust_netuid, floor)
     dust_deposit = dust_boundary * 3 // 2
     env.deposit_and_wrap(
         dust_netuid, dust_hotkey_pubkey, dust_hotkey_ss58, dust_deposit,
@@ -72,7 +72,7 @@ def test_min_stake_floor(env):
         env, dust_token_id, dust_shares * 5 // 6, "Dust consolidation: partial unwrap failed", hotkeys=dust_hotkeys,
     )
     dust_residue = env.stake(dust_hotkey_pubkey, dust_clone_coldkey, dust_netuid)
-    assert dust_residue * dust_price // config.ALPHA_PRICE_SCALE < move_floor, (
+    assert dust_residue * dust_price // config.ALPHA_PRICE_SCALE < floor, (
         f"Dust consolidation: residual {dust_residue} is not sub-floor (price {dust_price})"
     )
     print(f"  Left sub-floor dust of {dust_residue} alpha RAO under the "

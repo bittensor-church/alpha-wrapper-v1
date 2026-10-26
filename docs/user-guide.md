@@ -25,7 +25,9 @@ After a netuid is recycled, call `createMailbox` again before wrapping.
 - `LockedDeposit`: reclaim the alpha with `reclaimAlphaFromMailbox` to a coldkey
   that accepts locked alpha.
 - `StakingListFull`: anyone can call `replaceClone(tokenId, uid)` with a fresh
-  random UID, then retry. Token id, shares and TAO claims carry over.
+  random UID, then retry. Token id, shares and TAO claims carry over. The lens's
+  `stakingListEntries(tokenId)` shows the list; replacement opens once it holds
+  128 entries, half the chain's cap.
 
 ## Shares and exits
 

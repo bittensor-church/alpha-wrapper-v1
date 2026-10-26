@@ -88,7 +88,7 @@ later recovery.
   registry replaces it; the alpha stays under the vault's coldkey.
 - Alpha a clone holds on another subnet stays outside the backing, and so do piles
   a clone replacement leaves behind. Anyone holding enough alpha can push a pile
-  below the move floor by dumping the price around a replacement and so destroy
+  below the floor by dumping the price around a replacement and so destroy
   it for holders, gaining nothing.
 
 See [edge cases](edge-cases.md) for dissolution, transfer restrictions and minimums.

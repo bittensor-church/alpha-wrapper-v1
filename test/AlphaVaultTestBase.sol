@@ -17,7 +17,6 @@ import { MockSubnetPrecompile } from "./mocks/MockSubnetPrecompile.sol";
 import { MockAlpha, DEFAULT_ALPHA_PRICE_E18 } from "./mocks/MockAlpha.sol";
 import { MockNeuron } from "./mocks/MockNeuron.sol";
 import { MockBalanceTransfer } from "./mocks/MockBalanceTransfer.sol";
-import { MockRuntimeConfiguration } from "./mocks/MockRuntimeConfiguration.sol";
 import { CloneOwner } from "src/CloneOwner.sol";
 import { RegistryTestHelper } from "./helpers/RegistryTestHelper.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
@@ -26,7 +25,6 @@ import { ADDRESS_MAPPING_PRECOMPILE } from "src/interfaces/IAddressMapping.sol";
 import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { NEURON_PRECOMPILE } from "src/interfaces/INeuron.sol";
 import { BALANCE_TRANSFER_PRECOMPILE } from "src/interfaces/IBalanceTransfer.sol";
-import { RUNTIME_CONFIGURATION_PRECOMPILE } from "src/interfaces/IRuntimeConfiguration.sol";
 import { SUBNET_PRECOMPILE } from "src/interfaces/ISubnet.sol";
 
 abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
@@ -72,17 +70,11 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
 
     uint256 internal constant ALPHA_PRICE = DEFAULT_ALPHA_PRICE_E18;
 
-    /// @dev 0.004 alpha, worth the vault's 2e5 RAO move floor at the default price.
-    uint256 internal constant ALPHA_MOVE_FLOOR = 4e6;
-
     /// @dev 0.04 alpha, worth the chain's 2e6 RAO unstake minimum at the default price.
-    uint256 internal constant ALPHA_SALE_FLOOR = 4e7;
+    uint256 internal constant ALPHA_FLOOR = 4e7;
 
     /// @dev One TAO in native wei; the chain credits 1e9 wei per TAO RAO.
     uint256 internal constant TAO = 1 ether;
-
-    /// @dev The vault's move floor: twice the chain's transfer minimum.
-    uint256 internal constant MOVE_FLOOR = 2 * CHAIN_MIN_TRANSFER;
 
     /// @dev 0.002 alpha, worth the mock's 0.0001 TAO transfer minimum at 0.05 TAO per alpha.
     uint256 internal constant CRUMB = 2_000_000;
@@ -100,12 +92,11 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         vm.etch(ALPHA_PRECOMPILE, address(new MockAlpha()).code);
         vm.etch(NEURON_PRECOMPILE, address(new MockNeuron()).code);
         vm.etch(BALANCE_TRANSFER_PRECOMPILE, address(new MockBalanceTransfer()).code);
-        vm.etch(RUNTIME_CONFIGURATION_PRECOMPILE, address(new MockRuntimeConfiguration()).code);
         MockSubnetPrecompile(SUBNET_PRECOMPILE).setRegisteredAt(uint16(NETUID1), 100);
         MockSubnetPrecompile(SUBNET_PRECOMPILE).setRegisteredAt(uint16(NETUID2), 200);
         // Etching copies code, not constructor storage; seed chain thresholds explicitly.
         MockStaking(STAKING_PRECOMPILE).setChainMinStake(CHAIN_MIN_STAKE);
-        _setChainMinTransfer(CHAIN_MIN_TRANSFER);
+        MockStaking(STAKING_PRECOMPILE).setChainMinTransfer(CHAIN_MIN_TRANSFER);
         MockStaking(STAKING_PRECOMPILE).setNominatorMinRequiredStake(DUST_THRESHOLD);
 
         mailboxLogic = new DepositMailbox();
@@ -415,11 +406,6 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     /// @dev The registration block survives the start of asynchronous dissolution cleanup.
     function _simulateDissolutionStarted(uint256 netuid) internal {
         _setDissolving(netuid, true);
-    }
-
-    function _setChainMinTransfer(uint256 minTransferTao) internal {
-        MockStaking(STAKING_PRECOMPILE).setChainMinTransfer(minTransferTao);
-        MockRuntimeConfiguration(RUNTIME_CONFIGURATION_PRECOMPILE).setMinTransferWei(minTransferTao * 1e9);
     }
 
     function _setAlphaPrice(uint256 netuid, uint256 alphaPriceE18) internal {
