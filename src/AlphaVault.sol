@@ -12,7 +12,7 @@ import { IAlpha, ALPHA_PRECOMPILE } from "./interfaces/IAlpha.sol";
 import { INeuron, NEURON_PRECOMPILE } from "./interfaces/INeuron.sol";
 import { IValidatorRegistry } from "./interfaces/IValidatorRegistry.sol";
 import { ISubnet, SUBNET_PRECOMPILE } from "./interfaces/ISubnet.sol";
-import { IAlphaVaultAbi } from "./interfaces/IAlphaVaultAbi.sol";
+import { IAlphaVault } from "./interfaces/IAlphaVault.sol";
 import { StakeOps } from "./libraries/StakeOps.sol";
 import { VaultAllocation } from "./libraries/VaultAllocation.sol";
 import { VaultMath } from "./libraries/VaultMath.sol";
@@ -33,7 +33,7 @@ import {
 /// @dev No vault admin. Registry signers choose weights; watchers handle unresolved swaps.
 ///      Missing backing parks a position with holders on the vault's own hotkey until the registry publishes a
 ///      newer set. See docs/hotkey-swaps.md for the exit restrictions and recovery policy.
-contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
+contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVault {
     /// @dev One shortfall clock per token. A parked position rests on `parkingHotkey` until the
     ///      registry nonce moves past `parkedAtNonce`; zero means the position is not parked.
     struct Recovery { uint256 shortSince; uint256 parkedAtNonce; }

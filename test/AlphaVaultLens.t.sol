@@ -24,6 +24,10 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         new AlphaVaultLens(AlphaVault(address(0)));
     }
 
+    function test_Vault_IsTheVaultTheLensWasBuiltFor() public view {
+        assertEq(address(lens.vault()), address(vault));
+    }
+
     function testFuzz_SharePrice_AgreesWithThePreviewOfOneShareUnit(uint256 deposit, uint256 emissions, uint256 shares)
         public
     {
