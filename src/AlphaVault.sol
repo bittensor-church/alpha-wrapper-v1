@@ -655,6 +655,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVault {
         taoIndexDebt[tokenId][account] = VaultMath.earnedAt(balanceOf(account, tokenId), index);
     }
 
+    // ERC1155Supply and IAlphaVault both declare it, so the compiler needs one explicit implementation.
+    function totalSupply(uint256 tokenId) public view override(ERC1155Supply, IAlphaVault) returns (uint256) { return super.totalSupply(tokenId); }
+
     /// @dev Checkpoint pre-transfer balances, then anchor post-transfer debt before acceptance callbacks.
     ///      Repeated ids and self-transfers must not accrue the same TAO twice.
     function _update(address from, address to, uint256[] memory ids, uint256[] memory values) internal override(ERC1155, ERC1155Supply) {

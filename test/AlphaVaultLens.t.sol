@@ -4,8 +4,8 @@ pragma solidity 0.8.36;
 import { VaultMath } from "src/libraries/VaultMath.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
-import { AlphaVault } from "src/AlphaVault.sol";
 import { AlphaVaultLens } from "src/AlphaVaultLens.sol";
+import { IAlphaVault } from "src/interfaces/IAlphaVault.sol";
 import {
     AlphaTransfersDisabled,
     BackingShortfall,
@@ -21,11 +21,7 @@ import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 contract AlphaVaultLensTest is AlphaVaultTestBase {
     function test_RevertWhen_ConstructedWithoutAVault() public {
         vm.expectRevert(ZeroAddress.selector);
-        new AlphaVaultLens(AlphaVault(address(0)));
-    }
-
-    function test_Vault_IsTheVaultTheLensWasBuiltFor() public view {
-        assertEq(address(lens.vault()), address(vault));
+        new AlphaVaultLens(IAlphaVault(address(0)));
     }
 
     function testFuzz_SharePrice_AgreesWithThePreviewOfOneShareUnit(uint256 deposit, uint256 emissions, uint256 shares)

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { AlphaVault } from "./AlphaVault.sol";
 import { IAlphaVault } from "./interfaces/IAlphaVault.sol";
 import { IAlphaVaultLens } from "./interfaces/IAlphaVaultLens.sol";
 import { VaultMath } from "./libraries/VaultMath.sol";
@@ -25,14 +24,12 @@ contract AlphaVaultLens is IAlphaVaultLens {
         VaultReads.Backing backing;
     }
 
-    AlphaVault private immutable _vault;
+    IAlphaVault public immutable vault;
 
-    constructor(AlphaVault alphaVault) {
-        if (address(alphaVault) == address(0)) revert ZeroAddress();
-        _vault = alphaVault;
+    constructor(IAlphaVault _vault) {
+        if (address(_vault) == address(0)) revert ZeroAddress();
+        vault = _vault;
     }
-
-    function vault() external view returns (IAlphaVault) { return _vault; }
 
     /// @notice Alpha backing `tokenId`, in RAO.
     /// @dev Rejects recorded losses. Checks coverage and locks only on live, non-dissolving positions.
@@ -56,15 +53,15 @@ contract AlphaVaultLens is IAlphaVaultLens {
     /// @notice Backing keys and alpha RAO, following at most one swap per slot.
     /// @dev TAO exits sell from `keys`; any `short` flag blocks the exit.
     function resolvedBacking(uint256 tokenId) external view returns (VaultReads.Backing memory backing) {
-        address clone = _vault.subnetClone(tokenId);
+        address clone = vault.subnetClone(tokenId);
         if (clone == address(0)) return backing;
         return VaultReads.resolveBacking(
-            _vault.recordedSlots(tokenId), VaultReads.coldkeyOf(clone), VaultMath.netuidOf(tokenId));
+            vault.recordedSlots(tokenId), VaultReads.coldkeyOf(clone), VaultMath.netuidOf(tokenId));
     }
 
     /// @notice Recorded active hotkeys, without resolving later swaps.
     function lastSeenHotkeys(uint256 tokenId) external view returns (bytes32[] memory) {
-        return VaultReads.activesOf(_vault.recordedSlots(tokenId));
+        return VaultReads.activesOf(vault.recordedSlots(tokenId));
     }
 
     /// @notice Whether backing passes coverage and recorded-loss checks.
@@ -79,14 +76,14 @@ contract AlphaVaultLens is IAlphaVaultLens {
     /// @dev Expiry alone does not clear the loss.
     function writeOffDeadline(uint256 tokenId) external view returns (uint256 deadline) {
         uint256 shortSince = _shortSince(tokenId);
-        if (shortSince != 0) return shortSince + _vault.recoveryWindow();
+        if (shortSince != 0) return shortSince + vault.recoveryWindow();
         if (VaultReads.firstShortOf(_readBacking(tokenId).backing.short) != VaultReads.NO_SHORT_SLOT) {
             deadline = VaultReads.UNDECLARED_SHORTFALL;
         }
     }
 
     function _readBacking(uint256 tokenId) private view returns (BackingRead memory read) {
-        read.netuid = VaultMath.netuidOf(tokenId); read.clone = _vault.subnetClone(tokenId);
+        read.netuid = VaultMath.netuidOf(tokenId); read.clone = vault.subnetClone(tokenId);
         if (read.clone == address(0)) return read;
         _locateBacking(read, tokenId, VaultReads.isDissolvingOrDissolved(tokenId));
     }
@@ -94,11 +91,11 @@ contract AlphaVaultLens is IAlphaVaultLens {
     function _locateBacking(BackingRead memory read, uint256 tokenId, bool alphaInFlux) private view {
         read.coldkey = VaultReads.coldkeyOf(read.clone); read.alphaInFlux = alphaInFlux;
         if (alphaInFlux) {
-            bytes32[] memory keys = VaultReads.activesOf(_vault.recordedSlots(tokenId));
+            bytes32[] memory keys = VaultReads.activesOf(vault.recordedSlots(tokenId));
             read.backing.total = VaultMath.sumBalances(VaultReads.fetchBalances(keys, read.coldkey, read.netuid));
             return;
         }
-        read.slots = _vault.recordedSlots(tokenId);
+        read.slots = vault.recordedSlots(tokenId);
         read.backing = VaultReads.resolveBacking(read.slots, read.coldkey, read.netuid);
     }
 
@@ -114,7 +111,7 @@ contract AlphaVaultLens is IAlphaVaultLens {
     /// @dev Zero backing quotes zero; positive backing below precision reverts. Use `previewUnwrap` for a burn.
     function sharePrice(uint256 tokenId) external view returns (uint256) {
         _requireCurrentRegistration(tokenId);
-        uint256 supply = _vault.totalSupply(tokenId);
+        uint256 supply = vault.totalSupply(tokenId);
         if (supply == 0) revert NoSharesOutstanding();
         uint256 stake = totalStake(tokenId);
         // Ignore the virtual asset after a full write-off.
@@ -128,8 +125,8 @@ contract AlphaVaultLens is IAlphaVaultLens {
     /// @dev Reverts while awaiting attestation. Actual shares may differ; set `minSharesOut`.
     function previewWrap(uint256 tokenId, uint256 assets) external view returns (uint256) {
         _requireCurrentRegistration(tokenId);
-        if (_vault.awaitingAttestation(tokenId)) revert Parked();
-        return VaultMath.sharesFor(totalStake(tokenId), _vault.totalSupply(tokenId), assets);
+        if (vault.awaitingAttestation(tokenId)) revert Parked();
+        return VaultMath.sharesFor(totalStake(tokenId), vault.totalSupply(tokenId), assets);
     }
 
     /// @notice Estimated exit payout: live alpha RAO or dissolved TAO wei.
@@ -137,13 +134,13 @@ contract AlphaVaultLens is IAlphaVaultLens {
     function previewUnwrap(uint256 tokenId, uint256 shares) external view returns (uint256 alpha, uint256 tao) {
         if (shares == 0) return (0, 0);
         BackingRead memory read;
-        read.netuid = VaultMath.netuidOf(tokenId); read.clone = _vault.subnetClone(tokenId);
+        read.netuid = VaultMath.netuidOf(tokenId); read.clone = vault.subnetClone(tokenId);
         if (read.clone == address(0)) return (0, 0);
-        uint256 supply = _vault.totalSupply(tokenId);
+        uint256 supply = vault.totalSupply(tokenId);
         if (supply == 0) return (0, 0);
 
         if (VaultReads.isDissolved(tokenId)) {
-            uint256 backing = VaultMath.unreservedTao(read.clone.balance, _vault.taoLiability(tokenId));
+            uint256 backing = VaultMath.unreservedTao(read.clone.balance, vault.taoLiability(tokenId));
             if (backing == 0) return (0, 0);
             return (0, VaultMath.toNativeQuantum(VaultMath.proRata(backing, shares, supply)));
         }
@@ -167,27 +164,27 @@ contract AlphaVaultLens is IAlphaVaultLens {
     }
 
     function _claimableTaoOf(address account, uint256 tokenId) private view returns (uint256) {
-        uint256 liability = _vault.taoLiability(tokenId);
+        uint256 liability = vault.taoLiability(tokenId);
         (uint256 indexIncrease, uint256 liabilityIncrease) = _previewSyncTao(tokenId, liability);
-        uint256 index = _vault.cumulativeTaoPerShare(tokenId) + indexIncrease;
+        uint256 index = vault.cumulativeTaoPerShare(tokenId) + indexIncrease;
         uint256 backing = liability + liabilityIncrease;
-        uint256 entitlement = _vault.claimableTao(tokenId, account) + _pendingAt(account, tokenId, index);
+        uint256 entitlement = vault.claimableTao(tokenId, account) + _pendingAt(account, tokenId, index);
         return VaultMath.toNativeQuantum(VaultMath.backedEntitlement(entitlement, backing));
     }
 
-    function _shortSince(uint256 tokenId) private view returns (uint256 shortSince) { (shortSince,) = _vault.recovery(tokenId); }
+    function _shortSince(uint256 tokenId) private view returns (uint256 shortSince) { (shortSince,) = vault.recovery(tokenId); }
 
     function _requireCurrentRegistration(uint256 tokenId) private view {
         if (VaultReads.isDissolved(tokenId)) revert SubnetDissolved();
     }
 
     function _previewSyncTao(uint256 tokenId, uint256 liability) private view returns (uint256, uint256) {
-        uint256 newTao = VaultReads.indexableTao(tokenId, _vault.subnetClone(tokenId).balance, liability);
+        uint256 newTao = VaultReads.indexableTao(tokenId, vault.subnetClone(tokenId).balance, liability);
         if (newTao == 0) return (0, 0);
-        return VaultMath.syncAmounts(newTao, _vault.totalSupply(tokenId));
+        return VaultMath.syncAmounts(newTao, vault.totalSupply(tokenId));
     }
 
     function _pendingAt(address account, uint256 tokenId, uint256 index) private view returns (uint256) {
-        return VaultMath.earnedAt(_vault.balanceOf(account, tokenId), index) - _vault.taoIndexDebt(tokenId, account);
+        return VaultMath.earnedAt(vault.balanceOf(account, tokenId), index) - vault.taoIndexDebt(tokenId, account);
     }
 }
