@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
+import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { VaultMath } from "src/libraries/VaultMath.sol";
 import { Vm } from "forge-std/Test.sol";
@@ -15,12 +16,15 @@ import { MockAddressMapping } from "./mocks/MockAddressMapping.sol";
 import { MockSubnetPrecompile } from "./mocks/MockSubnetPrecompile.sol";
 import { MockAlpha, DEFAULT_ALPHA_PRICE_E18 } from "./mocks/MockAlpha.sol";
 import { MockNeuron } from "./mocks/MockNeuron.sol";
+import { MockBalanceTransfer } from "./mocks/MockBalanceTransfer.sol";
+import { CloneOwner } from "src/CloneOwner.sol";
 import { RegistryTestHelper } from "./helpers/RegistryTestHelper.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { ADDRESS_MAPPING_PRECOMPILE } from "src/interfaces/IAddressMapping.sol";
 import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { NEURON_PRECOMPILE } from "src/interfaces/INeuron.sol";
+import { BALANCE_TRANSFER_PRECOMPILE } from "src/interfaces/IBalanceTransfer.sol";
 import { SUBNET_PRECOMPILE } from "src/interfaces/ISubnet.sol";
 
 abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
@@ -66,11 +70,14 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
 
     uint256 internal constant ALPHA_PRICE = DEFAULT_ALPHA_PRICE_E18;
 
-    /// @dev 0.04 alpha, worth the chain's 2e6 RAO minimum stake at the default price.
+    /// @dev 0.04 alpha, worth the chain's 2e6 RAO unstake minimum at the default price.
     uint256 internal constant ALPHA_FLOOR = 4e7;
 
     /// @dev One TAO in native wei; the chain credits 1e9 wei per TAO RAO.
     uint256 internal constant TAO = 1 ether;
+
+    /// @dev 0.002 alpha, worth the mock's 0.0001 TAO transfer minimum at 0.05 TAO per alpha.
+    uint256 internal constant CRUMB = 2_000_000;
 
     uint256 public TOKEN1;
     uint256 public TOKEN2;
@@ -84,10 +91,9 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         vm.etch(SUBNET_PRECOMPILE, address(new MockSubnetPrecompile()).code);
         vm.etch(ALPHA_PRECOMPILE, address(new MockAlpha()).code);
         vm.etch(NEURON_PRECOMPILE, address(new MockNeuron()).code);
+        vm.etch(BALANCE_TRANSFER_PRECOMPILE, address(new MockBalanceTransfer()).code);
         MockSubnetPrecompile(SUBNET_PRECOMPILE).setRegisteredAt(uint16(NETUID1), 100);
         MockSubnetPrecompile(SUBNET_PRECOMPILE).setRegisteredAt(uint16(NETUID2), 200);
-        // Sales mint TAO on chain; the whole TAO supply covers selling any subnet at any fuzzed price.
-        vm.deal(STAKING_PRECOMPILE, 21_000_000 * TAO);
         // Etching copies code, not constructor storage; seed chain thresholds explicitly.
         MockStaking(STAKING_PRECOMPILE).setChainMinStake(CHAIN_MIN_STAKE);
         MockStaking(STAKING_PRECOMPILE).setChainMinTransfer(CHAIN_MIN_TRANSFER);
@@ -197,19 +203,47 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         return keccak256(abi.encodePacked("evm:", addr));
     }
 
+    /// @dev Stake under the mailbox's own hotkey, the only hotkey a mailbox can hold alpha under.
     function _simulateAlphaDeposit(address user, uint256 netuid, uint256 amount) internal {
-        _simulateAlphaDepositHotkey(user, netuid, amount, _attestedHotkeys(netuid)[0]);
+        bytes32 mailboxColdkey = _toSubstrate(_prepareMailbox(user, netuid));
+        MockStaking mock = MockStaking(STAKING_PRECOMPILE);
+        mock.setStake(
+            mailboxColdkey, mailboxColdkey, netuid, mock.getStake(mailboxColdkey, mailboxColdkey, netuid) + amount
+        );
+    }
+
+    function _stakingHotkeyCount(bytes32 coldkey) internal view returns (uint64 total) {
+        (, total) = MockStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, 0, 1);
+    }
+
+    /// @dev Entries a clone collected through rotations, each kept by a crumb on another subnet.
+    function _fillListTo(bytes32 coldkey, uint256 target) internal {
+        MockStaking mock = MockStaking(STAKING_PRECOMPILE);
+        for (uint256 i = _stakingHotkeyCount(coldkey); i < target; ++i) {
+            bytes32 hotkey = keccak256(abi.encode("crumb", coldkey, i));
+            mock.setHotkeyOwned(hotkey, true);
+            mock.setStake(hotkey, coldkey, NETUID2, CRUMB);
+        }
+        assertEq(_stakingHotkeyCount(coldkey), target);
+    }
+
+    /// @dev Mirrors the factory's derivations so a test can poison a candidate before creation.
+    function _cloneCandidate(uint256 tokenId, bytes32 uid) internal view returns (address) {
+        bytes32 salt = keccak256(abi.encode("subnet-v1", tokenId, uid));
+        return
+            Clones.predictDeterministicAddress(vault.cloneFactory().subnetLogic(), salt, address(vault.cloneFactory()));
+    }
+
+    function _ownerCandidate(address clone) internal view returns (address) {
+        bytes32 hotkey = _toSubstrate(clone);
+        bytes memory initCode = abi.encodePacked(type(CloneOwner).creationCode, abi.encode(hotkey));
+        return vm.computeCreate2Address(
+            keccak256(abi.encode("owner-v1", hotkey)), keccak256(initCode), address(vault.cloneFactory())
+        );
     }
 
     function _attestedHotkeys(uint256 netuid) internal view returns (bytes32[] memory hotkeys) {
         (hotkeys,) = vault.validatorRegistry().getValidators(netuid);
-    }
-
-    function _simulateAlphaDepositHotkey(address user, uint256 netuid, uint256 amount, bytes32 hotkey) internal {
-        _prepareMailbox(user, netuid);
-        bytes32 mailboxColdkey = _mailboxColdkey(user, netuid);
-        MockStaking mock = MockStaking(STAKING_PRECOMPILE);
-        mock.setStake(hotkey, mailboxColdkey, netuid, mock.getStake(hotkey, mailboxColdkey, netuid) + amount);
     }
 
     function _prepareMailbox(address user, uint256 netuid) internal returns (address mailbox) {

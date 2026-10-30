@@ -26,7 +26,7 @@ contract BasicValidatorRegistry is IValidatorRegistry, Ownable2Step {
 
     /// @notice Set the subnet's sole validator at 100% weight; there is no delay.
     /// @dev Resubmitting the same hotkey advances the nonce, which lets the vault leave parking after
-    ///      a fresh owner decision. Sets cannot be cleared.
+    ///      a fresh owner decision.
     function setValidator(uint256 netuid, bytes32 hotkey) external onlyOwner {
         if (netuid > type(uint16).max) revert NetuidOutOfRange();
         if (hotkey == bytes32(0)) revert ZeroHotkey();

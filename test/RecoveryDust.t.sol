@@ -150,7 +150,7 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         uint16 netuid = 9;
         _setRegBlock(netuid, 400);
         bytes32[] memory keys = _setValidatorCount(netuid, count);
-        _simulateAlphaDepositHotkey(alice, netuid, ALPHA, keys[0]);
+        _simulateAlphaDeposit(alice, netuid, ALPHA);
         _wrapHotkey(alice, netuid, keys[0]);
         uint256 tokenId = vault.currentTokenId(netuid);
         bytes32 coldkey = _subnetColdkey(netuid);

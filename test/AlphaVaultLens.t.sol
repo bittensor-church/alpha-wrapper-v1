@@ -16,7 +16,7 @@ import {
     ZeroAddress
 } from "src/VaultErrors.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
-import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract AlphaVaultLensTest is AlphaVaultTestBase {
     function test_RevertWhen_ConstructedWithoutAVault() public {
@@ -363,5 +363,25 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         assertEq(lens.missingStake(TOKEN1), 0, "emissions leave more alpha located than tracked");
         _simulateDissolutionStarted(NETUID1);
         assertEq(lens.missingStake(TOKEN1), 0, "and a dissolving position tracks nothing");
+    }
+
+    function test_StakingListEntries_IsZeroWithoutAClone() public view {
+        assertEq(lens.stakingListEntries(TOKEN1), 0);
+    }
+
+    function testFuzz_StakingListEntries_CountsTheCloneList(uint256 entries) public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        entries = bound(entries, 3, MAX_STAKING_HOTKEYS - 1);
+        _fillListTo(_subnetColdkey(NETUID1), entries);
+
+        assertEq(lens.stakingListEntries(TOKEN1), entries);
+    }
+
+    function test_StakingListEntries_FollowsAReplacedClone() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _fillListTo(_subnetColdkey(NETUID1), MAX_STAKING_HOTKEYS - 1);
+        vault.replaceClone(TOKEN1, keccak256("successor-uid"));
+
+        assertEq(lens.stakingListEntries(TOKEN1), 3, "the successor lists only the funded validators");
     }
 }

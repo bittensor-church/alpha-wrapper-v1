@@ -9,6 +9,9 @@ interface IStaking {
     function moveStake(bytes32 origin_hotkey, bytes32 destination_hotkey, uint256 origin_netuid,
         uint256 destination_netuid, uint256 amount) external payable;
 
+    function transferStakeAndHotkey(bytes32 destination_coldkey, bytes32 origin_hotkey, bytes32 destination_hotkey,
+        uint16 origin_netuid, uint16 destination_netuid, uint64 alpha_amount) external;
+
     function getStake(bytes32 hotkey, bytes32 coldkey, uint256 netuid) external view returns (uint256);
 
     /// @dev An all-subnet swap removes the old key's owner record, not the key identifier.
@@ -24,7 +27,7 @@ interface IStaking {
     function getNominatorMinRequiredStake() external view returns (uint256);
 
     /// @notice Partial-unstake minimum in TAO RAO.
-    /// @dev Transfers/moves have a lower minimum, absent from this interface; this is a conservative bound.
+    /// @dev Same-subnet moves and transfers enforce a lower minimum, so this bound is conservative for them.
     function getDefaultMinStake() external view returns (uint256);
 
     /// @notice The coldkey's conviction lock on a subnet, rolled forward to the current block.
@@ -40,6 +43,14 @@ interface IStaking {
     function getColdkeyRoot(bytes32 coldkey) external view returns (bool exists, bytes32 root);
 
     function getOwnedHotkeys(bytes32 coldkey) external view returns (bytes32[] memory);
+
+    function setRejectStakingHotkeyGrowth(bool enabled) external;
+
+    function getStakingHotkeys(bytes32 coldkey, uint64 offset, uint16 limit) external view
+        returns (bytes32[] memory hotkeys, uint64 total);
 }
 
 address constant STAKING_PRECOMPILE = 0x0000000000000000000000000000000000000805;
+
+/// @dev Entries a coldkey's own staking actions may bring its staking list to.
+uint256 constant MAX_STAKING_HOTKEYS = 256;

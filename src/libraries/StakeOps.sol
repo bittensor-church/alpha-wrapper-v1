@@ -4,12 +4,12 @@ pragma solidity 0.8.36;
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { INeuron, NEURON_PRECOMPILE } from "../interfaces/INeuron.sol";
+import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
 import { CloneBase } from "../CloneBase.sol";
 import { SubnetClone } from "../SubnetClone.sol";
 import { VaultMath } from "./VaultMath.sol";
+import { VaultReads } from "./VaultReads.sol";
 
-/// @dev Stake movement through vault-controlled accounts, and the floor tests that keep an amount the
-///      chain would refuse from burning the gas forwarded to it. Compiled into each caller.
 library StakeOps {
     function taoValue(uint256 alphaAmount, uint256 alphaPriceE18) internal pure returns (uint256) {
         return Math.mulDiv(alphaAmount, alphaPriceE18, VaultMath.ALPHA_PRICE_SCALE);
@@ -28,20 +28,26 @@ library StakeOps {
         if (!hasOwner(hotkey)) INeuron(NEURON_PRECOMPILE).tryAssociateHotkey(hotkey);
     }
 
-    function move(address clone, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount) internal {
+    function move(address clone, bytes32 coldkey, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount,
+        bytes32 parking) internal {
+        if (!VaultReads.admitsMove(coldkey, toHotkey, netuid, parking)) revert IAlphaVaultAbi.StakingListFull();
+        moveAdmitted(clone, fromHotkey, toHotkey, netuid, amount);
+    }
+
+    function moveAdmitted(address clone, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount) internal {
         ensureHotkeyHasOwner(fromHotkey);
         ensureHotkeyHasOwner(toHotkey);
-        SubnetClone(payable(clone)).moveStake(fromHotkey, toHotkey, netuid, amount);
+        SubnetClone(clone).moveStake(fromHotkey, toHotkey, netuid, amount);
     }
 
     function flush(address holder, bytes32 hotkey, bytes32 destinationColdkey, uint16 netuid, uint256 amount) internal {
         ensureHotkeyHasOwner(hotkey);
-        CloneBase(payable(holder)).flush(destinationColdkey, hotkey, netuid, amount);
+        CloneBase(holder).flush(destinationColdkey, hotkey, netuid, amount);
     }
 
     function sell(address holder, bytes32 hotkey, uint16 netuid, uint256 amount) internal {
         ensureHotkeyHasOwner(hotkey);
-        CloneBase(payable(holder)).sellAlphaForTao(hotkey, netuid, amount);
+        CloneBase(holder).sellAlphaForTao(hotkey, netuid, amount);
     }
 
     /// @dev Use where the amount must clear the floor at the price just read, such as sizing a payout.

@@ -16,7 +16,7 @@ coldkey that itself holds a lock), unwrapForTao -- never touch lock state.
 import pytest
 
 from alpha_e2e import checks, config, exits, extrinsics, substrate
-from alpha_e2e.substrate import h160_to_ss58, h160_to_substrate_b32
+from alpha_e2e.substrate import h160_to_ss58
 
 UNLOCKED_MARGIN_RAO = 30_000_000_000
 
@@ -34,7 +34,6 @@ def test_convicted_alpha(env):
 
     subnet_hotkeys = env.subnet_hotkey_pubkeys(0)
     user_mailbox = env.mailbox_address(test_netuid)
-    user_mailbox_coldkey = h160_to_substrate_b32(user_mailbox)
     user_mailbox_ss58 = h160_to_ss58(user_mailbox)
     alice_owner_hotkey_pubkey = substrate.read_hotkey_pubkey(
         config.ALICE_WALLET, config.ALICE_HOTKEY_NAME,
@@ -75,7 +74,7 @@ def test_convicted_alpha(env):
         f"({alice_movable_alpha} RAO) by 2x margin"
     )
 
-    mailbox_alpha_before = env.stake(test_hotkey_pubkey, user_mailbox_coldkey, test_netuid)
+    mailbox_alpha_before = env.mailbox_deposit(test_netuid)
     assert mailbox_alpha_before == 0, (
         f"mailbox not virgin before the refused transfer ({mailbox_alpha_before} RAO)"
     )
@@ -83,8 +82,8 @@ def test_convicted_alpha(env):
     print(f"  Attempting to transfer {over_movable_amount} RAO "
           "(Alice's full test-hotkey stake) into the mailbox...")
     with pytest.raises(extrinsics.ExtrinsicError) as refused_transfer:
-        extrinsics.transfer_stake(
-            user_mailbox_ss58, test_hotkey_ss58, test_netuid, over_movable_amount,
+        extrinsics.transfer_stake_and_hotkey(
+            user_mailbox_ss58, test_hotkey_ss58, user_mailbox_ss58, test_netuid, over_movable_amount,
         )
     assert "AccountRejectsLockedAlpha" in str(refused_transfer.value), (
         f"transferStake reverted but not with AccountRejectsLockedAlpha: "
@@ -103,7 +102,7 @@ def test_convicted_alpha(env):
         1_500_000, "wrap of the movable portion failed",
     )
     checks.assert_first_deposit_shares(
-        env.vault_shares(test_token_id), env.deposited(receipt, test_netuid, test_hotkey_pubkey),
+        env.vault_shares(test_token_id), env.deposited(receipt, test_netuid),
         "movable-portion wrap",
     )
     locked_alpha_after_movable_wrap = _alice_locked_alpha(test_netuid, test_hotkey_ss58)

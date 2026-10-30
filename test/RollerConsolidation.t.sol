@@ -20,7 +20,7 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
 
     function _seedDustOnlyVault() private returns (uint256 tokenId) {
         _registerSubnet(99, hotkey4);
-        _simulateAlphaDepositHotkey(alice, 99, 10 * ALPHA, hotkey4);
+        _simulateAlphaDeposit(alice, 99, 10 * ALPHA);
         _wrapHotkey(alice, 99, hotkey4);
         tokenId = vault.currentTokenId(99);
         _plantVaultStake(hotkey4, 99, DUST);
@@ -47,7 +47,7 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
     function test_Wrap_ConsolidatesRotatedOutStakeUsingFreshDeposit() public {
         uint256 tokenId = _seedDustOnlyVault();
 
-        _simulateAlphaDepositHotkey(bob, 99, 5 * ALPHA, hotkey1);
+        _simulateAlphaDeposit(bob, 99, 5 * ALPHA);
         _wrapHotkey(bob, 99, hotkey1);
 
         // 5e9 * (1e19 + 1e9) / (39,999,999 + 1): the dust already backs alice's 1e19 shares.
@@ -93,7 +93,7 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
     function test_Rebalance_FoldsDustAfterShortCreditedDrain() public {
         _setRegBlock(99, 300);
         _setValidators(99, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
-        _simulateAlphaDepositHotkey(alice, 99, 300 * ALPHA, hotkey1);
+        _simulateAlphaDeposit(alice, 99, 300 * ALPHA);
         _wrapHotkey(alice, 99, hotkey1);
         uint256 tokenId = vault.currentTokenId(99);
 

@@ -21,7 +21,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
         _registerSubnet(99, hotkey4);
         _setAlphaPrice(99, PRICE_LOW);
 
-        _simulateAlphaDepositHotkey(alice, 99, 150_000_000, hotkey4);
+        _simulateAlphaDeposit(alice, 99, 150_000_000);
         vm.prank(alice);
         vm.expectRevert(IAlphaVaultAbi.DepositTooSmall.selector);
         vault.wrap(99, hotkey4, 0);
@@ -31,7 +31,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
         _registerSubnet(99, hotkey4);
         _setAlphaPrice(99, PRICE_LOW);
 
-        _simulateAlphaDepositHotkey(alice, 99, 200_000_000, hotkey4);
+        _simulateAlphaDeposit(alice, 99, 200_000_000);
         _wrapHotkey(alice, 99, hotkey4);
 
         assertEq(_getVaultStake(hotkey4, 99), 200_000_000);
@@ -56,7 +56,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
 
     function test_Rebalance_SkipsSubFloorMove() public {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
-        _simulateAlphaDepositHotkey(alice, NETUID1, ALPHA, hotkey1);
+        _simulateAlphaDeposit(alice, NETUID1, ALPHA);
         _wrapHotkey(alice, NETUID1, hotkey1);
 
         _setAlphaPrice(NETUID1, PRICE_LOW);
@@ -73,7 +73,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
 
     function test_RevertWhen_RebalanceMoveFailsAboveFloor() public {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
-        _simulateAlphaDepositHotkey(alice, NETUID1, ALPHA, hotkey1);
+        _simulateAlphaDeposit(alice, NETUID1, ALPHA);
         _wrapHotkey(alice, NETUID1, hotkey1);
 
         _plantVaultStake(hotkey1, NETUID1, 600_000_000);
@@ -90,7 +90,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
         _setAlphaPrice(NETUID1, PRICE_LOW);
 
         // The 1% slot's 0.005-alpha move is worth 0.00005 TAO, below the chain's own move minimum.
-        _simulateAlphaDepositHotkey(alice, NETUID1, 500_000_000, hotkey1);
+        _simulateAlphaDeposit(alice, NETUID1, 500_000_000);
         vm.recordLogs();
         vm.prank(alice);
         vault.wrap{ gas: 1_500_000 }(NETUID1, hotkey1, 0);
@@ -110,7 +110,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
 
     function test_RevertWhen_UnwrapRequestBelowFloor() public {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
-        _simulateAlphaDepositHotkey(alice, NETUID1, ALPHA, hotkey1);
+        _simulateAlphaDeposit(alice, NETUID1, ALPHA);
         _wrapHotkey(alice, NETUID1, hotkey1);
         _setAlphaPrice(NETUID1, PRICE_LOW);
 
@@ -142,7 +142,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
 
     function test_RevertWhen_WrapBetweenTheMoveAndUnstakeMinimums() public {
         _registerSubnet(99, hotkey4);
-        _simulateAlphaDepositHotkey(alice, 99, BETWEEN_MINIMUMS_DEPOSIT, hotkey4);
+        _simulateAlphaDeposit(alice, 99, BETWEEN_MINIMUMS_DEPOSIT);
 
         vm.prank(alice);
         vm.expectRevert(IAlphaVaultAbi.DepositTooSmall.selector);
@@ -151,7 +151,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
 
     function test_Wrap_LandsOnceTheUnstakeMinimumFallsToTheMoveMinimum() public {
         _registerSubnet(99, hotkey4);
-        _simulateAlphaDepositHotkey(alice, 99, BETWEEN_MINIMUMS_DEPOSIT, hotkey4);
+        _simulateAlphaDeposit(alice, 99, BETWEEN_MINIMUMS_DEPOSIT);
         _setChainMinStake(CHAIN_MIN_TRANSFER);
 
         _wrapHotkey(alice, 99, hotkey4);
@@ -205,7 +205,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
         _setChainMinStake(0);
         _registerSubnet(99, hotkey4);
         // 0.002 alpha is worth the chain's 0.0001 TAO move minimum.
-        _simulateAlphaDepositHotkey(alice, 99, 2_000_000, hotkey4);
+        _simulateAlphaDeposit(alice, 99, 2_000_000);
 
         _wrapHotkey(alice, 99, hotkey4);
 
@@ -217,7 +217,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
         deposit = bound(deposit, 1, 2 * ALPHA);
         _setChainMinStake(chainMinStake);
         _registerSubnet(99, hotkey4);
-        _simulateAlphaDepositHotkey(alice, 99, deposit, hotkey4);
+        _simulateAlphaDeposit(alice, 99, deposit);
 
         vm.prank(alice);
         (bool ok, bytes memory ret) = address(vault).call(abi.encodeCall(vault.wrap, (99, hotkey4, 0)));
@@ -277,7 +277,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
         dust = bound(dust, 1, MAX_SUBNET_ALPHA);
         uint256 priceE18 = _wholeRaoPrice(priceRao);
         _registerSubnet(99, hotkey4);
-        _simulateAlphaDepositHotkey(alice, 99, 10 * ALPHA, hotkey4);
+        _simulateAlphaDeposit(alice, 99, 10 * ALPHA);
         _wrapHotkey(alice, 99, hotkey4);
         uint256 tokenId = vault.currentTokenId(99);
         _plantVaultStake(hotkey4, 99, dust);
@@ -363,7 +363,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
     // value is 2,000,000 TAO RAO.
     function test_Rebalance_ConsolidatesRichestSlotInsideOracleQuantumBand() public {
         _registerSubnet(99, hotkey4);
-        _simulateAlphaDepositHotkey(alice, 99, ALPHA, hotkey4);
+        _simulateAlphaDeposit(alice, 99, ALPHA);
         _wrapHotkey(alice, 99, hotkey4);
 
         _plantVaultStake(hotkey4, 99, 199_999_999);
@@ -378,7 +378,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
 
     function test_RevertWhen_DeliveryTransferFails() public {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
-        _simulateAlphaDepositHotkey(alice, NETUID1, ALPHA, hotkey1);
+        _simulateAlphaDeposit(alice, NETUID1, ALPHA);
         _wrapHotkey(alice, NETUID1, hotkey1);
 
         MockStaking(STAKING_PRECOMPILE).setTransferStakeReverts(true);
@@ -420,7 +420,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
 
     function test_RevertWhen_WrapFlushFailsForNonFloorReason() public {
         _registerSubnet(99, hotkey4);
-        _simulateAlphaDepositHotkey(alice, 99, ALPHA, hotkey4);
+        _simulateAlphaDeposit(alice, 99, ALPHA);
         MockStaking(STAKING_PRECOMPILE).setTransferStakeReverts(true);
 
         vm.prank(alice);

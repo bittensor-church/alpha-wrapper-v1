@@ -9,8 +9,6 @@ import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 contract ZeroHotkeyRecoveryTest is AlphaVaultTestBase {
     bytes32 private constant ZERO = bytes32(0);
     uint256 private constant VICTIMS_DEPOSIT = 600 * ALPHA;
-    uint256 private constant GIFT = 1 * ALPHA;
-    address private donor = makeAddr("donor");
 
     MockStaking private staking;
 
@@ -80,23 +78,6 @@ contract ZeroHotkeyRecoveryTest is AlphaVaultTestBase {
         _parkFromZeroHotkey(backing);
     }
 
-    function test_RecoverStray_AnnexesAGiftOnZeroHotkeyIntoLiveBacking() public {
-        uint256 backing = _victimsDeposit();
-        staking.setHotkeyOwned(ZERO, true);
-        staking.setStake(ZERO, _toSubstrate(donor), NETUID1, GIFT);
-        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
-        vm.prank(donor);
-        staking.transferStake(cloneColdkey, ZERO, NETUID1, NETUID1, GIFT);
-
-        vm.expectEmit(true, true, false, true, address(vault));
-        emit BackingRecovered(TOKEN1, hotkey1, GIFT);
-        vault.recoverStray(TOKEN1, ZERO);
-
-        assertEq(_getVaultStake(ZERO, NETUID1), 0);
-        assertEq(lens.totalStake(TOKEN1), backing + GIFT, "the gift joins live backing");
-        assertTrue(lens.isBackingIntact(TOKEN1));
-    }
-
     function _ownerlessNameBesideHeldBacking() private returns (uint256 shares) {
         shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         staking.setHotkeyOwned(ZERO, true);
@@ -121,34 +102,5 @@ contract ZeroHotkeyRecoveryTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
 
         assertEq(_getStake(hotkey1, alice, NETUID1), 30 * ALPHA, "the full exit pays from the held key");
-    }
-
-    function _mailboxDepositSwappedOntoZeroHotkey() private returns (bytes32 mailboxColdkey) {
-        _simulateAlphaDepositHotkey(alice, NETUID1, 100 * ALPHA, hotkey1);
-        _validatorSwapsInto(hotkey1, ZERO);
-        mailboxColdkey = _mailboxColdkey(alice, NETUID1);
-        assertEq(_getStakeForColdkey(ZERO, mailboxColdkey, NETUID1), 100 * ALPHA, "the deposit moved with the swap");
-    }
-
-    function test_ReclaimAlphaFromMailbox_ReturnsADepositSwappedOntoZeroHotkey() public {
-        bytes32 mailboxColdkey = _mailboxDepositSwappedOntoZeroHotkey();
-        bytes32 destination = _toSubstrate(alice);
-
-        vm.prank(alice);
-        vault.reclaimAlphaFromMailbox(NETUID1, ZERO, destination);
-
-        assertEq(_getStakeForColdkey(ZERO, destination, NETUID1), 100 * ALPHA, "the whole deposit arrives");
-        assertEq(_getStakeForColdkey(ZERO, mailboxColdkey, NETUID1), 0, "the mailbox is empty");
-    }
-
-    function test_ReclaimMailboxAlphaAsTao_SellsADepositSwappedOntoZeroHotkey() public {
-        bytes32 mailboxColdkey = _mailboxDepositSwappedOntoZeroHotkey();
-
-        uint256 before = alice.balance;
-        vm.prank(alice);
-        vault.reclaimMailboxAlphaAsTao(NETUID1, ZERO, 0);
-
-        assertEq(alice.balance - before, 5 * TAO, "100 alpha at 0.05 TAO per alpha");
-        assertEq(_getStakeForColdkey(ZERO, mailboxColdkey, NETUID1), 0);
     }
 }

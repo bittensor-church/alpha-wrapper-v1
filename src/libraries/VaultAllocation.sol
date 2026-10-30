@@ -12,15 +12,11 @@ import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { LockedDeposit, ZeroAmount } from "../VaultErrors.sol";
 import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
 import { CloneFactory } from "../CloneFactory.sol";
+import { DepositMailbox } from "../DepositMailbox.sol";
+import { SubnetClone } from "../SubnetClone.sol";
 
-/// @dev Deployed once and linked into the vault. Holds clone preparation, deposit admission, the
-///      receiving-key rules, consolidation of dropped validators, payout gathering, weight alignment
-///      and TAO sales.
-///      Stake movement runs by delegatecall, so clones and hotkey association still see the vault as
-///      caller and logs still originate from the vault. Callers retain the backing gates, reentrancy
-///      guard and accounting; this library writes only the clone records handed to it by storage reference.
 library VaultAllocation {
-    /// @dev What collection does with a pile below the wrapper's conservative floor.
+    /// @dev What collection does with a pile below the floor.
     enum CollectionPolicy { RevertBelowFloor, LeaveBelowFloor }
 
     /// @dev One position under one alpha price: the caller reads the price once and every floor test in
@@ -31,23 +27,73 @@ library VaultAllocation {
         bytes32 coldkey;
         uint16 netuid;
         uint256 alphaPriceE18;
+        bytes32 parking;
     }
 
-    /// @dev Delegatecall keeps the vault as the initializer and the depositor as msg.sender.
-    function prepareClones(CloneFactory factory, mapping(uint256 => address) storage subnetClone,
-        mapping(address => mapping(uint256 => address)) storage mailboxes, uint256 tokenId, uint256 netuid,
-        bytes32 uid) external returns (address mailbox, address clone) {
-        return VaultClones.prepareClones(factory, subnetClone, mailboxes, tokenId, netuid, uid);
+    function deployMissingClone(CloneFactory factory, mapping(uint256 => address) storage subnetClone, uint256 tokenId,
+        uint16 netuid, bytes32 uid) external returns (address) {
+        return VaultClones.deployMissingClone(factory, subnetClone, tokenId, netuid, uid);
     }
 
-    function admitDeposit(address userClone, bytes32 chosenHotkey, uint16 nid) external view
+    function deployMissingMailbox(CloneFactory factory, mapping(address => mapping(uint256 => address)) storage mailboxes,
+        uint16 netuid, bytes32 uid) external returns (address) {
+        return VaultClones.deployMissingMailbox(factory, mailboxes, netuid, uid);
+    }
+
+    function isBelowFloor(uint256 alphaAmount, uint256 alphaPriceE18) external view returns (bool) {
+        return StakeOps.isBelowFloorAtReadPrice(alphaAmount, alphaPriceE18);
+    }
+
+    function admitDeposit(bytes32 mailboxColdkey, uint16 nid) external view
         returns (uint256 totalDeposit, uint256 alphaPriceE18) {
-        bytes32 mailboxColdkey = VaultReads.coldkeyOf(userClone);
-        totalDeposit = IStaking(STAKING_PRECOMPILE).getStake(chosenHotkey, mailboxColdkey, nid);
+        totalDeposit = IStaking(STAKING_PRECOMPILE).getStake(mailboxColdkey, mailboxColdkey, nid);
         if (totalDeposit == 0) revert ZeroAmount();
         alphaPriceE18 = IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(nid);
         if (StakeOps.isBelowFloorAtReadPrice(totalDeposit, alphaPriceE18)) { revert IAlphaVaultAbi.DepositTooSmall(); }
         if (VaultReads.lockedAlphaOf(mailboxColdkey, nid) != 0) revert LockedDeposit();
+    }
+
+    /// @dev Moves the depositor's `amount` of stake from their mailbox into the clone, staked under `target`.
+    function collectDeposit(address mailbox, bytes32 mailboxColdkey, Context memory context, bytes32 target,
+        uint256 amount) external {
+        IStaking staking = IStaking(STAKING_PRECOMPILE);
+        address clone = context.clone; bytes32 cloneColdkey = context.coldkey; uint16 netuid = context.netuid;
+        bytes32 landing = target;
+        bool lifted;
+        if (staking.getStake(target, cloneColdkey, netuid) == 0) {
+            (bytes32[] memory listed, uint64 total) = staking.getStakingHotkeys(cloneColdkey, 0, 1);
+            if (total != 0) {
+                landing = listed[0];
+            } else {
+                SubnetClone(clone).setRejectStakingHotkeyGrowth(false); lifted = true;
+            }
+        }
+        uint256 before = staking.getStake(landing, cloneColdkey, netuid);
+        StakeOps.ensureHotkeyHasOwner(landing);
+        DepositMailbox(mailbox)
+            .transferStakeAndHotkey(cloneColdkey, mailboxColdkey, landing, netuid, SafeCast.toUint64(amount));
+        if (lifted) SubnetClone(clone).setRejectStakingHotkeyGrowth(true);
+        if (landing != target) {
+            uint256 landed = staking.getStake(landing, cloneColdkey, netuid) - before;
+            StakeOps.move(clone, cloneColdkey, landing, target, netuid, landed, context.parking);
+        }
+    }
+
+    /// @dev A fresh clone lists nothing, so its growth flag is down while the old clone transfers in. A pile
+    ///      below the floor stays behind rather than fail the call.
+    function replaceClone(CloneFactory factory, Context memory context, bytes32[] memory keys,
+        uint256[] memory balances, bytes32 uid) external returns (address successor) {
+        successor = VaultClones.deployProtectedClone(factory, context.tokenId, context.netuid, uid);
+        bytes32 successorColdkey = VaultReads.coldkeyOf(successor);
+        SubnetClone(successor).setRejectStakingHotkeyGrowth(false);
+        for (uint256 i; i < keys.length;) {
+            if (balances[i] != 0 && !StakeOps.isBelowFloorAtReadPrice(balances[i], context.alphaPriceE18)) {
+                StakeOps.flush(context.clone, keys[i], successorColdkey, context.netuid, balances[i]);
+            }
+            unchecked { ++i; }
+        }
+        SubnetClone(successor).setRejectStakingHotkeyGrowth(true);
+        SubnetClone(context.clone).transferAllTao(successorColdkey);
     }
 
     /// @dev Both sale rounds share this call's balances array: the partial round must see slots drained
@@ -138,7 +184,7 @@ library VaultAllocation {
     function chooseRichestSlot(bytes32[] memory sourceKeys, bytes32[] memory currentSet, bytes32 coldkey, uint16 netuid)
         public view returns (
             bytes32 richestHotkey, uint256 richestBalance,
-            uint256[] memory sourceBalances, bool hasRotatedOutBalance) {
+            uint256[] memory sourceBalances, bool hasRotatedOutBalance, bytes32 home) {
         sourceBalances = new uint256[](sourceKeys.length);
         bytes32 richestRotatedOut; uint256 richestRotatedOutBalance;
         for (uint256 i; i < sourceBalances.length;) {
@@ -150,7 +196,7 @@ library VaultAllocation {
             }
             unchecked { ++i; }
         }
-        if (richestRotatedOutBalance == 0) return (currentSet[0], 0, sourceBalances, false);
+        if (richestRotatedOutBalance == 0) return (currentSet[0], 0, sourceBalances, false, currentSet[0]);
 
         hasRotatedOutBalance = true;
         richestHotkey = currentSet[0];
@@ -159,6 +205,7 @@ library VaultAllocation {
             if (balance > richestBalance) { richestHotkey = currentSet[i]; richestBalance = balance; }
             unchecked { ++i; }
         }
+        home = richestHotkey;
         if (richestRotatedOutBalance > richestBalance) {
             richestHotkey = richestRotatedOut; richestBalance = richestRotatedOutBalance;
         }
@@ -242,7 +289,9 @@ library VaultAllocation {
         uint256 moveAmount = maxOver < maxUnder ? maxOver : maxUnder;
         // A rejected precompile call consumes forwarded gas. Skip unproven moves and tolerate weight drift.
         if (context.alphaPriceE18 == 0 || StakeOps.taoValue(moveAmount, context.alphaPriceE18) < minStakeTao) { return false; }
-        StakeOps.move(context.clone, hotkeys[overIndex], hotkeys[underIndex], context.netuid, moveAmount);
+        // A full staking list is no reason to hold an exit; alignment waits for the clone's replacement.
+        if (!VaultReads.admitsMove(context.coldkey, hotkeys[underIndex], context.netuid, context.parking)) return false;
+        StakeOps.moveAdmitted(context.clone, hotkeys[overIndex], hotkeys[underIndex], context.netuid, moveAmount);
         emit IAlphaVaultAbi.Rebalanced(context.tokenId, hotkeys[overIndex], hotkeys[underIndex], moveAmount);
         balances[overIndex] -= moveAmount; balances[underIndex] += moveAmount;
         return true;
@@ -250,12 +299,12 @@ library VaultAllocation {
 
     /// @dev Move all dropped-key backing onto tracked destinations before rewriting the record.
     ///      Recovery may leave a below-floor pile in place; other callers refuse it.
-    /// @return leftBelowFloor True only when the richest source/destination is below the conservative floor.
+    /// @return leftBelowFloor True only when the richest source/destination is below the floor.
     function consolidateRotatedStake(Context memory context, bytes32[] memory sourceKeys, bytes32[] memory currentSet,
         CollectionPolicy policy) external returns (bool leftBelowFloor) {
         if (!_anyRotatedOut(sourceKeys, currentSet)) return false;
-        (bytes32 rollerHotkey, uint256 richestBalance, uint256[] memory sourceBalances, bool hasRotatedOutBalance) =
-            chooseRichestSlot(sourceKeys, currentSet, context.coldkey, context.netuid);
+        (bytes32 rollerHotkey, uint256 richestBalance, uint256[] memory sourceBalances, bool hasRotatedOutBalance, bytes32 home)
+            = chooseRichestSlot(sourceKeys, currentSet, context.coldkey, context.netuid);
         if (!hasRotatedOutBalance) return false;
         // The pile starts at the largest balance and only grows, up to rounding on each move,
         // so its starting size bounds every hop to within that rounding.
@@ -263,12 +312,12 @@ library VaultAllocation {
             if (policy == CollectionPolicy.LeaveBelowFloor) return true;
             revert IAlphaVaultAbi.ConsolidationBelowFloor();
         }
-        _rollRotatedStake(context, sourceKeys, currentSet, rollerHotkey, sourceBalances);
+        _rollRotatedStake(context, sourceKeys, home, rollerHotkey, sourceBalances);
         return false;
     }
 
     /// @dev Never revisit the starting key: its cached balance is stale once the pile leaves.
-    function _rollRotatedStake(Context memory context, bytes32[] memory sourceKeys, bytes32[] memory currentSet,
+    function _rollRotatedStake(Context memory context, bytes32[] memory sourceKeys, bytes32 home,
         bytes32 rollerHotkey, uint256[] memory sourceBalances) private {
         bytes32 richestHotkey = rollerHotkey;
         bytes32 coldkey = context.coldkey; uint16 netuid = context.netuid;
@@ -277,13 +326,14 @@ library VaultAllocation {
             if (sourceHotkey != richestHotkey && sourceBalances[i] > 0) {
                 // Read the live pile; summing earlier credits would over-ask after chain rounding.
                 uint256 pile = IStaking(STAKING_PRECOMPILE).getStake(rollerHotkey, coldkey, netuid);
-                StakeOps.move(context.clone, rollerHotkey, sourceHotkey, netuid, pile);
+                StakeOps.move(context.clone, coldkey, rollerHotkey, sourceHotkey, netuid, pile, context.parking);
                 rollerHotkey = sourceHotkey;
             }
             unchecked { ++i; }
         }
         uint256 finalPile = IStaking(STAKING_PRECOMPILE).getStake(rollerHotkey, coldkey, netuid);
-        StakeOps.move(context.clone, rollerHotkey, currentSet[0], netuid, finalPile);
+        if (richestHotkey == home) StakeOps.moveAdmitted(context.clone, rollerHotkey, home, netuid, finalPile);
+        else StakeOps.move(context.clone, coldkey, rollerHotkey, home, netuid, finalPile, context.parking);
     }
 
     function _anyRotatedOut(bytes32[] memory hotkeys, bytes32[] memory currentSet) private pure returns (bool) {
@@ -294,21 +344,18 @@ library VaultAllocation {
         return false;
     }
 
-    /// @dev Fetch current backing before weight alignment. Runs inside the vault's reentrancy guard.
+    /// @dev Runs inside the vault's reentrancy guard.
     function rebalance(Context memory context, bytes32[] memory hotkeys, uint16[] memory weights) external {
         uint256[] memory balances = VaultReads.fetchBalances(hotkeys, context.coldkey, context.netuid);
         _alignToWeights(context, hotkeys, weights, balances);
     }
 
-    /// @dev Gather an alpha payout onto one slot and measure recipient credit, leaving the rest of the
-    ///      backing where it lies. The vault checks slippage and settles its record after this returns;
-    ///      failures revert all stake moves.
+    /// @dev The vault checks slippage and settles its record after this returns; failures revert all stake moves.
     function deliver(Context memory context, bytes32[] memory hotkeys, uint256[] memory balances,
         bytes32 userColdkey, uint256 assets) external returns (uint256 alphaOut) {
         return _gatherAndFlush(context, hotkeys, balances, userColdkey, assets);
     }
 
-    /// @dev `deliver`, then align the remainder to the attested weights.
     function deliverAndAlign(Context memory context, bytes32[] memory hotkeys, uint16[] memory weights,
         uint256[] memory balances, bytes32 userColdkey, uint256 assets) external returns (uint256 alphaOut) {
         alphaOut = _gatherAndFlush(context, hotkeys, balances, userColdkey, assets);
@@ -336,7 +383,7 @@ library VaultAllocation {
             for (uint256 i; i < balances.length && balances[deliveryIndex] < assets;) {
                 if (i != deliveryIndex && balances[i] != 0) {
                     uint256 pile = IStaking(STAKING_PRECOMPILE).getStake(hotkeys[deliveryIndex], coldkey, netuid);
-                    StakeOps.move(context.clone, hotkeys[deliveryIndex], hotkeys[i], netuid, pile);
+                    StakeOps.move(context.clone, coldkey, hotkeys[deliveryIndex], hotkeys[i], netuid, pile, context.parking);
                     balances[i] += balances[deliveryIndex]; balances[deliveryIndex] = 0; deliveryIndex = i;
                 }
                 unchecked { ++i; }

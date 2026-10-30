@@ -78,6 +78,13 @@ def cast_call_raw(
     return run(_cast_call_command(to, signature, args, rpc, block), timeout=_READ_TIMEOUT).stdout
 
 
+def cast_estimate(to: str, signature: str, *args, rpc: str = config.RPC_URL) -> int:
+    completed = run(
+        ["cast", "estimate", to, signature, *[str(a) for a in args], "--rpc-url", rpc], timeout=_READ_TIMEOUT,
+    )
+    return int(_first_token(completed.stdout))
+
+
 def probe_call(
     to: str, signature: str, *args, sender: Optional[str] = None,
     rpc: str = config.RPC_URL, block: Optional[int] = None,
@@ -133,7 +140,15 @@ def report_gas(label: str, receipt: dict, *, reverted: bool = False) -> None:
     used = receipt_gas_used(receipt)
     if used is None:
         return
-    outcome = " (reverted)" if reverted else ""
+    print_gas(label, used, " (reverted)" if reverted else "")
+
+
+def report_view_gas(label: str, to: str, signature: str, *args, rpc: str = config.RPC_URL) -> None:
+    """Print the gas a view takes on chain, measured with eth_estimateGas."""
+    print_gas(label, cast_estimate(to, signature, *args, rpc=rpc))
+
+
+def print_gas(label: str, used: int, outcome: str = "") -> None:
     print(f"  {GAS_LOG_PREFIX} {label:<44} {used:>10,}{outcome}")
 
 
@@ -164,8 +179,8 @@ def revert_reason(receipt: dict, to: str, signature: str, *args, rpc: str = conf
     """Replay a mined revert as a call so a failed broadcast can name its custom error.
     A receipt carries no revert data, and the reason is what makes an intermittent CI
     failure diagnosable from the log alone. Replays against the parent block, the closest
-    state the transaction actually ran on. Returns None when the replay cannot run or
-    does not reproduce the revert."""
+    state the transaction actually ran on. Returns None when the replay cannot run, and a
+    sentence saying so when it does not reproduce the revert."""
     sender = receipt.get("from")
     block = receipt.get("blockNumber")
     if not sender or block is None:
@@ -180,7 +195,7 @@ def revert_reason(receipt: dict, to: str, signature: str, *args, rpc: str = conf
         # A diagnostic must never replace the failure it is describing.
         return None
     if probe.returncode == 0:
-        return None
+        return "the replay at the parent block succeeds, so the failure depended on gas or on same-block state"
     return " ".join((probe.stdout + probe.stderr).split()) or None
 
 

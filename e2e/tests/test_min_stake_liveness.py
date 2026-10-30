@@ -16,11 +16,11 @@ class ChurnLedger:
     """Deposits, withdrawals, and rotations on one subnet, tracking the closing-ledger
     totals (alpha RAO) and every hotkey a delivery can land under."""
 
-    def __init__(self, env, netuid, token_id, chain_min_stake, hotkey_pubkeys):
+    def __init__(self, env, netuid, token_id, floor, hotkey_pubkeys):
         self.env = env
         self.netuid = netuid
         self.token_id = token_id
-        self.chain_min_stake = chain_min_stake
+        self.floor = floor
         self.hotkey_pubkeys = list(hotkey_pubkeys)
         self.deposited_alpha_total = 0
         self.delivered_alpha_total = 0
@@ -38,8 +38,8 @@ class ChurnLedger:
     def backing(self, block=None) -> int:
         return self.env.total_stake_across(self.clone_coldkey, self.netuid, self.hotkey_pubkeys, block)
 
-    def floor_boundary_alpha(self) -> int:
-        _, boundary = self.env.floor_boundary(self.netuid, self.chain_min_stake)
+    def boundary_alpha(self) -> int:
+        _, boundary = self.env.floor_boundary(self.netuid, self.floor)
         return boundary
 
     def deposit_step(self, label: str, hotkey_pubkey: str, hotkey_ss58: str,
@@ -49,7 +49,7 @@ class ChurnLedger:
             1_500_000, f"{label}: wrap failed",
         )
         assert_gas_within(receipt, config.WRAP_GAS_BOUND, f"{label}: wrap")
-        self.deposited_alpha_total += self.env.deposited(receipt, self.netuid, hotkey_pubkey)
+        self.deposited_alpha_total += self.env.deposited(receipt, self.netuid)
         self.rounding_allowance += config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO
         print(f"  {label}: wrapped {amount_rao} alpha RAO")
 
@@ -95,7 +95,7 @@ class ChurnLedger:
         label = f"Cycle {round_number}"
         print(f"\n=== Churn cycle {round_number} ===")
 
-        boundary = self.floor_boundary_alpha()
+        boundary = self.boundary_alpha()
         self.deposit_step(label, primary_pubkey, primary_ss58, boundary * 9 // 2)
         self.unwrap_for_alpha_step(label, 80)
         self.deposit_step(label, primary_pubkey, primary_ss58, boundary * 5 // 2)
@@ -115,14 +115,14 @@ class ChurnLedger:
         )
         print(f"  {label}: withdrawal consolidated the rotated-out balances")
 
-        self.deposit_step(label, secondary_pubkey, secondary_ss58, boundary * 3)
+        self.deposit_step(label, secondary_pubkey, secondary_ss58, self.boundary_alpha() * 3)
         self.unwrap_for_tao_step(label, 40)
 
 
 @pytest.mark.scenario
 def test_holders_can_exit_after_two_cycles_of_dust_and_validator_rotation(env):
-    chain_min_stake = env.chain_min_stake_tao()
-    print(f"  chain minimum stake = {chain_min_stake} RAO")
+    floor = env.chain_min_stake_tao()
+    print(f"  vault floor = {floor} RAO")
 
     netuid = env.netuids[0]
     token_id = env.token_ids[0]
@@ -130,13 +130,13 @@ def test_holders_can_exit_after_two_cycles_of_dust_and_validator_rotation(env):
     hotkey_a_ss58, hotkey_b_ss58, hotkey_c_ss58 = env.hotkey_ss58s[:config.VALIDATORS_PER_SUBNET]
 
     ledger = ChurnLedger(
-        env, netuid, token_id, chain_min_stake,
+        env, netuid, token_id, floor,
         [hotkey_a_pubkey, hotkey_b_pubkey, hotkey_c_pubkey],
     )
 
     ledger.deposit_step(
         "Bootstrap deposit", hotkey_a_pubkey, hotkey_a_ss58,
-        ledger.floor_boundary_alpha() * 3 // 2,
+        ledger.boundary_alpha() * 3 // 2,
     )
 
     ledger.churn_cycle(

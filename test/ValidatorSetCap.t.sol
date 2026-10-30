@@ -59,8 +59,8 @@ contract ValidatorSetCapTest is AlphaVaultTestBase {
     }
 
     function test_RevertWhen_OversizedSetAlsoHasMismatchedLengths() public {
-        bytes32[] memory hks = _publishSet(OVER_CAP, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, DEPOSIT);
+        bytes32[] memory hks = _publishSet(OVER_CAP, MAX_VALIDATORS);
 
         vm.prank(alice);
         _expectTooLarge(OVER_CAP);
@@ -83,14 +83,14 @@ contract ValidatorSetCapTest is AlphaVaultTestBase {
         bytes32[] memory hks = _setValidatorCount(NETUID1, MAX_VALIDATORS);
         vault.rebalance(NETUID1);
 
-        // 156 bps of 10,000 alpha on each of 63 validators, the 172-bps remainder on the last.
-        _assertSpread(hks, _subnetColdkey(NETUID1), NETUID1, 156 * ALPHA, 172 * ALPHA);
+        // 1000 bps of 10,000 alpha on each of the ten validators.
+        _assertSpread(hks, _subnetColdkey(NETUID1), NETUID1, 1_000 * ALPHA, 1_000 * ALPHA);
     }
 
     function testFuzz_RevertWhen_WrapWithValidatorSetOverCap(uint256 rawCount) public {
         uint256 count = bound(rawCount, OVER_CAP, MAX_VALIDATORS + 24);
-        bytes32[] memory hks = _publishSet(count, count);
         _simulateAlphaDeposit(alice, NETUID1, DEPOSIT);
+        bytes32[] memory hks = _publishSet(count, count);
 
         vm.prank(alice);
         _expectTooLarge(count);

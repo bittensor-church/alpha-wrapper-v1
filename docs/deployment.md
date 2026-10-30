@@ -1,8 +1,7 @@
 # Deployment
 
-Church of Rao does not plan to deploy or operate these contracts. Each integrator
-must choose its validator-selection strategy, registry governance and operational
-controls before deploying a vault.
+Each integrator deploys and operates its own vault, and chooses its
+validator-selection strategy, registry governance and operational controls first.
 
 1. Choose or implement an `IValidatorRegistry`. The included
    `BasicValidatorRegistry` is the simplest example.
@@ -14,7 +13,7 @@ controls before deploying a vault.
 
 `BasicValidatorRegistry(initialOwner)` assigns each subnet one validator at 100%
 weight. Updates take effect immediately. Ownership transfers use OpenZeppelin
-`Ownable2Step`; renunciation is disabled.
+`Ownable2Step`.
 
 ```sh
 forge create src/BasicValidatorRegistry.sol:BasicValidatorRegistry \
@@ -26,8 +25,7 @@ cast send <registry> 'setValidator(uint256,bytes32)' <netuid> <hotkey> \
 ```
 
 The hotkey must have an owner record. Downstream `IValidatorRegistry`
-implementations must reject duplicate hotkeys before publishing a set; the
-vault does not check them.
+implementations must reject duplicate hotkeys before publishing a set.
 
 ## Vault set
 
@@ -59,12 +57,11 @@ links its address into the vault bytecode, so each vault is bound to one library
 deployment. Deploying by hand needs the same link, passed as
 `--libraries src/libraries/VaultAllocation.sol:VaultAllocation:<address>`.
 `VaultAllocation` is the only linked library; the other libraries under
-`src/libraries/` compile into the contracts that use them and need no address.
+`src/libraries/` compile into the contracts that use them.
 
 Every vault parameter is immutable: `validatorRegistry`, `recoveryWindow`,
-`parkingHotkey` and `cloneFactory` are fixed at deployment and the vault has no
-admin or upgrade path. Changing any of them means deploying a new vault, and a
-rebuilt library means a new vault as well.
+`parkingHotkey` and `cloneFactory` are fixed at deployment. Changing any of them,
+or rebuilding the library, means deploying a new vault.
 
 ## Verification after deployment
 
@@ -73,7 +70,7 @@ rebuilt library means a new vault as well.
   `vault.parkingHotkey()` return the intended values.
 - `getHotkeyOwner(parkingHotkey)` on the staking precompile `0x0805` returns the
   vault's own coldkey, which is `addressMapping(vault)` on the address-mapping
-  precompile `0x080C`.
+  precompile `0x080C`, and `getRejectStakingHotkeyGrowth` of that coldkey is true.
 - The library address embedded in the deployed vault bytecode equals the
   deployed `VaultAllocation` address.
 - Every address, its runtime code hash and the commit it was built from go into
@@ -82,32 +79,27 @@ rebuilt library means a new vault as well.
 ## Runtime compatibility
 
 The vault reads and writes chain state through precompiles. It requires a
-chain fully compatible with Subtensor runtime 478 for the precompile functions
-below, honoring the rule next to each, with no breaking change to those
-functions introduced since.
+chain that honors the rules below, as the Subtensor runtime of the localnet
+image pinned in `.github/workflows/e2e.yml` does.
 
 | Precompile | Function | Rule relied on |
 | --- | --- | --- |
-| Staking `0x0805` | `getStake` | Returns the alpha held by a (hotkey, coldkey, netuid) triple, a chain u64 encoded as ABI uint256. |
-| Staking `0x0805` | `getHotkeyOwner` | Reports no owner record once an all-subnet hotkey swap carries the stake away, and stake operations require that record. |
-| Staking `0x0805` | `getHotkeySuccessor` | Names the key a swap carried a hotkey's stake to. |
-| Staking `0x0805` | `getColdkeyLock` | Reports the conviction-locked alpha an account holds on a subnet. |
+| Staking `0x0805` | `getHotkeyOwner` | Reports a hotkey's owner record, which an all-subnet hotkey swap carrying the stake away clears; stake operations require that record. |
 | Staking `0x0805` | `getRejectLockedAlpha` | Accounts reject incoming locked alpha by default, and this flag reports that setting. |
-| Staking `0x0805` | `getColdkeyRoot` | Reports whether an account carries coldkey-swap history. |
-| Staking `0x0805` | `getOwnedHotkeys` | Lists the hotkeys an account owns; an uncontaminated clone candidate owns none. |
-| Staking `0x0805` | `getDefaultMinStake` | The minimum a partial unstake enforces; the vault applies it to every move as its conservative floor. |
+| Staking `0x0805` | `getColdkeyRoot` | Reports whether an account carries coldkey-swap history. A swap into an account already in use, with a staking list, owned hotkeys or swap basket credits, records none. |
+| Staking `0x0805` | `getDefaultMinStake` | The minimum a partial unstake enforces, at or above the minimum on same-subnet moves and transfers; the vault applies it to every move, transfer and partial sale. |
 | Staking `0x0805` | `getNominatorMinRequiredStake` | The minimum a nominator may hold; the chain can sweep smaller positions into TAO. |
-| Staking `0x0805` | `moveStake` | A same-subnet move enforces the chain's transfer minimum, which is the lower of the two minimums. |
-| Staking `0x0805` | `transferStake` | Delivers alpha to another coldkey on the same subnet; the chain's transfer minimum applies. |
-| Staking `0x0805` | `removeStake` | A partial unstake enforces the default minimum stake and lowers the caller's `getStake` by at most the requested amount; a full drain of a position clears it. |
+| Staking `0x0805` | `moveStake` | A same-subnet move enforces the chain's transfer minimum, which is the lower of the two minimums. A move onto a hotkey the caller does not list is refused once its staking list holds 256 entries. |
+| Staking `0x0805` | `transferStake` | Delivers alpha to another coldkey on the same subnet; the chain's transfer minimum applies. A receiver reserved as a coldkey-swap destination refuses it. Any other receiver always admits a hotkey it already lists; otherwise only while its list is under the third-party cap and, once it refuses list growth, only a hotkey it owns. |
+| Staking `0x0805` | `transferStakeAndHotkey` | Delivers alpha to another coldkey on the same subnet onto a different hotkey, under the same admission rule and minimum. |
+| Staking `0x0805` | `setRejectStakingHotkeyGrowth` | Makes the calling account refuse staking-list growth by other accounts; a hotkey it associates to itself still joins its list. |
+| Staking `0x0805` | `getStakingHotkeys` | Reports an account's staking list length and one page of at most 64 entries. An entry stays while the account holds stake under that hotkey on any subnet, or a root-dividend record for the pair; dissolving a subnet removes the stake there and leaves the entry. |
+| Staking `0x0805` | `removeStake` | A partial unstake enforces the default minimum stake and lowers the caller's `getStake` by at most the requested amount; a full drain of a position clears it, on any subnet. |
 | Subnet `0x0803` | `getNetworkRegistrationBlock` | Zero while a netuid is unregistered. |
 | Subnet `0x0803` | `getRegisteredSubnetCounter` | Steps on every registration and survives dissolution, so it tells subnet generations apart. |
-| Subnet `0x0803` | `isSubnetDissolving` | Reports a subnet whose dissolution is under way. |
 | Subnet `0x0803` | `getSubnetCapacityConfig` | Its tenth field is the owner's alpha-transfer switch. |
-| Neuron `0x0804` | `tryAssociateHotkey` | Assigns the caller's coldkey as owner only when the hotkey has none, and succeeds silently otherwise. |
-| Alpha `0x0808` | `getAlphaPrice` | Prices alpha in TAO, scaled by 1e18. |
-| Alpha `0x0808` | `simSwapAlphaForTao` | Quotes the TAO a sale of a given alpha amount returns. |
-| Address mapping `0x080C` | `addressMapping` | Returns the substrate coldkey an EVM address controls. |
+| Neuron `0x0804` | `tryAssociateHotkey` | Assigns the caller's coldkey as owner only when the hotkey has none, and succeeds silently otherwise. A newly owned hotkey joins the caller's staking list, so the call is refused once that list holds 256 entries. It is also refused for a hotkey reserved as a coldkey-swap destination, which anyone can reserve while it has no owner. |
+| Balance transfer `0x0800` | `transferAll` | Moves the caller's whole free balance to a Substrate account, signed as the caller, crediting it directly. With keep-alive off the amount includes the existential deposit the EVM balance hides, so a fresh destination always admits it and shows what the source showed. |
 
 Two further rules sit outside any single function: the chain refuses a coldkey
 swap into an account that is itself a hotkey, which is what keeps mailboxes and
@@ -116,7 +108,7 @@ which is why the vault checks conditions before calling.
 
 ## Deployed artifacts
 
-Nothing is deployed on a public network yet. Each deployment adds a row.
+Each deployment adds a row.
 
 | Network | Contract | Address | Code hash | Deployed at commit |
 | --- | --- | --- | --- | --- |

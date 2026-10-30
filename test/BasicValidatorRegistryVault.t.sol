@@ -25,7 +25,7 @@ contract BasicValidatorRegistryVaultTest is AlphaVaultTestBase {
     }
 
     function test_RevertWhen_WrapHotkeyIsUnlisted() public {
-        _simulateAlphaDepositHotkey(alice, NETUID1, 10 * ALPHA, hotkey2);
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         vm.expectRevert(ChosenHotkeyNotInSet.selector);
         _wrapHotkey(alice, NETUID1, hotkey2);
     }
