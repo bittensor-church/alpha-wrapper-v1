@@ -10,7 +10,6 @@ abstract contract CloneBase {
 
     error AlreadyInitialized();
     error NotWrapper();
-    error UnauthorizedInitializer();
 
     /// @dev Disable initialization on the implementation; clones have fresh storage.
     constructor() { initialized = true; }
@@ -18,10 +17,9 @@ abstract contract CloneBase {
     modifier onlyWrapper() { if (msg.sender != wrapper) revert NotWrapper(); _; }
 
     /// @dev Refusing staking-list growth keeps strangers from filling the list that admits deposits.
-    function initialize(address _wrapper) external {
+    function initialize() external {
         if (initialized) revert AlreadyInitialized();
-        if (msg.sender != _wrapper) revert UnauthorizedInitializer();
-        wrapper = _wrapper; initialized = true;
+        wrapper = msg.sender; initialized = true;
         _claimOwnHotkey();
         IStaking(STAKING_PRECOMPILE).setRejectStakingHotkeyGrowth(true);
     }

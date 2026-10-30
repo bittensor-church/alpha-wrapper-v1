@@ -41,7 +41,7 @@ library VaultClones {
     }
 
     function _initializeClone(address clone, bytes32 coldkey, bytes32 owner) private {
-        CloneBase(clone).initialize(address(this));
+        CloneBase(clone).initialize();
         IStaking staking = IStaking(STAKING_PRECOMPILE);
         if (
             !VaultReads.ownedBy(coldkey, owner) || !staking.getRejectLockedAlpha(coldkey)

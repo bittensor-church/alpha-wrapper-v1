@@ -17,7 +17,7 @@ contract CloneBaseTest is AlphaVaultTestBase {
     function setUp() public override {
         super.setUp();
         directClone = SubnetClone(Clones.clone(address(subnetLogic)));
-        directClone.initialize(address(this));
+        directClone.initialize();
         directCloneColdkey = _toSubstrate(address(directClone));
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, directCloneColdkey, NETUID1, 50 * ALPHA);
     }
@@ -67,7 +67,7 @@ contract CloneBaseTest is AlphaVaultTestBase {
 
     function test_TransferStakeAndHotkey_NoOpOnZero() public {
         DepositMailbox directMailbox = DepositMailbox(Clones.clone(address(mailboxLogic)));
-        directMailbox.initialize(address(this));
+        directMailbox.initialize();
         MockStaking(STAKING_PRECOMPILE).setTransferStakeReverts(true);
 
         directMailbox.transferStakeAndHotkey(directCloneColdkey, hotkey1, hotkey2, uint16(NETUID1), 0);
@@ -138,23 +138,16 @@ contract CloneBaseTest is AlphaVaultTestBase {
 
         vm.prank(bob);
         vm.expectRevert(CloneBase.AlreadyInitialized.selector);
-        CloneBase(mailbox).initialize(bob);
-    }
-
-    function test_RevertWhen_CallerInitializesACloneForAnotherWrapper() public {
-        address fresh = Clones.clone(address(mailboxLogic));
-
-        vm.expectRevert(CloneBase.UnauthorizedInitializer.selector);
-        CloneBase(fresh).initialize(bob);
+        CloneBase(mailbox).initialize();
     }
 
     function test_RevertWhen_MailboxImplementationIsInitialized() public {
         vm.expectRevert(CloneBase.AlreadyInitialized.selector);
-        mailboxLogic.initialize(address(this));
+        mailboxLogic.initialize();
     }
 
     function test_RevertWhen_SubnetCloneImplementationIsInitialized() public {
         vm.expectRevert(CloneBase.AlreadyInitialized.selector);
-        subnetLogic.initialize(address(this));
+        subnetLogic.initialize();
     }
 }
