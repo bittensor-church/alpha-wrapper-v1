@@ -94,7 +94,11 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @notice Prepare a protected mailbox before sending alpha. The first caller also prepares the shared
     ///         subnet clone. A fresh random UID lets a rejected candidate be retried.
     function createMailbox(uint256 netuid, bytes32 uid) external nonReentrant returns (address mailbox, address clone) {
-        return VaultAllocation.deployMissingCloneAndMailbox(cloneFactory, subnetClone, _mailboxes, currentTokenId(netuid), netuid, uid);
+        uint256 tokenId = currentTokenId(netuid);
+        uint16 nid = VaultMath.netuidOf(tokenId);
+        VaultReads.requireNotDissolving(nid);
+        clone = VaultAllocation.deployMissingClone(cloneFactory, subnetClone, tokenId, nid, uid);
+        mailbox = VaultAllocation.deployMissingMailbox(cloneFactory, _mailboxes, nid, uid);
     }
 
     /// @notice Zero until `createMailbox` succeeds.

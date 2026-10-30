@@ -30,10 +30,14 @@ library VaultAllocation {
         bytes32 parking;
     }
 
-    function deployMissingCloneAndMailbox(CloneFactory factory, mapping(uint256 => address) storage subnetClone,
-        mapping(address => mapping(uint256 => address)) storage mailboxes, uint256 tokenId, uint256 netuid,
-        bytes32 uid) external returns (address mailbox, address clone) {
-        return VaultClones.deployMissingCloneAndMailbox(factory, subnetClone, mailboxes, tokenId, netuid, uid);
+    function deployMissingClone(CloneFactory factory, mapping(uint256 => address) storage subnetClone, uint256 tokenId,
+        uint16 netuid, bytes32 uid) external returns (address) {
+        return VaultClones.deployMissingClone(factory, subnetClone, tokenId, netuid, uid);
+    }
+
+    function deployMissingMailbox(CloneFactory factory, mapping(address => mapping(uint256 => address)) storage mailboxes,
+        uint16 netuid, bytes32 uid) external returns (address) {
+        return VaultClones.deployMissingMailbox(factory, mailboxes, netuid, uid);
     }
 
     function isBelowFloor(uint256 alphaAmount, uint256 alphaPriceE18) external view returns (bool) {
