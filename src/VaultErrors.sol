@@ -43,8 +43,6 @@ error BackingNotSecured();
 error Parked();
 /// @dev The parking hotkey already belongs to another coldkey; deploy with an unused one.
 error ParkingHotkeyUnavailable();
-/// @dev The clone's staking list cannot take another hotkey; `replaceClone` moves the position to a fresh one.
-error StakingListFull();
 /// @dev The clone's staking list is still under half the chain's cap.
 error StakingListHasRoom();
 /// @dev No receiving key with an owner record was resolved for this attested name.

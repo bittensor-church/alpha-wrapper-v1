@@ -10,7 +10,6 @@ import {
     AlphaTransfersDisabled,
     ShortfallOnFile,
     SlippageExceeded,
-    StakingListFull,
     StakingListHasRoom,
     SubnetCloneNotPrepared,
     SubnetDissolved,
@@ -169,7 +168,7 @@ contract DepositLandingTest is AlphaVaultTestBase {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey4), _weights(5000, 5000));
         _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
 
-        if (entries + 2 > MAX_STAKING_HOTKEYS) vm.expectRevert(StakingListFull.selector);
+        if (entries + 2 > MAX_STAKING_HOTKEYS) vm.expectRevert(IAlphaVaultAbi.StakingListFull.selector);
         vm.prank(bob);
         vault.wrap(NETUID1, hotkey4, 0);
 
@@ -233,7 +232,7 @@ contract DepositLandingTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(hotkey4, NETUID1), 0, "the alignment onto the new validator waits");
         _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
         vm.prank(bob);
-        vm.expectRevert(StakingListFull.selector);
+        vm.expectRevert(IAlphaVaultAbi.StakingListFull.selector);
         vault.wrap(NETUID1, hotkey4, 0);
 
         _simulateOffVaultSwap(NETUID1, hotkey1, hotkey5);
@@ -264,6 +263,86 @@ contract DepositLandingTest is AlphaVaultTestBase {
         assertEq(_parkedStake(NETUID1), 30 * ALPHA, "parking always has its entry");
     }
 
+    /// @dev Park with the list at `fillTo` so parking takes entry `fillTo + 1`, pin parking with a crumb, release
+    ///      onto a validator that already holds a residue, then lose the position again.
+    function _secondShortfallWithParkingListedButUnfunded(uint256 fillTo) private returns (bytes32 cloneColdkey) {
+        _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        cloneColdkey = _subnetColdkey(NETUID1);
+        mock.setHotkeyOwned(hotkey3, true);
+        mock.setStake(hotkey3, cloneColdkey, NETUID1, 1);
+        _fillListTo(cloneColdkey, fillTo);
+
+        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey5);
+        _strangerTransfer(hotkey5, cloneColdkey, NETUID2);
+        vault.syncBacking(TOKEN1);
+        vault.recoverStray(TOKEN1, hotkey5);
+        vault.syncBacking(TOKEN1);
+        assertEq(_parkedStake(NETUID1), 30 * ALPHA, "parked");
+        assertEq(_stakingHotkeyCount(cloneColdkey), fillTo + 1, "parking took one entry");
+        _strangerTransfer(vault.parkingHotkey(), cloneColdkey, NETUID2);
+
+        _setValidators(NETUID1, _hotkeys(hotkey3), _weights(BPS_BASE));
+        vault.rebalance(NETUID1);
+        assertEq(_parkedStake(NETUID1), 0, "released onto the funded validator");
+        assertEq(_stakingHotkeyCount(cloneColdkey), fillTo + 1, "the crumb keeps parking listed");
+
+        _simulateOffVaultSwap(NETUID1, hotkey3, hotkey4);
+        vault.syncBacking(TOKEN1);
+    }
+
+    function test_AtTheCap_RecoveryParksOntoAListedButUnfundedParkingHotkey() public {
+        bytes32 cloneColdkey = _secondShortfallWithParkingListedButUnfunded(MAX_STAKING_HOTKEYS - 1);
+        assertEq(_stakingHotkeyCount(cloneColdkey), MAX_STAKING_HOTKEYS);
+
+        vault.recoverStray(TOKEN1, hotkey4);
+        vault.syncBacking(TOKEN1);
+
+        (uint256 shortSince,) = vault.recovery(TOKEN1);
+        assertApproxEqAbs(_parkedStake(NETUID1), 30 * ALPHA, 2, "the second shortfall parks at the cap");
+        assertEq(shortSince, 0, "recovery completes");
+        vault.replaceClone(TOKEN1, FRESH_UID);
+        assertApproxEqAbs(lens.totalStake(TOKEN1), 30 * ALPHA, 2, "the successor backs the position");
+    }
+
+    function testFuzz_SecondShortfall_Parks_AtAnyListLength(uint256 fillTo) public {
+        fillTo = bound(fillTo, 2, MAX_STAKING_HOTKEYS - 1);
+        _secondShortfallWithParkingListedButUnfunded(fillTo);
+
+        vault.recoverStray(TOKEN1, hotkey4);
+
+        assertApproxEqAbs(_parkedStake(NETUID1), 30 * ALPHA, 2, "the second shortfall parks");
+    }
+
+    function test_AtTheReserve_ConsolidationReturnsToTheDrainedPinnedHome_AndTheExitPays() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        _strangerTransfer(hotkey1, cloneColdkey, NETUID2);
+        _fillListTo(cloneColdkey, MAX_STAKING_HOTKEYS - 1);
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
+
+        assertEq(_getVaultStake(hotkey3, NETUID1), 0, "the dropped validator was consolidated");
+        assertApproxEqAbs(lens.totalStake(TOKEN1), 15 * ALPHA, 2, "the exit paid out");
+        assertGt(_getStake(hotkey1, alice, NETUID1) + _getStake(hotkey2, alice, NETUID1), 0);
+    }
+
+    function testFuzz_ConsolidationReturnsToTheDrainedPinnedHome_AtAnyListLength(uint256 entries) public {
+        entries = bound(entries, 3, MAX_STAKING_HOTKEYS - 1);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        _strangerTransfer(hotkey1, cloneColdkey, NETUID2);
+        _fillListTo(cloneColdkey, entries);
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
+
+        vault.rebalance(NETUID1);
+
+        assertEq(_getVaultStake(hotkey3, NETUID1), 0, "the dropped validator was consolidated");
+        assertApproxEqAbs(lens.totalStake(TOKEN1), 30 * ALPHA, 2);
+    }
+
     /// @dev Crumbs keep the dropped validators listed, so consolidation frees no entry on its way out.
     function test_FullRotationAtTheReserve_AlphaExitWaitsForReplacement_TaoExitDoesNot() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
@@ -275,7 +354,7 @@ contract DepositLandingTest is AlphaVaultTestBase {
         _setValidators(NETUID1, _hotkeys(hotkey4, hotkey5), _weights(5000, 5000));
 
         vm.prank(alice);
-        vm.expectRevert(StakingListFull.selector);
+        vm.expectRevert(IAlphaVaultAbi.StakingListFull.selector);
         vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares / 4, 0);
@@ -309,7 +388,7 @@ contract DepositLandingTest is AlphaVaultTestBase {
         _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
 
         vm.prank(bob);
-        vm.expectRevert(StakingListFull.selector);
+        vm.expectRevert(IAlphaVaultAbi.StakingListFull.selector);
         vault.wrap(NETUID1, hotkey4, 0);
 
         vm.expectEmit(true, true, false, false, address(vault));
@@ -384,7 +463,7 @@ contract DepositLandingTest is AlphaVaultTestBase {
         assertTrue(vault.awaitingAttestation(TOKEN1), "the position rests on parking");
         _setValidators(NETUID1, _hotkeys(hotkey5, hotkey2), _weights(5000, 5000));
 
-        vm.expectRevert(StakingListFull.selector);
+        vm.expectRevert(IAlphaVaultAbi.StakingListFull.selector);
         vault.rebalance(NETUID1);
         vault.replaceClone(TOKEN1, FRESH_UID);
         vault.rebalance(NETUID1);

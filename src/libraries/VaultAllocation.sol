@@ -330,7 +330,8 @@ library VaultAllocation {
             unchecked { ++i; }
         }
         uint256 finalPile = IStaking(STAKING_PRECOMPILE).getStake(rollerHotkey, coldkey, netuid);
-        StakeOps.move(context.clone, coldkey, rollerHotkey, home, netuid, finalPile, context.parking);
+        if (richestHotkey == home) StakeOps.moveAdmitted(context.clone, rollerHotkey, home, netuid, finalPile);
+        else StakeOps.move(context.clone, coldkey, rollerHotkey, home, netuid, finalPile, context.parking);
     }
 
     function _anyRotatedOut(bytes32[] memory hotkeys, bytes32[] memory currentSet) private pure returns (bool) {

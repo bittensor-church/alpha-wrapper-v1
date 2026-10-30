@@ -35,9 +35,8 @@ library VaultReads {
 
     /// @dev The last entry is kept for the parking hotkey, so recovery can always park.
     function admitsMove(bytes32 coldkey, bytes32 hotkey, uint16 netuid, bytes32 parking) internal view returns (bool) {
-        if (IStaking(STAKING_PRECOMPILE).getStake(hotkey, coldkey, netuid) != 0) return true;
-        uint256 room = hotkey == parking ? 1 : 2;
-        return stakingHotkeyCount(coldkey) + room <= MAX_STAKING_HOTKEYS;
+        if (hotkey == parking || IStaking(STAKING_PRECOMPILE).getStake(hotkey, coldkey, netuid) != 0) return true;
+        return stakingHotkeyCount(coldkey) + 2 <= MAX_STAKING_HOTKEYS;
     }
 
     /// @dev Half the cap: every move and exit a clone signs pays the chain's walk of its whole list.

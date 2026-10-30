@@ -4,9 +4,9 @@ pragma solidity 0.8.36;
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { INeuron, NEURON_PRECOMPILE } from "../interfaces/INeuron.sol";
+import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
 import { CloneBase } from "../CloneBase.sol";
 import { SubnetClone } from "../SubnetClone.sol";
-import { StakingListFull } from "../VaultErrors.sol";
 import { VaultMath } from "./VaultMath.sol";
 import { VaultReads } from "./VaultReads.sol";
 
@@ -30,7 +30,7 @@ library StakeOps {
 
     function move(address clone, bytes32 coldkey, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount,
         bytes32 parking) internal {
-        if (!VaultReads.admitsMove(coldkey, toHotkey, netuid, parking)) revert StakingListFull();
+        if (!VaultReads.admitsMove(coldkey, toHotkey, netuid, parking)) revert IAlphaVaultAbi.StakingListFull();
         moveAdmitted(clone, fromHotkey, toHotkey, netuid, amount);
     }
 
