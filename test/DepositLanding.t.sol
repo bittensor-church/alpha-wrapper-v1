@@ -138,24 +138,7 @@ contract DepositLandingTest is AlphaVaultTestBase {
         assertEq(_stakingHotkeyCount(cloneColdkey), 0);
     }
 
-    function testFuzz_RotatingBackToAListedValidator_AtAnyListPosition(uint256 position) public {
-        position = bound(position, 0, MAX_STAKING_HOTKEYS - 4);
-        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
-        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
-        _fillListTo(cloneColdkey, 2 + position);
-        mock.setStake(hotkey3, cloneColdkey, NETUID2, CRUMB);
-        _fillListTo(cloneColdkey, MAX_STAKING_HOTKEYS - 1);
-        (bytes32[] memory page,) = mock.getStakingHotkeys(cloneColdkey, uint64(2 + position), 1);
-        assertEq(page[0], hotkey3, "the listed validator sits at the fuzzed position");
-
-        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(3334, 3333, 3333));
-        vault.rebalance(NETUID1);
-
-        assertGt(_getVaultStake(hotkey3, NETUID1), 0, "a listed validator takes stake wherever it is listed");
-    }
-
-    function test_RotatingBackToAListedValidatorAtTheCap_Works() public {
+    function test_RotatingBackToAnEmptyListedValidatorAtTheCap_WaitsForReplacement() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 cloneColdkey = _subnetColdkey(NETUID1);
         _strangerTransfer(hotkey3, cloneColdkey, NETUID2);
@@ -163,15 +146,19 @@ contract DepositLandingTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
         assertEq(_getVaultStake(hotkey3, NETUID1), 0, "the rotated-out validator holds nothing here");
         _fillListTo(cloneColdkey, MAX_STAKING_HOTKEYS - 1);
-
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(3334, 3333, 3333));
+
         vault.rebalance(NETUID1);
-        assertGt(_getVaultStake(hotkey3, NETUID1), 0, "a listed validator takes stake at the cap");
+        assertEq(_getVaultStake(hotkey3, NETUID1), 0, "the move onto the returning validator is skipped at the cap");
+
+        vault.replaceClone(TOKEN1, FRESH_UID);
+        vault.rebalance(NETUID1);
+        assertGt(_getVaultStake(hotkey3, NETUID1), 0, "the successor funds the returning validator");
         uint256 bobShares = _depositAndWrap(bob, NETUID1, 6 * ALPHA);
         vm.prank(bob);
         vault.unwrap(TOKEN1, bobShares, _toSubstrate(bob), 0);
 
-        assertApproxEqAbs(lens.totalStake(TOKEN1), 30 * ALPHA, 2, "deposit and exit went through at the cap");
+        assertApproxEqAbs(lens.totalStake(TOKEN1), 30 * ALPHA, 2, "deposit and exit go through after replacement");
     }
 
     function testFuzz_DepositOntoAnUnlistedValidator_PassesOnlyBelowTheReserve(uint256 entries) public {

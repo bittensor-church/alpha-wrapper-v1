@@ -7,7 +7,7 @@ import { MockAlpha } from "./MockAlpha.sol";
 import { MockSubnetPrecompile } from "./MockSubnetPrecompile.sol";
 import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { SUBNET_PRECOMPILE } from "src/interfaces/ISubnet.sol";
-import { MAX_STAKING_HOTKEYS, STAKING_LIST_PAGE } from "src/interfaces/IStaking.sol";
+import { MAX_STAKING_HOTKEYS } from "src/interfaces/IStaking.sol";
 
 /// @dev Fixtures must seed minimums after `vm.etch`, which copies code but not storage.
 uint256 constant CHAIN_MIN_STAKE = 2e6;
@@ -17,6 +17,8 @@ uint256 constant CHAIN_MIN_TRANSFER = 1e5;
 uint256 constant CHAIN_NOMINATOR_MIN_STAKE = 20e6;
 
 uint256 constant MAX_THIRD_PARTY_STAKING_HOTKEYS = 128;
+
+uint16 constant STAKING_LIST_PAGE = 64;
 
 address constant VM_ADDRESS = address(uint160(uint256(keccak256("hevm cheat code"))));
 

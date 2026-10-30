@@ -15,9 +15,6 @@ import { CloneFactory } from "../CloneFactory.sol";
 import { DepositMailbox } from "../DepositMailbox.sol";
 import { SubnetClone } from "../SubnetClone.sol";
 
-/// @dev Deployed once and linked into the vault, which calls it by delegatecall: clones and hotkey association
-///      see the vault as caller and logs originate from the vault. Callers keep the backing gates, reentrancy
-///      guard and accounting; this library writes only the clone records handed to it by storage reference.
 library VaultAllocation {
     /// @dev What collection does with a pile below the floor.
     enum CollectionPolicy { RevertBelowFloor, LeaveBelowFloor }
@@ -33,13 +30,12 @@ library VaultAllocation {
         bytes32 parking;
     }
 
-    function prepareClones(CloneFactory factory, mapping(uint256 => address) storage subnetClone,
+    function deployMissingCloneAndMailbox(CloneFactory factory, mapping(uint256 => address) storage subnetClone,
         mapping(address => mapping(uint256 => address)) storage mailboxes, uint256 tokenId, uint256 netuid,
         bytes32 uid) external returns (address mailbox, address clone) {
-        return VaultClones.prepareClones(factory, subnetClone, mailboxes, tokenId, netuid, uid);
+        return VaultClones.deployMissingCloneAndMailbox(factory, subnetClone, mailboxes, tokenId, netuid, uid);
     }
 
-    /// @notice Whether `alphaAmount` falls below the vault's floor at the given price.
     function isBelowFloor(uint256 alphaAmount, uint256 alphaPriceE18) external view returns (bool) {
         return StakeOps.isBelowFloorAtReadPrice(alphaAmount, alphaPriceE18);
     }
@@ -53,9 +49,7 @@ library VaultAllocation {
         if (VaultReads.lockedAlphaOf(mailboxColdkey, nid) != 0) revert LockedDeposit();
     }
 
-    /// @dev A clone owns no hotkey, so another coldkey may only land stake on one it already lists; a clone
-    ///      that lists nothing admits any hotkey while its growth flag is down, lifted and restored within
-    ///      this call. Landing elsewhere than the target moves only what landed, keeping the rest in place.
+    /// @dev Moves the depositor's `amount` of stake from their mailbox into the clone, staked under `target`.
     function collectDeposit(address mailbox, bytes32 mailboxColdkey, Context memory context, bytes32 target,
         uint256 amount) external {
         IStaking staking = IStaking(STAKING_PRECOMPILE);

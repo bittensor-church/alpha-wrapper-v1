@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { IStaking, MAX_STAKING_HOTKEYS, STAKING_LIST_PAGE, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
+import { IStaking, MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { IValidatorRegistry, MAX_VALIDATORS } from "../interfaces/IValidatorRegistry.sol";
 import { IAddressMapping, ADDRESS_MAPPING_PRECOMPILE } from "../interfaces/IAddressMapping.sol";
 import { ISubnet, SUBNET_PRECOMPILE } from "../interfaces/ISubnet.sol";
@@ -33,22 +33,11 @@ library VaultReads {
         (, total) = IStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, 0, 1);
     }
 
-    function isListed(bytes32 coldkey, bytes32 hotkey, uint64 total) internal view returns (bool) {
-        for (uint64 offset; offset < total; offset += STAKING_LIST_PAGE) {
-            (bytes32[] memory page,) = IStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, offset, STAKING_LIST_PAGE);
-            if (VaultMath.contains(page, hotkey)) return true;
-        }
-        return false;
-    }
-
-    /// @dev A hotkey the coldkey holds stake under, or lists, always fits. The last entry is kept for the
-    ///      parking hotkey, so recovery can always park; the list is paged only at the cap.
+    /// @dev The last entry is kept for the parking hotkey, so recovery can always park.
     function admitsMove(bytes32 coldkey, bytes32 hotkey, uint16 netuid, bytes32 parking) internal view returns (bool) {
         if (IStaking(STAKING_PRECOMPILE).getStake(hotkey, coldkey, netuid) != 0) return true;
-        uint64 total = stakingHotkeyCount(coldkey);
         uint256 room = hotkey == parking ? 1 : 2;
-        if (total + room <= MAX_STAKING_HOTKEYS) return true;
-        return isListed(coldkey, hotkey, total);
+        return stakingHotkeyCount(coldkey) + room <= MAX_STAKING_HOTKEYS;
     }
 
     /// @dev Half the cap: every move and exit a clone signs pays the chain's walk of its whole list.

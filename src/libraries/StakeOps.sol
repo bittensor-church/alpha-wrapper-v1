@@ -10,7 +10,6 @@ import { StakingListFull } from "../VaultErrors.sol";
 import { VaultMath } from "./VaultMath.sol";
 import { VaultReads } from "./VaultReads.sol";
 
-/// @dev The floor tests keep an amount the chain would refuse from burning the gas forwarded to it.
 library StakeOps {
     function taoValue(uint256 alphaAmount, uint256 alphaPriceE18) internal pure returns (uint256) {
         return Math.mulDiv(alphaAmount, alphaPriceE18, VaultMath.ALPHA_PRICE_SCALE);
@@ -29,15 +28,12 @@ library StakeOps {
         if (!hasOwner(hotkey)) INeuron(NEURON_PRECOMPILE).tryAssociateHotkey(hotkey);
     }
 
-    /// @dev A hotkey the clone holds nothing under on this subnet may be absent from its staking list,
-    ///      which the cap then shuts; the chain's refusal would burn the forwarded gas.
     function move(address clone, bytes32 coldkey, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount,
         bytes32 parking) internal {
         if (!VaultReads.admitsMove(coldkey, toHotkey, netuid, parking)) revert StakingListFull();
         moveAdmitted(clone, fromHotkey, toHotkey, netuid, amount);
     }
 
-    /// @dev For a caller that has already checked the list.
     function moveAdmitted(address clone, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount) internal {
         ensureHotkeyHasOwner(fromHotkey);
         ensureHotkeyHasOwner(toHotkey);

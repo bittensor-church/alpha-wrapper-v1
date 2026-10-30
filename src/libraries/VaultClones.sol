@@ -10,8 +10,7 @@ import { VaultReads } from "./VaultReads.sol";
 /// @dev Runs inside a delegatecall from the vault, so the vault is the initializer and `msg.sender` is the
 ///      depositor.
 library VaultClones {
-    /// @dev Publish an address only once its protection is verified.
-    function prepareClones(CloneFactory factory, mapping(uint256 => address) storage subnetClone,
+    function deployMissingCloneAndMailbox(CloneFactory factory, mapping(uint256 => address) storage subnetClone,
         mapping(address => mapping(uint256 => address)) storage mailboxes, uint256 tokenId, uint256 netuid,
         bytes32 uid) internal returns (address mailbox, address clone) {
         // forge-lint: disable-next-line(unsafe-typecast)
