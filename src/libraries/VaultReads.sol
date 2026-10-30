@@ -15,6 +15,8 @@ library VaultReads {
     uint256 internal constant NO_SHORT_SLOT = type(uint256).max;
     /// @dev Frozen with no deadline until recovery is declared.
     uint256 internal constant UNDECLARED_SHORTFALL = type(uint256).max;
+    /// @dev Half the cap: every move and exit a clone signs pays the chain's walk of its whole list.
+    uint256 private constant REPLACEMENT_LIST_LENGTH = MAX_STAKING_HOTKEYS / 2;
 
     function coldkeyOf(address evmAddress) internal view returns (bytes32) {
         return IAddressMapping(ADDRESS_MAPPING_PRECOMPILE).addressMapping(evmAddress);
@@ -38,9 +40,6 @@ library VaultReads {
         if (hotkey == parking || IStaking(STAKING_PRECOMPILE).getStake(hotkey, coldkey, netuid) != 0) return true;
         return stakingHotkeyCount(coldkey) + 2 <= MAX_STAKING_HOTKEYS;
     }
-
-    /// @dev Half the cap: every move and exit a clone signs pays the chain's walk of its whole list.
-    uint256 internal constant REPLACEMENT_LIST_LENGTH = MAX_STAKING_HOTKEYS / 2;
 
     function replacementOpen(bytes32 coldkey) internal view returns (bool) {
         return stakingHotkeyCount(coldkey) >= REPLACEMENT_LIST_LENGTH;

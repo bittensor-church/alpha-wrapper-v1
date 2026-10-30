@@ -3,7 +3,6 @@ pragma solidity 0.8.36;
 
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
-import { VaultReads } from "src/libraries/VaultReads.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { IStaking, MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import {
@@ -18,6 +17,7 @@ import {
 
 contract DepositLandingTest is AlphaVaultTestBase {
     bytes32 private constant FRESH_UID = keccak256("fresh-clone-uid");
+    uint256 private constant REPLACEMENT_OPENS_AT = 128;
     address private stranger = makeAddr("stranger");
     MockStaking private mock;
 
@@ -559,11 +559,11 @@ contract DepositLandingTest is AlphaVaultTestBase {
     function test_ReplacementOpensAtHalfTheCap() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 cloneColdkey = _subnetColdkey(NETUID1);
-        _fillListTo(cloneColdkey, VaultReads.REPLACEMENT_LIST_LENGTH - 1);
+        _fillListTo(cloneColdkey, REPLACEMENT_OPENS_AT - 1);
         vm.expectRevert(StakingListHasRoom.selector);
         vault.replaceClone(TOKEN1, FRESH_UID);
 
-        _fillListTo(cloneColdkey, VaultReads.REPLACEMENT_LIST_LENGTH);
+        _fillListTo(cloneColdkey, REPLACEMENT_OPENS_AT);
         vault.replaceClone(TOKEN1, FRESH_UID);
 
         assertEq(_stakingHotkeyCount(_subnetColdkey(NETUID1)), 3, "the successor lists the attested set");
@@ -574,17 +574,17 @@ contract DepositLandingTest is AlphaVaultTestBase {
         entries = bound(entries, 3, MAX_STAKING_HOTKEYS - 1);
         _fillListTo(_subnetColdkey(NETUID1), entries);
 
-        if (entries < VaultReads.REPLACEMENT_LIST_LENGTH) vm.expectRevert(StakingListHasRoom.selector);
+        if (entries < REPLACEMENT_OPENS_AT) vm.expectRevert(StakingListHasRoom.selector);
         vault.replaceClone(TOKEN1, FRESH_UID);
 
-        if (entries >= VaultReads.REPLACEMENT_LIST_LENGTH) {
+        if (entries >= REPLACEMENT_OPENS_AT) {
             assertEq(_stakingHotkeyCount(_subnetColdkey(NETUID1)), 3, "the successor lists the attested set");
         }
     }
 
     function test_Replacement_NeedsNoValidatorSet() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _fillListTo(_subnetColdkey(NETUID1), VaultReads.REPLACEMENT_LIST_LENGTH);
+        _fillListTo(_subnetColdkey(NETUID1), REPLACEMENT_OPENS_AT);
         registry.setRaw(NETUID1, new bytes32[](0), new uint16[](0));
 
         vault.replaceClone(TOKEN1, FRESH_UID);
