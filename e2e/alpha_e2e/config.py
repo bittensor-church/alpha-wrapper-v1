@@ -16,6 +16,7 @@ RAO_PER_ALPHA = 10**9
 VIRTUAL_SHARES = 10**9
 VIRTUAL_ASSETS = 1
 WEI_PER_RAO = 10**9
+EXISTENTIAL_DEPOSIT_RAO = 500
 
 WALLET_PATH = os.path.abspath(
     os.path.expanduser(

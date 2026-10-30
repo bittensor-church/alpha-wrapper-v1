@@ -94,8 +94,13 @@ def test_list_reaches_the_cap_and_replacement_reopens_it(env):
 
     shares = env.vault_shares(token_id)
     pile = env.stake(last_listed, env.clone_coldkey(token_id), netuid)
+    tao_before = chain.cast_balance_wei(clone)
     extrinsics.fund_account(h160_to_ss58(clone), config.RAO_PER_TAO)
     tao_shown = chain.cast_balance_wei(clone)
+    hidden_rao = config.EXISTENTIAL_DEPOSIT_RAO if tao_before == 0 else 0
+    assert tao_shown - tao_before == (config.RAO_PER_TAO - hidden_rao) * config.WEI_PER_RAO, (
+        f"the clone shows {tao_shown - tao_before} wei more after a 1 TAO transfer"
+    )
     env.replace_clone(token_id, "0x" + secrets.token_hex(32), "Cap: replacing the clone failed")
     successor = env.clone_address(token_id)
     assert successor.lower() != clone.lower(), "the token has no fresh clone"
