@@ -176,9 +176,7 @@ library VaultAllocation {
         }
     }
 
-    /// @dev Start at the richest source or destination, letting a fresh deposit carry rotated-out dust. The
-    ///      pile comes home to the richest funded destination, which the clone lists, so consolidation does
-    ///      not depend on the list having room for a new one.
+    /// @dev Start at the richest source or destination, letting a fresh deposit carry rotated-out dust.
     function chooseRichestSlot(bytes32[] memory sourceKeys, bytes32[] memory currentSet, bytes32 coldkey, uint16 netuid)
         public view returns (
             bytes32 richestHotkey, uint256 richestBalance,

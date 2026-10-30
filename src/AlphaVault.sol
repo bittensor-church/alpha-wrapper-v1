@@ -200,8 +200,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         address clone = subnetClone[tokenId]; uint16 netuid = VaultMath.netuidOf(tokenId);
         if (VaultReads.isDissolved(tokenId)) revert NothingToUnwrap();
 
-        bytes32 vaultColdkey = VaultReads.coldkeyOf(clone);
-        (, VaultReads.Backing memory backing) = _openBacking(tokenId, vaultColdkey, netuid);
+        bytes32 cloneColdkey = VaultReads.coldkeyOf(clone);
+        (, VaultReads.Backing memory backing) = _openBacking(tokenId, cloneColdkey, netuid);
         bytes32[] memory hotkeys = backing.keys;
         if (excludedSlots >> hotkeys.length != 0) revert SlotMaskOutOfRange();
         uint256[] memory balances = backing.balances; uint256 total = backing.total;
@@ -222,7 +222,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (taoOut < minTaoOut) revert SlippageExceeded(taoOut);
 
         // Underflow rejects a sale that swept other holders' backing into this caller's payout.
-        uint256[] memory postBalances = VaultReads.fetchBalances(hotkeys, vaultColdkey, netuid);
+        uint256[] memory postBalances = VaultReads.fetchBalances(hotkeys, cloneColdkey, netuid);
         uint256 sold = total - VaultMath.sumBalances(postBalances);
         _reanchor(tokenId, hotkeys, postBalances);
         uint256 unsold = assets - sold;

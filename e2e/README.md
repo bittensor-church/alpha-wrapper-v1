@@ -5,9 +5,8 @@ Substrate extrinsics.
 
 ## Requirements
 
-- Localnet at `ws://127.0.0.1:9944` / `http://127.0.0.1:9944`. CI runs
-  `ghcr.io/raofoundation/subtensor-localnet:v486`, pinned by digest in
-  `.github/workflows/e2e.yml`; use the same image locally.
+- Localnet at `ws://127.0.0.1:9944` / `http://127.0.0.1:9944`. Use the image
+  CI pins in `.github/workflows/e2e.yml`.
 - Dev Alice funded, as the localnet genesis does. Bootstrap funds every other
   account it uses from Alice.
 - `cast` and `forge` on PATH.

@@ -60,7 +60,10 @@ The chain refuses to move stake through a hotkey with no owner record. When the
 vault has to move stake off such a key, it claims the key for its own coldkey
 first, then moves. The claim is permanent, and while the name stays attested
 the claimed key counts as a receiving key for an emptied slot, which stays
-idle there until the registry owner publishes the successor.
+idle there until the registry owner publishes the successor. Anyone paying the
+chain's key-swap fee can block the claim by reserving the ownerless key as a
+coldkey-swap destination; the stake under it cannot move while the
+reservation lasts.
 
 ## The parking hotkey
 

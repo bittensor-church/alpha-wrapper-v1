@@ -329,11 +329,11 @@ contract DepositLandingTest is AlphaVaultTestBase {
         assertGt(_getStake(hotkey1, alice, NETUID1) + _getStake(hotkey2, alice, NETUID1), 0);
     }
 
-    function testFuzz_ConsolidationReturnsToTheDrainedPinnedHome_AtAnyListLength(uint256 entries) public {
+    function testFuzz_ConsolidationReturnsToTheDrainedHome_AtAnyListLength(uint256 entries, bool pinHome) public {
         entries = bound(entries, 3, MAX_STAKING_HOTKEYS - 1);
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 cloneColdkey = _subnetColdkey(NETUID1);
-        _strangerTransfer(hotkey1, cloneColdkey, NETUID2);
+        if (pinHome) _strangerTransfer(hotkey1, cloneColdkey, NETUID2);
         _fillListTo(cloneColdkey, entries);
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
 
