@@ -421,8 +421,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @dev Sync declares and finalizes recovery; collection preserves its obligation and deadline.
     ///      With no shortfall, recovered alpha joins live backing, including after write-off.
     function recoverStray(uint256 tokenId, bytes32 source) external nonReentrant {
+        if (source == parkingHotkey && recovery[tokenId].shortSince != 0) revert NothingToRecover();
         bytes32[] memory sources = new bytes32[](1); sources[0] = source;
-        _recoverStrays(tokenId, sources, false);
+        _recoverStrays(tokenId, sources);
     }
 
     /// @notice Collect the vault's alpha from hotkeys in the clone's staking list that the record does not name,
@@ -430,15 +431,17 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @dev A hotkey swap keeps the clone's alpha under a listed hotkey, so this finds a move with no edge to
     ///      follow. Same rules as `recoverStray` for each hotkey found; piles below the movement floor wait.
     function autoRecoverStray(uint256 tokenId) external nonReentrant {
-        _recoverStrays(tokenId, new bytes32[](0), true);
+        _recoverStrays(tokenId, new bytes32[](0));
     }
 
-    function _recoverStrays(uint256 tokenId, bytes32[] memory sources, bool discover) private {
+    /// @dev An empty `sources` means discovery through the clone's staking list.
+    function _recoverStrays(uint256 tokenId, bytes32[] memory sources) private {
         address clone = subnetClone[tokenId];
         uint16 netuid = VaultMath.netuidOf(tokenId);
         if (VaultReads.isDissolved(tokenId)) revert NothingToRecover();
         if (_slots[tokenId].length == 0) revert NothingToRecover();
         bytes32 coldkey = VaultReads.coldkeyOf(clone);
+        bool discover = sources.length == 0;
         if (recovery[tokenId].shortSince == 0) {
             (, VaultReads.Backing memory backing) = _openBacking(tokenId, coldkey, netuid);
             if (discover) sources = VaultAllocation.listedStrays(coldkey, netuid, backing.hotkeys, parkingHotkey);
@@ -449,10 +452,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         }
         if (discover) {
             sources = VaultAllocation.listedStrays(coldkey, netuid, VaultReads.activesOf(_slots[tokenId]), parkingHotkey);
-        } else if (sources[0] == parkingHotkey) {
-            revert NothingToRecover();
+            if (sources.length == 0) revert NothingToRecover();
         }
-        if (sources.length == 0) revert NothingToRecover();
         uint256 before = IStaking(STAKING_PRECOMPILE).getStake(parkingHotkey, coldkey, netuid);
         uint256 parked = _secureBacking(tokenId, clone, coldkey, sources);
         if (parked <= before) revert NothingToRecover();
