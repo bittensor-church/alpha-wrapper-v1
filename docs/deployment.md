@@ -85,7 +85,7 @@ image pinned in `.github/workflows/e2e.yml` does.
 | Precompile | Function | Rule relied on |
 | --- | --- | --- |
 | Staking `0x0805` | `getHotkeyOwner` | Reports a hotkey's owner record, which an all-subnet hotkey swap carrying the stake away clears; stake operations require that record. |
-| Staking `0x0805` | `getHotkeySuccessor` | The edge a per-subnet swap, or an all-subnet swap where the old key held a seat, writes on the old key; it clears when that key becomes a swap destination or registers on the subnet again, or the subnet dissolves. |
+| Staking `0x0805` | `getHotkeySuccessor` | The edge a per-subnet swap, or an all-subnet swap where the old hotkey held a seat, writes on the old hotkey; it clears when that hotkey becomes a swap destination or registers on the subnet again, or the subnet dissolves. |
 | Staking `0x0805` | `getRejectLockedAlpha` | Accounts reject incoming locked alpha by default, and this flag reports that setting. |
 | Staking `0x0805` | `getColdkeyRoot` | Reports whether an account carries coldkey-swap history. A swap into an account already in use, with a staking list, owned hotkeys or swap basket credits, records none. |
 | Staking `0x0805` | `getDefaultMinStake` | The minimum a partial unstake enforces, at or above the minimum on same-subnet moves and transfers; the vault applies it to every move, transfer and partial sale. |

@@ -155,7 +155,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         );
     }
 
-    function test_SwapOntoAKeyAnotherSlotLeft_StaysOperable() public {
+    function test_SwapOntoAHotkeyAnotherSlotLeft_StaysOperable() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey2, hotkey5);
         vault.rebalance(NETUID1);
@@ -177,7 +177,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
 
     /// @dev The second slot's alpha moves onto the first slot's old name, then the TAO exit empties the
     ///      first slot's resolved key.
-    function _sellTheFirstSlotAfterItsNameIsReused() private {
+    function _sellTheFirstSlotAfterItsAttestedHotkeyIsReused() private {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
@@ -190,7 +190,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
 
     /// @dev Falling back to a logical name occupied by another slot would count one balance twice.
     function test_TaoExitEmptyingASwappedSlot_LeavesNoBalanceAnsweringTwice() public {
-        _sellTheFirstSlotAfterItsNameIsReused();
+        _sellTheFirstSlotAfterItsAttestedHotkeyIsReused();
 
         assertEq(lens.locatedStake(TOKEN1), 19_998_000_000, "the position counts what it holds, once");
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
@@ -201,8 +201,8 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         }
     }
 
-    function test_SettleAfterAnEmptyingExit_KeepsSlotsOnDistinctKeys() public {
-        _sellTheFirstSlotAfterItsNameIsReused();
+    function test_SettleAfterAnEmptyingExit_KeepsSlotsOnDistinctHotkeys() public {
+        _sellTheFirstSlotAfterItsAttestedHotkeyIsReused();
 
         vault.rebalance(NETUID1);
 
@@ -214,7 +214,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 19_998_000_000, "and the total counts each balance once");
     }
 
-    function _positionWithAnEmptiedSlotOnAnotherKey() private {
+    function _positionWithAnEmptiedSlotOnAnotherHotkey() private {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
@@ -222,8 +222,8 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         _drainTheFirstSlot(alice, NETUID1);
     }
 
-    function test_SetNamingTheKeyAnEmptiedSlotStaysOn_Refuses() public {
-        _positionWithAnEmptiedSlotOnAnotherKey();
+    function test_SetAttestingTheHotkeyAnEmptiedSlotStaysOn_Refuses() public {
+        _positionWithAnEmptiedSlotOnAnotherHotkey();
 
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey4, hotkey2), _weights(3334, 3333, 3333));
 
@@ -231,8 +231,8 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
     }
 
-    function test_EmptiedSlotWhoseKeyIsRetired_RefusesTheRebalance() public {
-        _positionWithAnEmptiedSlotOnAnotherKey();
+    function test_EmptiedSlotWhoseHotkeyIsRetired_RefusesTheRebalance() public {
+        _positionWithAnEmptiedSlotOnAnotherHotkey();
 
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey4, true);
 

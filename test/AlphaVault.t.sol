@@ -561,7 +561,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
 
     /// @dev Anyone can park alpha under the clone's coldkey on an attested name; a deposit on that name
     ///      must price only itself and leave the stray for recovery.
-    function test_Wrap_LeavesAStrayOnASupersededNameForRecovery() public {
+    function test_Wrap_LeavesAStrayOnASupersededAttestedHotkeyForRecovery() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);

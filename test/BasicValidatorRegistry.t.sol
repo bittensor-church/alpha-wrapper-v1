@@ -85,7 +85,7 @@ contract BasicValidatorRegistryTest is Test {
         _assertValidator(NETUID, HOTKEY, 3);
     }
 
-    function test_GetValidators_KeepsANameThatLostItsOwner() public {
+    function test_GetValidators_KeepsAnAttestedHotkeyThatLostItsOwner() public {
         _setValidatorAsOwner(NETUID, HOTKEY);
         _mockHotkeyOwner(HOTKEY, false, 0);
         _assertValidator(NETUID, HOTKEY, 1);

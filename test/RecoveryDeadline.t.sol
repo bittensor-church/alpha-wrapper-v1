@@ -226,7 +226,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         assertTrue(vault.awaitingAttestation(TOKEN1));
     }
 
-    function test_RecoverStray_AcceptsAReturnAtAKnownCollectionKey() public {
+    function test_RecoverStray_AcceptsAReturnAtAKnownCollectionHotkey() public {
         (bytes32 first,, uint256 deadline) = _twoLosses();
         _simulateOffVaultSwap(NETUID1, first, hotkey1);
         vault.recoverStray(TOKEN1, hotkey1);

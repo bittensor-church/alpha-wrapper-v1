@@ -1,6 +1,6 @@
 # Edge cases
 
-Hotkey swaps, ownerless keys and missing backing have a separate
+Hotkey swaps, ownerless hotkeys and missing backing have a separate
 [recovery runbook](hotkey-swaps.md). This page covers other chain constraints.
 
 ## Subnet dissolution
@@ -110,7 +110,7 @@ TAO arriving at zero supply stays unassigned until shares exist. Unindexed TAO
 present when dissolution starts, and later arrivals, instead back the dissolved
 refund. Already-indexed claim liabilities stay separate.
 
-Third-party alpha under tracked keys increases backing. A clone admits
+Third-party alpha under tracked hotkeys increases backing. A clone admits
 third-party alpha only onto a hotkey it already lists; alpha it holds on another
 subnet stays there, outside the backing. Mailbox wraps collect only the
 mailbox's own hotkey. Other vault alpha joins the position through `recoverStray` under the

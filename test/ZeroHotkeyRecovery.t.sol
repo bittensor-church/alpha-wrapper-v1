@@ -78,15 +78,15 @@ contract ZeroHotkeyRecoveryTest is AlphaVaultTestBase {
         _parkFromZeroHotkey(backing);
     }
 
-    function _ownerlessNameBesideHeldBacking() private returns (uint256 shares) {
+    function _ownerlessAttestedHotkeyBesideHeldBacking() private returns (uint256 shares) {
         shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         staking.setHotkeyOwned(ZERO, true);
         _setValidators(NETUID1, _hotkeys(hotkey4, hotkey1), _weights(5000, 5000));
         staking.setHotkeyDeleted(hotkey4, true);
     }
 
-    function test_RevertWhen_AnOwnerlessNameWouldFallBackToTheZeroHotkey() public {
-        uint256 shares = _ownerlessNameBesideHeldBacking();
+    function test_RevertWhen_AnOwnerlessAttestedHotkeyWouldFallBackToTheZeroHotkey() public {
+        uint256 shares = _ownerlessAttestedHotkeyBesideHeldBacking();
 
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey4));
         vault.rebalance(NETUID1);
@@ -95,8 +95,8 @@ contract ZeroHotkeyRecoveryTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
     }
 
-    function test_OwnerlessNameBesideTheOwnedZeroHotkey_LeavesTheFullAlphaExitOpen() public {
-        uint256 shares = _ownerlessNameBesideHeldBacking();
+    function test_OwnerlessAttestedHotkeyBesideTheOwnedZeroHotkey_LeavesTheFullAlphaExitOpen() public {
+        uint256 shares = _ownerlessAttestedHotkeyBesideHeldBacking();
 
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);

@@ -20,7 +20,7 @@ Holders rely on:
 
 - Subtensor behaving as the runtime the vault targets; see
   [runtime compatibility](deployment.md#runtime-compatibility).
-- Registry governance publishing distinct hotkeys; a key counted twice can
+- Registry governance publishing distinct hotkeys; a hotkey counted twice can
   overpay an exit.
 - A funded, responsive watcher to repair validator hotkey swaps, and an
   authorized registry update to release a parked position.
@@ -82,11 +82,13 @@ later recovery.
 - A TAO exit's price impact falls partly on remaining holders.
 - A parked position earns emissions again only after a new validator set is
   published and the next wrap, rebalance or alpha exit releases it.
-- After a validator swap, stake can sit idle under the old name until the
+- After a validator swap, stake can sit idle under the old hotkey until the
   registry publishes the successor.
-- A stranger who claims a vacated validator name receives allocations for a
-  slot with no live followed record until the registry replaces the name; the
-  alpha stays under the vault's coldkey.
+- A stranger who claims a vacated validator hotkey receives allocations for a
+  slot with no live followed record until the registry replaces it. The alpha
+  stays under the vault's coldkey; moving it without a trail freezes every
+  priced call until a watcher parks the position, which earns again once the
+  registry publishes a new set.
 - Alpha a clone holds on another subnet stays outside the backing, and so do piles
   a clone replacement leaves behind. Anyone holding enough alpha can push a pile
   below the floor by dumping the price around a replacement and so destroy

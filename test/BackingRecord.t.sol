@@ -92,7 +92,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1), "record sound throughout");
     }
 
-    function test_Wrap_NamingASwappedAttestedName_StakesAtItsSuccessor() public {
+    function test_Wrap_ChoosingASwappedAttestedHotkey_StakesAtItsSuccessor() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
@@ -149,7 +149,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "and nothing is counted twice");
     }
 
-    function _setNamingASwappedKeyAndItsSuccessor() private returns (uint256 shares) {
+    function _setAttestingASwappedHotkeyAndItsSuccessor() private returns (uint256 shares) {
         shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulatePerSubnetSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
@@ -161,23 +161,23 @@ contract BackingRecordTest is AlphaVaultTestBase {
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey1, true);
     }
 
-    function test_RevertWhen_RebalancingASetNamingASwappedKeyAndItsSuccessor() public {
-        _setNamingASwappedKeyAndItsSuccessor();
+    function test_RevertWhen_RebalancingASetAttestingASwappedHotkeyAndItsSuccessor() public {
+        _setAttestingASwappedHotkeyAndItsSuccessor();
 
         vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
         vault.rebalance(NETUID1);
     }
 
-    function test_RevertWhen_UnwrappingUnderASetNamingASwappedKeyAndItsSuccessor() public {
-        uint256 shares = _setNamingASwappedKeyAndItsSuccessor();
+    function test_RevertWhen_UnwrappingUnderASetAttestingASwappedHotkeyAndItsSuccessor() public {
+        uint256 shares = _setAttestingASwappedHotkeyAndItsSuccessor();
 
         vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
     }
 
-    function test_SetNamingASwappedKeyAndItsSuccessor_KeepsTheTaoExitAndResumesOnceDropped() public {
-        uint256 shares = _setNamingASwappedKeyAndItsSuccessor();
+    function test_SetAttestingASwappedHotkeyAndItsSuccessor_KeepsTheTaoExitAndResumesOnceDropped() public {
+        uint256 shares = _setAttestingASwappedHotkeyAndItsSuccessor();
 
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares / 4, 0);
@@ -257,17 +257,17 @@ contract BackingRecordTest is AlphaVaultTestBase {
 
         assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey4, "the slot keeps answering under the successor");
         assertEq(_getVaultStake(hotkey4, NETUID1), 6_667_333_200, "3334 bps of the remaining 19.998 alpha");
-        assertEq(_getVaultStake(hotkey1, NETUID1), 0, "nothing returns to the name the validator left");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 0, "nothing returns to the attested hotkey the validator left");
     }
 
-    function _retiredNameWithNoSuccessor() private returns (uint256 shares) {
+    function _retiredAttestedHotkeyWithNoSuccessor() private returns (uint256 shares) {
         shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey4), _weights(3334, 3333, 3333));
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey4, true);
     }
 
-    function test_RevertWhen_AnAlphaRailMeetsARetiredNameWithNoSuccessor() public {
-        uint256 shares = _retiredNameWithNoSuccessor();
+    function test_RevertWhen_AnAlphaRailMeetsARetiredAttestedHotkeyWithNoSuccessor() public {
+        uint256 shares = _retiredAttestedHotkeyWithNoSuccessor();
 
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey4));
         vault.rebalance(NETUID1);
@@ -281,8 +281,8 @@ contract BackingRecordTest is AlphaVaultTestBase {
         _wrapHotkey(bob, NETUID1, hotkey2);
     }
 
-    function test_RetiredNameWithNoSuccessor_LeavesTheTaoExitOpen() public {
-        uint256 shares = _retiredNameWithNoSuccessor();
+    function test_RetiredAttestedHotkeyWithNoSuccessor_LeavesTheTaoExitOpen() public {
+        uint256 shares = _retiredAttestedHotkeyWithNoSuccessor();
 
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares / 4, 0);
@@ -291,7 +291,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertEq(vault.balanceOf(alice, TOKEN1), shares - shares / 4);
     }
 
-    function test_RetiredNameWithARetiredSuccessor_RefusesTheRebalance() public {
+    function test_RetiredAttestedHotkeyWithARetiredSuccessor_RefusesTheRebalance() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey4), _weights(3334, 3333, 3333));
         _simulateFollowedSwap(NETUID1, hotkey4, hotkey5);
@@ -312,7 +312,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
     }
 
     /// @dev The logical name's edge still points to the first successor, not the latest recorded key.
-    function test_RebalanceAfterTwoFollowedSwapsAndADrain_StakesTheShareAtTheRecordedKey() public {
+    function test_RebalanceAfterTwoFollowedSwapsAndADrain_StakesTheShareAtTheRecordedHotkey() public {
         _positionWithTwoFollowedSwapsThenADrain();
 
         vault.rebalance(NETUID1);
@@ -323,7 +323,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1), "with the record accounting for everything");
     }
 
-    function test_UnwrapAfterTwoFollowedSwapsAndADrain_StakesTheShareAtTheRecordedKey() public {
+    function test_UnwrapAfterTwoFollowedSwapsAndADrain_StakesTheShareAtTheRecordedHotkey() public {
         _positionWithTwoFollowedSwapsThenADrain();
 
         uint256 shares = vault.balanceOf(alice, TOKEN1);
@@ -336,8 +336,8 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1), "with the record accounting for what is left");
     }
 
-    function test_RebalanceAfterAReusedName_StakesTheShareAtTheSuccessor() public {
-        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+    function test_RebalanceAfterAReusedAttestedHotkey_StakesTheShareAtTheSuccessor() public {
+        _reuseTheDrainedAttestedHotkeyAfterItsRecordedHotkeyRetires();
 
         vault.rebalance(NETUID1);
 
@@ -345,8 +345,8 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertEq(_realBacking(), 19_998_000_000, "moving the share created and lost nothing");
     }
 
-    function test_UnwrapAfterAReusedName_StakesTheShareAtTheSuccessor() public {
-        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+    function test_UnwrapAfterAReusedAttestedHotkey_StakesTheShareAtTheSuccessor() public {
+        _reuseTheDrainedAttestedHotkeyAfterItsRecordedHotkeyRetires();
         uint256 shares = vault.balanceOf(alice, TOKEN1);
 
         vm.prank(alice);
@@ -357,25 +357,25 @@ contract BackingRecordTest is AlphaVaultTestBase {
         _assertSlotMovedToTheSuccessor(4_999_999_950);
     }
 
-    function test_WrapAfterAReusedName_StakesTheShareAtTheSuccessor() public {
-        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+    function test_WrapAfterAReusedAttestedHotkey_StakesTheShareAtTheSuccessor() public {
+        _reuseTheDrainedAttestedHotkeyAfterItsRecordedHotkeyRetires();
 
         _depositSixAlphaAndWrapUnder(hotkey3);
 
         _assertSlotMovedToTheSuccessor(8_667_733_200);
     }
 
-    function test_WrapUnderAReusedName_StakesTheShareAtTheSuccessor() public {
-        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+    function test_WrapUnderAReusedAttestedHotkey_StakesTheShareAtTheSuccessor() public {
+        _reuseTheDrainedAttestedHotkeyAfterItsRecordedHotkeyRetires();
 
         _depositSixAlphaAndWrapUnder(hotkey1);
 
         _assertSlotMovedToTheSuccessor(8_667_733_200);
     }
 
-    function test_ReusedAttestedNameUnderOneColdkey_StakesTheShareAtTheSuccessor() public {
+    function test_ReusedAttestedHotkeyUnderOneColdkey_StakesTheShareAtTheSuccessor() public {
         _attestUnderOneColdkey(_hotkeys(hotkey1, hotkey2));
-        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+        _reuseTheDrainedAttestedHotkeyAfterItsRecordedHotkeyRetires();
 
         vault.rebalance(NETUID1);
 
@@ -386,17 +386,17 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1), "and the backing is counted once");
     }
 
-    function test_RevertWhen_ReusedNameUnderOneColdkeyHasNoLiveKey() public {
+    function test_RevertWhen_ReusedAttestedHotkeyUnderOneColdkeyHasNoLiveHotkey() public {
         _attestUnderOneColdkey(_hotkeys(hotkey1, hotkey2));
-        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+        _reuseTheDrainedAttestedHotkeyAfterItsRecordedHotkeyRetires();
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey5, true);
 
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
         vault.rebalance(NETUID1);
     }
 
-    function test_AReusedNamesSuccessorClaimedByAStranger_StillCarriesTheSlot() public {
-        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+    function test_AReusedAttestedHotkeysSuccessorClaimedByAStranger_StillCarriesTheSlot() public {
+        _reuseTheDrainedAttestedHotkeyAfterItsRecordedHotkeyRetires();
         _simulateSquatter(hotkey5);
 
         vault.rebalance(NETUID1);
@@ -407,14 +407,14 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(hotkey5, NETUID1), 6_667_333_200, "3334 bps of the remaining 19.998 alpha");
     }
 
-    function _reusedNamesSuccessorHeldByAThirdSlot() private {
+    function _reusedAttestedHotkeysSuccessorHeldByAThirdSlot() private {
         _attestUnderOneColdkey(_hotkeys(hotkey1, hotkey2, hotkey3));
-        _reuseTheDrainedNameAfterItsRecordedKeyRetires();
+        _reuseTheDrainedAttestedHotkeyAfterItsRecordedHotkeyRetires();
         _simulateFollowedSwap(NETUID1, hotkey3, hotkey5);
     }
 
-    function test_RevertWhen_AnAlphaRailMeetsAReusedNamesSuccessorHeldByAThirdSlot() public {
-        _reusedNamesSuccessorHeldByAThirdSlot();
+    function test_RevertWhen_AnAlphaRailMeetsAReusedAttestedHotkeysSuccessorHeldByAThirdSlot() public {
+        _reusedAttestedHotkeysSuccessorHeldByAThirdSlot();
         uint256 shares = vault.balanceOf(alice, TOKEN1);
 
         vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
@@ -424,8 +424,8 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
     }
 
-    function test_ReusedNamesSuccessorHeldByAThirdSlot_LeavesTheTaoExitOpen() public {
-        _reusedNamesSuccessorHeldByAThirdSlot();
+    function test_ReusedAttestedHotkeysSuccessorHeldByAThirdSlot_LeavesTheTaoExitOpen() public {
+        _reusedAttestedHotkeysSuccessorHeldByAThirdSlot();
         uint256 shares = vault.balanceOf(alice, TOKEN1);
         uint256 taoBefore = alice.balance;
 
@@ -436,17 +436,17 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertEq(vault.balanceOf(alice, TOKEN1), shares - shares / 4, "the TAO exit stays open");
     }
 
-    function _twoAttestedNamesSwappedOntoOneReusedKey() private returns (uint256 shares) {
-        bytes32 reusedKey = keccak256("reused-key");
+    function _twoAttestedHotkeysSwappedOntoOneReusedHotkey() private returns (uint256 shares) {
+        bytes32 reusedHotkey = keccak256("reused-key");
         shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _setValidators(NETUID1, _hotkeys(hotkey4, hotkey5, hotkey3), _weights(3334, 3333, 3333));
-        _simulateFollowedSwap(NETUID1, hotkey4, reusedKey);
-        _simulateFollowedSwap(NETUID1, reusedKey, keccak256("onward-key"));
-        _simulateFollowedSwap(NETUID1, hotkey5, reusedKey);
+        _simulateFollowedSwap(NETUID1, hotkey4, reusedHotkey);
+        _simulateFollowedSwap(NETUID1, reusedHotkey, keccak256("onward-key"));
+        _simulateFollowedSwap(NETUID1, hotkey5, reusedHotkey);
     }
 
-    function test_RevertWhen_TwoAttestedNamesResolveToOneReusedKey() public {
-        uint256 shares = _twoAttestedNamesSwappedOntoOneReusedKey();
+    function test_RevertWhen_TwoAttestedHotkeysResolveToOneReusedHotkey() public {
+        uint256 shares = _twoAttestedHotkeysSwappedOntoOneReusedHotkey();
 
         vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
         vault.rebalance(NETUID1);
@@ -458,8 +458,8 @@ contract BackingRecordTest is AlphaVaultTestBase {
         _wrapHotkey(bob, NETUID1, hotkey3);
     }
 
-    function test_TwoAttestedNamesOnOneReusedKey_LeaveTheTaoExitOpen() public {
-        uint256 shares = _twoAttestedNamesSwappedOntoOneReusedKey();
+    function test_TwoAttestedHotkeysOnOneReusedHotkey_LeaveTheTaoExitOpen() public {
+        uint256 shares = _twoAttestedHotkeysSwappedOntoOneReusedHotkey();
 
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares / 4, 0);
@@ -468,15 +468,15 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertEq(vault.balanceOf(alice, TOKEN1), shares - shares / 4, "the TAO exit stays open");
     }
 
-    function _swapTheDrainedKeyBackOntoItsReusedName() private {
+    function _swapTheDrainedHotkeyBackOntoItsReusedAttestedHotkey() private {
         _attestUnderOneColdkey(_hotkeys(hotkey1, hotkey2));
         _positionWithADrainedSwap();
         _simulateFollowedSwap(NETUID1, hotkey4, hotkey1);
         _simulateFollowedSwap(NETUID1, hotkey2, hotkey1);
     }
 
-    function test_RevertWhen_AnAlphaRailMeetsADrainedKeySwappedBackOntoItsReusedName() public {
-        _swapTheDrainedKeyBackOntoItsReusedName();
+    function test_RevertWhen_AnAlphaRailMeetsADrainedHotkeySwappedBackOntoItsReusedAttestedHotkey() public {
+        _swapTheDrainedHotkeyBackOntoItsReusedAttestedHotkey();
         uint256 shares = vault.balanceOf(alice, TOKEN1);
 
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey1));
@@ -489,8 +489,8 @@ contract BackingRecordTest is AlphaVaultTestBase {
         _wrapHotkey(bob, NETUID1, hotkey3);
     }
 
-    function test_DrainedKeySwappedBackOntoItsReusedName_PaysAFullExitFromRealBacking() public {
-        _swapTheDrainedKeyBackOntoItsReusedName();
+    function test_DrainedHotkeySwappedBackOntoItsReusedAttestedHotkey_PaysAFullExitFromRealBacking() public {
+        _swapTheDrainedHotkeyBackOntoItsReusedAttestedHotkey();
         uint256 shares = vault.balanceOf(alice, TOKEN1);
 
         vm.prank(alice);
@@ -512,7 +512,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
 
     /// @dev hotkey1 now holds the second slot's 9.999 alpha while the first slot's record names the
     ///      retired hotkey4, whose successor is hotkey5.
-    function _reuseTheDrainedNameAfterItsRecordedKeyRetires() private {
+    function _reuseTheDrainedAttestedHotkeyAfterItsRecordedHotkeyRetires() private {
         _positionWithADrainedSwap();
         _simulateFollowedSwap(NETUID1, hotkey4, hotkey5);
         _simulateFollowedSwap(NETUID1, hotkey2, hotkey1);
@@ -537,7 +537,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         return _userStakeAcrossHotkeys(_subnetColdkey(NETUID1), NETUID1);
     }
 
-    function _retiredEntryBesideAHeldKey() private returns (uint256 shares) {
+    function _retiredEntryBesideAHeldHotkey() private returns (uint256 shares) {
         _setValidators(NETUID1, _hotkeys(hotkey2), _weights(VaultMath.BPS_BASE));
         shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _setValidators(NETUID1, _hotkeys(hotkey4, hotkey2), _weights(5000, 5000));
@@ -546,15 +546,15 @@ contract BackingRecordTest is AlphaVaultTestBase {
     }
 
     function test_RevertWhen_PartialUnwrapNeedsARetiredEntry() public {
-        uint256 shares = _retiredEntryBesideAHeldKey();
+        uint256 shares = _retiredEntryBesideAHeldHotkey();
 
         vm.expectRevert(abi.encodeWithSelector(AttestedHotkeyRetired.selector, hotkey4));
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
     }
 
-    function test_FullUnwrapBesideARetiredEntry_PaysFromTheHeldKeys() public {
-        uint256 shares = _retiredEntryBesideAHeldKey();
+    function test_FullUnwrapBesideARetiredEntry_PaysFromTheHeldHotkeys() public {
+        uint256 shares = _retiredEntryBesideAHeldHotkey();
 
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
@@ -600,7 +600,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
     }
 
-    function test_RevertWhen_RebalancingASetNamingADrainedKeyAndItsUnrecordedSuccessor() public {
+    function test_RevertWhen_RebalancingASetAttestingADrainedHotkeyAndItsUnrecordedSuccessor() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _drainTheFirstSlot(alice, NETUID1);
         _simulatePerSubnetSwap(NETUID1, hotkey1, hotkey4);
@@ -611,7 +611,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
     }
 
-    function _setNamingADrainedSwapBesideItsLiveName() private {
+    function _setAttestingADrainedSwapBesideItsLiveAttestedHotkey() private {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulatePerSubnetSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
@@ -619,22 +619,24 @@ contract BackingRecordTest is AlphaVaultTestBase {
         _drainTheFirstSlot(alice, NETUID1);
     }
 
-    function test_RevertWhen_RebalancingASetNamingADrainedSwapBesideItsLiveName() public {
-        _setNamingADrainedSwapBesideItsLiveName();
+    function test_RevertWhen_RebalancingASetAttestingADrainedSwapBesideItsLiveAttestedHotkey() public {
+        _setAttestingADrainedSwapBesideItsLiveAttestedHotkey();
 
         vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
         vault.rebalance(NETUID1);
     }
 
-    function test_SetNamingADrainedSwapBesideItsLiveName_ResumesOnceTheOldNameIsDropped() public {
-        _setNamingADrainedSwapBesideItsLiveName();
+    function test_SetAttestingADrainedSwapBesideItsLiveAttestedHotkey_ResumesOnceTheOldAttestedHotkeyIsDropped()
+        public
+    {
+        _setAttestingADrainedSwapBesideItsLiveAttestedHotkey();
 
         _setValidators(NETUID1, _hotkeys(hotkey4, hotkey2), _weights(5000, 5000));
         vault.rebalance(NETUID1);
         assertTrue(lens.isBackingIntact(TOKEN1), "dropping the old name resumes service");
     }
 
-    function testFuzz_DrainedSwap_LeavesEverySlotOnItsOwnKey(uint256 rawCount) public {
+    function testFuzz_DrainedSwap_LeavesEverySlotOnItsOwnHotkey(uint256 rawCount) public {
         uint256 count = bound(rawCount, 2, 8);
         uint256 netuid = 11;
         _setRegBlock(netuid, 500);

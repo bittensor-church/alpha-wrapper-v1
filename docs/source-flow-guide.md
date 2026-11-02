@@ -10,20 +10,20 @@ User's stake -> personal DepositMailbox -> shared SubnetClone
                                               +-> alpha delegated to hotkeys
                                               +-> native TAO balance
 
-AlphaVault: shares and accounting     IValidatorRegistry: target keys and weights
+AlphaVault: shares and accounting     IValidatorRegistry: target hotkeys and weights
 ```
 
-## Why there are several kinds of key
+## Why there are several kinds of hotkey
 
-The registry names a validator, but a rename can move its stake elsewhere.
+The registry attests a validator hotkey, but a hotkey swap can move its stake elsewhere.
 
-- `logical`: the name associated with a recorded slot.
+- `logical`: the attested hotkey the slot was recorded under; `attestedOf` reads it.
 - `active`: the last recorded location of its stake.
 - `tracked`: the alpha expected at the last record update.
-- `Backing.keys`: locations resolved now, possibly after following one swap.
+- `Backing.hotkeys`: locations resolved now, possibly after following one swap.
 
-Example: after A renames to B, the record can say `logical = A, active = B`.
-Locating backing and choosing a receiver are separate checks: a receiving key
+Example: after a swap from A to B, the record can say `logical = A, active = B`.
+Locating backing and choosing a receiver are separate checks: a receiving hotkey
 must also have an owner record.
 
 ## The lifecycle
@@ -66,11 +66,11 @@ cleanup, then old shares redeem the clone's unreserved TAO.
 - **`wrap`:** require prepared addresses -> check backing, receivers and that the mailbox holds no lock ->
   land the mailbox's own-hotkey stake on a hotkey the clone lists, lifting the growth
   flag for the transfer when it lists nothing, then move it onto the chosen registry
-  hotkey -> consolidate dropped keys -> align weights ->
+  hotkey -> consolidate dropped hotkeys -> align weights ->
   record actual balances -> calculate and mint shares. Collecting first lets a
   fresh deposit help move old dust; pricing uses the balances after movement.
 - **Live `unwrap`:** check backing -> select destinations -> consolidate dropped
-  keys -> price and burn shares -> gather and transfer staked alpha -> align the
+  hotkeys -> price and burn shares -> gather and transfer staked alpha -> align the
   remainder -> update records. Check the recipient's actual credit against the
   minimum. A parked exit uses its recorded locations and skips weight alignment.
 - **`unwrapForTao`:** check backing -> budget alpha and burn shares -> sell whole
@@ -93,5 +93,5 @@ cleanup, then old shares redeem the clone's unreserved TAO.
    checks. `_settle` replaces the allocation record; `_reanchor` updates locations
    and balances while keeping slot identities.
 
-Start tracing in `AlphaVault`. `VaultReads` resolves keys; `VaultAllocation`
+Start tracing in `AlphaVault`. `VaultReads` resolves hotkeys; `VaultAllocation`
 moves stake. For recovery details, use the [runbook](hotkey-swaps.md).

@@ -42,7 +42,7 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
     }
 
     function _unwrapForTaoCall(uint256 shares) internal returns (bool ok, bytes memory ret) {
-        uint256 excluded = _zeroPaySlots(_recordedKeys(TOKEN1), NETUID1);
+        uint256 excluded = _zeroPaySlots(_recordedHotkeys(TOKEN1), NETUID1);
         vm.prank(alice);
         (ok, ret) = address(vault)
             .call(abi.encodeWithSignature("unwrapForTao(uint256,uint256,uint256,uint256)", TOKEN1, shares, 0, excluded));
@@ -738,7 +738,7 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         uint256 shares = aliceShares * shareBps / BPS_BASE;
         // 60 alpha minted 6e19 shares; the planted layout backs them.
         uint256 assets = shares * (a + b + c + 1) / (6e19 + 1e9);
-        bytes32[] memory keys = _recordedKeys(TOKEN1);
+        bytes32[] memory keys = _recordedHotkeys(TOKEN1);
         // The first sale takes a paying slot or chunk, cut to the cap: it pays unless the cap itself is worth nothing.
         bool pays = _taoExitSellsWithin(keys, assets, _zeroPaySlots(keys, NETUID1), NETUID1)
             && (sellCap == 0 || sellCap * priceE18 / 1e18 != 0);
