@@ -27,25 +27,24 @@ def hotkey(index: int) -> bytes:
 
 
 def test_find_strays_skips_recorded_hotkeys_and_empty_entries():
-    stakes = {FIRST: 5, SECOND: 7, THIRD: 0, PARKING: 9}
+    stakes = {FIRST: 5 * finder.SLACK_RAO, SECOND: 7 * finder.SLACK_RAO, THIRD: 0, PARKING: 9 * finder.SLACK_RAO}
     strays = finder.find_strays([FIRST, SECOND, THIRD, PARKING], [FIRST, PARKING], stakes.__getitem__)
-    assert strays == [finder.Stray(SECOND, 7)]
+    assert strays == [finder.Stray(SECOND, 7 * finder.SLACK_RAO)]
 
 
-def test_find_strays_reports_parking_when_the_record_leaves_it_out():
-    stakes = {FIRST: 5, PARKING: 2}
-    strays = finder.find_strays([FIRST, PARKING], [FIRST], stakes.__getitem__)
-    assert strays == [finder.Stray(PARKING, 2)]
+def test_find_strays_leaves_out_a_pile_within_the_vaults_slack():
+    stakes = {FIRST: finder.SLACK_RAO, SECOND: finder.SLACK_RAO + 1}
+    assert finder.find_strays([FIRST, SECOND], [], stakes.__getitem__) == [finder.Stray(SECOND, finder.SLACK_RAO + 1)]
 
 
 def test_find_strays_orders_the_largest_pile_first():
-    stakes = {FIRST: 1, SECOND: 3, THIRD: 2}
+    stakes = {FIRST: 1 * finder.SLACK_RAO + 1, SECOND: 3 * finder.SLACK_RAO, THIRD: 2 * finder.SLACK_RAO}
     strays = finder.find_strays([FIRST, SECOND, THIRD], [], stakes.__getitem__)
     assert [stray.hotkey for stray in strays] == [SECOND, THIRD, FIRST]
 
 
 def test_find_strays_with_nothing_listed_is_empty():
-    assert finder.find_strays([], [FIRST], lambda hotkey: 1) == []
+    assert finder.find_strays([], [FIRST], lambda hotkey: 2 * finder.SLACK_RAO) == []
 
 
 def test_listed_hotkeys_walks_every_page():
@@ -85,19 +84,20 @@ def test_recover_sends_a_pile_below_the_floor_once_a_parked_pile_can_carry_it():
 
     def send(stray):
         parked.append(stray)
-        return True
+        return None
 
-    assert finder.recover([movable, below_floor], verdict_of, send) == []
+    assert finder.recover([movable, below_floor], verdict_of, send) == {movable: None, below_floor: None}
     assert parked == [movable, below_floor]
 
 
-def test_recover_skips_a_pile_the_fresh_dry_run_refuses_and_reports_a_reverted_send():
+def test_recover_names_the_reason_a_pile_stays_out():
     refused, reverting = finder.Stray(FIRST, 5), finder.Stray(SECOND, 3)
     sent = []
 
     def send(stray):
         sent.append(stray)
-        return False
+        return "reverted in 0xabc"
 
-    assert finder.recover([refused, reverting], lambda stray: "NothingToRecover" if stray is refused else None, send) == [reverting]
+    outcomes = finder.recover([refused, reverting], lambda stray: "NothingToRecover" if stray is refused else None, send)
+    assert outcomes == {refused: "NothingToRecover", reverting: "reverted in 0xabc"}
     assert sent == [reverting]

@@ -4,13 +4,13 @@
 
 A hotkey swap keeps the clone's alpha under a hotkey the clone stakes under, even
 when the chain leaves no edge for the vault to follow. This prints one CSV row per
-such hotkey with a pile on the token's subnet, largest pile first, with the
-`recoverStray` dry-run verdict at the block read. A successor the vault already
-follows shows `NothingToRecover` until `syncBacking` records it. `--recover` signs
-with `RECOVER_PRIVATE_KEY` from the environment and sends each call the dry run
-accepts at the head just before sending, so a pile parked by one call carries the
-smaller ones. Call `syncBacking` first while a shortfall stands, and again once
-everything is home.
+such hotkey with a pile above the vault's rounding slack on the token's subnet,
+largest pile first, with the `recoverStray` dry-run verdict at the block read. A
+successor the vault already follows shows `NothingToRecover` until `syncBacking`
+records it. `--recover` signs with `RECOVER_PRIVATE_KEY` from the environment and
+sends each call the dry run accepts at the head just before sending, so a pile parked
+by one call carries the smaller ones; it exits non-zero while any pile stays out.
+Call `syncBacking` first while a shortfall stands, and again once everything is home.
 """
 
 import argparse
@@ -19,6 +19,8 @@ import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Optional
+
+from web3.exceptions import Web3Exception
 
 from common import (
     add_block_argument,
@@ -35,31 +37,10 @@ STAKING_PRECOMPILE = "0x0000000000000000000000000000000000000805"
 ADDRESS_MAPPING_PRECOMPILE = "0x000000000000000000000000000000000000080C"
 STAKING_LIST_PAGE = 64
 PRIVATE_KEY_VARIABLE = "RECOVER_PRIVATE_KEY"
-STAKING_ABI = [
-    {
-        "name": "getStakingHotkeys", "type": "function", "stateMutability": "view",
-        "inputs": [
-            {"name": "coldkey", "type": "bytes32"},
-            {"name": "offset", "type": "uint64"},
-            {"name": "limit", "type": "uint16"},
-        ],
-        "outputs": [{"name": "hotkeys", "type": "bytes32[]"}, {"name": "total", "type": "uint64"}],
-    },
-    {
-        "name": "getStake", "type": "function", "stateMutability": "view",
-        "inputs": [
-            {"name": "hotkey", "type": "bytes32"},
-            {"name": "coldkey", "type": "bytes32"},
-            {"name": "netuid", "type": "uint256"},
-        ],
-        "outputs": [{"name": "", "type": "uint256"}],
-    },
-]
-ADDRESS_MAPPING_ABI = [{
-    "name": "addressMapping", "type": "function", "stateMutability": "view",
-    "inputs": [{"name": "evmAddress", "type": "address"}],
-    "outputs": [{"name": "", "type": "bytes32"}],
-}]
+# The vault tolerates this much residue on a collected hotkey; the chain leaves about one RAO per move.
+SLACK_RAO = 1_000
+# Gas estimation is unreliable on the Bittensor EVM; this covers a move across a full staking list.
+DEFAULT_GAS_LIMIT = 6_000_000
 
 
 @dataclass(frozen=True)
@@ -73,14 +54,12 @@ class Stray:
 
 
 def find_strays(listed: Iterable[bytes], recorded: Iterable[bytes], stake_of: Callable[[bytes], int]) -> list[Stray]:
-    """Listed hotkeys outside the record that hold a pile, largest first."""
     excluded = set(recorded)
     strays = [Stray(hotkey, stake_of(hotkey)) for hotkey in listed if hotkey not in excluded]
-    return sorted((stray for stray in strays if stray.stake), key=lambda stray: stray.stake, reverse=True)
+    return sorted((stray for stray in strays if stray.stake > SLACK_RAO), key=lambda stray: stray.stake, reverse=True)
 
 
 def report_rows(strays: Iterable[Stray], verdict_of: Callable[[Stray], Optional[str]]) -> list[dict[str, str]]:
-    """One CSV row per stray: the hotkey, its pile, and `ok` or the error `recoverStray` would revert with."""
     return [
         {"hotkey": stray.hotkey_hex, "stake_rao": str(stray.stake), "dry_run": verdict_of(stray) or "ok"}
         for stray in strays
@@ -88,20 +67,14 @@ def report_rows(strays: Iterable[Stray], verdict_of: Callable[[Stray], Optional[
 
 
 def recover(
-    strays: Iterable[Stray], verdict_of: Callable[[Stray], Optional[str]], send: Callable[[Stray], bool],
-) -> list[Stray]:
-    """Send each pile the dry run accepts right before its turn; returns the piles whose send reverted."""
-    reverted = []
-    for stray in strays:
-        if verdict_of(stray):
-            continue
-        if not send(stray):
-            reverted.append(stray)
-    return reverted
+    strays: Iterable[Stray], verdict_of: Callable[[Stray], Optional[str]], send: Callable[[Stray], Optional[str]],
+) -> dict[Stray, Optional[str]]:
+    """Dry-run each pile right before its turn and send the accepted ones; a pile maps to
+    the reason it stays out, or None once its send went through."""
+    return {stray: verdict_of(stray) or send(stray) for stray in strays}
 
 
 def listed_hotkeys(staking, coldkey: bytes, block: int | str) -> list[bytes]:
-    """The clone's whole staking list, a page at a time."""
     hotkeys: list[bytes] = []
     offset = 0
     while True:
@@ -123,18 +96,21 @@ def main() -> None:
         "--recover", action="store_true",
         help=f"Send recoverStray for each pile the dry run accepts, signed with {PRIVATE_KEY_VARIABLE}",
     )
+    parser.add_argument("--gas-limit", type=int, default=DEFAULT_GAS_LIMIT, help="Gas limit per recoverStray")
     add_block_argument(parser)
     args = parser.parse_args()
     private_key = os.environ.get(PRIVATE_KEY_VARIABLE)
     if args.recover and not private_key:
         sys.exit(f"--recover needs {PRIVATE_KEY_VARIABLE} in the environment")
+    if args.recover and args.block is not None:
+        sys.exit("--recover works at the head; drop --block")
 
     w3 = get_web3_connection(args.rpc_url)
     block = resolve_block(w3, args.block)
     print(f"reading at block {block}", file=sys.stderr)
     vault = w3.eth.contract(address=w3.to_checksum_address(args.vault_address), abi=load_abi("AlphaVault"))
-    staking = w3.eth.contract(address=STAKING_PRECOMPILE, abi=STAKING_ABI)
-    mapping = w3.eth.contract(address=ADDRESS_MAPPING_PRECOMPILE, abi=ADDRESS_MAPPING_ABI)
+    staking = w3.eth.contract(address=STAKING_PRECOMPILE, abi=load_abi("IStaking"))
+    mapping = w3.eth.contract(address=ADDRESS_MAPPING_PRECOMPILE, abi=load_abi("IAddressMapping"))
 
     token_id, netuid, clone = resolve_position(vault, args.netuid, args.token_id, block)
     coldkey = mapping.functions.addressMapping(clone).call(block_identifier=block)
@@ -162,22 +138,28 @@ def main() -> None:
 
     account = w3.eth.account.from_key(private_key)
 
-    def send(stray: Stray) -> bool:
-        tx = vault.functions.recoverStray(token_id, stray.hotkey).build_transaction({
-            "from": account.address, "nonce": w3.eth.get_transaction_count(account.address),
-            "gasPrice": w3.eth.gas_price, "chainId": w3.eth.chain_id,
-        })
-        receipt = w3.eth.wait_for_transaction_receipt(w3.eth.send_raw_transaction(account.sign_transaction(tx).raw_transaction))
-        accepted = receipt["status"] == 1
-        print(
-            f"recoverStray({token_id}, {stray.hotkey_hex}): {'ok' if accepted else 'reverted'} in {receipt['transactionHash'].hex()}",
-            file=sys.stderr,
-        )
-        return accepted
+    def send(stray: Stray) -> Optional[str]:
+        try:
+            tx = vault.functions.recoverStray(token_id, stray.hotkey).build_transaction({
+                "from": account.address, "nonce": w3.eth.get_transaction_count(account.address),
+                "gas": args.gas_limit, "gasPrice": w3.eth.gas_price, "chainId": w3.eth.chain_id,
+            })
+            receipt = w3.eth.wait_for_transaction_receipt(
+                w3.eth.send_raw_transaction(account.sign_transaction(tx).raw_transaction),
+            )
+        except Web3Exception as error:
+            return f"failed: {error}"
+        tx_hash = receipt["transactionHash"].to_0x_hex()
+        if receipt["status"] != 1:
+            return f"reverted in {tx_hash}"
+        print(f"recoverStray({token_id}, {stray.hotkey_hex}): ok in {tx_hash}", file=sys.stderr)
+        return None
 
-    reverted = recover(strays, verdict_at("latest"), send)
-    if reverted:
-        sys.exit(f"{len(reverted)} recoverStray call(s) reverted")
+    left_out = {stray: reason for stray, reason in recover(strays, verdict_at("latest"), send).items() if reason}
+    for stray, reason in left_out.items():
+        print(f"recoverStray({token_id}, {stray.hotkey_hex}): {reason}", file=sys.stderr)
+    if left_out:
+        sys.exit(f"{len(left_out)} pile(s) not recovered")
 
 
 if __name__ == "__main__":
