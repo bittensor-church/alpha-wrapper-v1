@@ -45,7 +45,8 @@ chain is unsupported. CI gives each scenario its own container.
 - `checks.py`: shared assertions (payouts, gas, CSV output).
 - `exits.py`: exits measured against the chain: what a holder receives must match
   what the clone gave up in the same block.
-- `incidents.py`: staged hotkey incidents for the recovery scenarios.
+- `incidents.py`: staged hotkey incidents for the recovery scenarios; parking collects
+  through `scripts/find_strays.py --recover`.
 - `bootstrap.py`: one-time localnet setup.
 - `fixtures.py`: the `env` and `recovery_window` fixtures; a scenario overrides
   `recovery_window` to deploy with a different window.

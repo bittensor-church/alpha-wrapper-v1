@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 
 from . import config, extrinsics
+from .checks import run_observability_script
 from .environment import Environment
 
 STRANGER_URI = "//Bob"
@@ -54,14 +55,25 @@ def cut_trail(
 
 
 def park(env: Environment, token_id: int, stranding: Stranding, context: str) -> int:
-    """The watcher's answer to a shortfall."""
+    """The watcher's answer to a shortfall: declare, collect through `scripts/find_strays.py`, finalize."""
     netuid = env.netuids[env.token_ids.index(token_id)]
     clone_coldkey = env.clone_coldkey(token_id)
     backing_before = stranding.backing_before
 
     env.sync_backing(token_id, label="syncBacking [declare]")
     assert env.write_off_deadline(token_id) > 0, f"{context}: the shortfall should be on file with a deadline"
-    env.recover_stray(token_id, stranding.successor_pubkey, f"{context}: recoverStray failed")
+    report = run_observability_script(
+        "find_strays", "--token-id", str(token_id), "--recover", "--private-key", config.WRAPPER_USER_PRIVATE_KEY,
+        address_args=["--vault-address", env.vault_address],
+    )
+    print(report)
+    successor = stranding.successor_pubkey.lower().removeprefix("0x")
+    assert f"0x{successor} holds" in report.lower() and "recoverable" in report, (
+        f"{context}: find_strays should name the successor as recoverable:\n{report}"
+    )
+    assert f"recoverstray({token_id}, 0x{successor}): ok" in report.lower(), (
+        f"{context}: find_strays should have recovered the successor:\n{report}"
+    )
 
     env.sync_backing(token_id, label="syncBacking [finalize]")
     parked = env.stake(env.parking_hotkey(), clone_coldkey, netuid)
