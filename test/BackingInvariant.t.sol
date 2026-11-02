@@ -207,8 +207,7 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
         return _listedStrays().length == 0;
     }
 
-    /// @dev Mirrors the library: listed hotkeys outside the record and parking whose pile on the subnet clears the
-    ///      floor, in list order, at most `LISTED_STRAYS_PER_CALL`.
+    /// @dev Mirrors `VaultAllocation.listedStrays`.
     function _listedStrays() private view returns (bytes32[] memory strays) {
         (bytes32[] memory recorded,,) = resolvedSlots();
         bytes32[] memory listed = _listedHotkeys(_subnetColdkey(NETUID1));

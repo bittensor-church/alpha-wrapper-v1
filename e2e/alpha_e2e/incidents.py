@@ -55,7 +55,7 @@ def cut_trail(
 
 def park(env: Environment, token_id: int, stranding: Stranding, context: str, *, by_name: bool = False) -> int:
     """Declare the shortfall, collect the alpha, finalize. `by_name` names the successor to
-    `recoverStray`; otherwise `autoRecoverStray` finds it through the clone's staking list."""
+    `recoverStray`; otherwise `autoRecoverStray` finds it."""
     netuid = env.netuids[env.token_ids.index(token_id)]
     clone_coldkey = env.clone_coldkey(token_id)
     backing_before = stranding.backing_before

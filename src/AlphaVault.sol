@@ -426,15 +426,14 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         _recoverStrays(tokenId, sources);
     }
 
-    /// @notice Collect the vault's alpha from hotkeys in the clone's staking list that the record does not name,
-    ///         up to `VaultAllocation.LISTED_STRAYS_PER_CALL` per call; repeat until it reverts `NothingToRecover`.
-    /// @dev A hotkey swap keeps the clone's alpha under a listed hotkey, so this finds a move with no edge to
-    ///      follow. Same rules as `recoverStray` for each hotkey found; piles below the movement floor wait.
+    /// @notice Collect the vault's alpha from hotkeys the clone stakes under that the record does not name, a
+    ///         few per call; repeat until it reverts `NothingToRecover`.
+    /// @dev Same rules as `recoverStray` for each hotkey found.
     function autoRecoverStray(uint256 tokenId) external nonReentrant {
         _recoverStrays(tokenId, new bytes32[](0));
     }
 
-    /// @dev An empty `sources` means discovery through the clone's staking list.
+    /// @dev Empty `sources` discovers them from the clone's staking list.
     function _recoverStrays(uint256 tokenId, bytes32[] memory sources) private {
         address clone = subnetClone[tokenId];
         uint16 netuid = VaultMath.netuidOf(tokenId);

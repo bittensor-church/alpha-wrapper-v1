@@ -6,10 +6,10 @@ stranger swaps a junk hotkey onto the vacated one: the chain lets anyone claim a
 with no owner, and the swap erases its own edge. The vault can no longer follow the
 alpha and refuses every priced operation.
 
-Anyone calls `syncBacking`, then `autoRecoverStray`, which finds the successor through
-the clone's staking list, then `syncBacking` again. Backing rests on the vault's parking
-hotkey, and the vault holds deposits and weight alignment shut until the owner publishes
-a set without the vacated hotkey. Exits keep working from the parking hotkey throughout.
+Anyone calls `syncBacking`, `autoRecoverStray`, which finds the successor, and
+`syncBacking` again. Backing rests on the vault's parking hotkey, and the vault holds
+deposits and weight alignment shut until the owner publishes a set without the vacated
+hotkey. Exits keep working from the parking hotkey throughout.
 """
 import pytest
 

@@ -53,13 +53,12 @@ library VaultAllocation {
         if (VaultReads.lockedAlphaOf(mailboxColdkey, nid) != 0) revert LockedDeposit();
     }
 
-    /// @dev Each stray costs one clone-signed move, which pays the chain's walk of the whole staking list.
+    /// @dev Each stray costs one stake move; the cap bounds a call's gas.
     uint256 internal constant LISTED_STRAYS_PER_CALL = 8;
 
-    /// @dev Hotkeys in the clone's staking list, outside `known` and parking, holding a pile on the subnet that
-    ///      clears the movement floor, in list order and at most `LISTED_STRAYS_PER_CALL` of them. A hotkey swap
-    ///      keeps the clone's stake under a listed hotkey, so this finds a move the chain wrote no edge for. Piles
-    ///      below the floor are skipped so they cannot fill the page ahead of a movable one.
+    /// @dev Hotkeys the clone stakes under, outside `known` and parking, whose pile on the subnet clears the
+    ///      movement floor, in list order, at most `LISTED_STRAYS_PER_CALL`. Sub-floor piles are skipped so they
+    ///      cannot fill the page.
     function listedStrays(bytes32 coldkey, uint16 netuid, bytes32[] memory known, bytes32 parking)
         external view returns (bytes32[] memory strays) {
         IStaking staking = IStaking(STAKING_PRECOMPILE);

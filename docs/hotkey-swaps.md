@@ -42,9 +42,8 @@ It counts each hotkey for at most one slot. Separately observed swaps can advanc
 record repeatedly: any priced operation, and a `syncBacking` call on a position
 that accounts for itself, writes a followed swap into the record. Two
 unobserved swaps, an erased edge or a collision need `syncBacking`,
-`autoRecoverStray` and `syncBacking` again, each open to anyone: a swap keeps
-the clone's alpha under a hotkey in the clone's staking list, which
-`autoRecoverStray` reads. Subnet re-registration can erase lineage.
+`autoRecoverStray` and `syncBacking` again, each open to anyone. Subnet
+re-registration can erase lineage.
 
 ## Receiving hotkeys
 
@@ -57,8 +56,8 @@ owner record and no outgoing swap edge, whoever claims the vacated hotkey. An at
 with no followed record receives an empty slot's allocation while it has an
 owner record, whoever holds it. Alpha moved off either without a trail is
 missing backing: every priced call reverts `BackingShortfall` until anyone parks
-the position with `syncBacking`, `autoRecoverStray` and `syncBacking`, and it
-earns again once the registry publishes a new set.
+it with `syncBacking`, `autoRecoverStray` and `syncBacking`; it earns again once
+the registry publishes a new set.
 The followed hotkey keeps the slot after its validator registers the attested
 hotkey again; a swap from the followed hotkey onto it, or publishing the
 followed hotkey, moves the slot.
@@ -103,7 +102,7 @@ hotkey was already replaced or irrelevant.
 | Problem | Meaning | Repair |
 | --- | --- | --- |
 | Attested hotkey has no usable hotkey | No owner record on the attested hotkey or its successor; none, or an outgoing swap edge, on its recorded hotkey. | Registry governance publishes a set without it, or the validator reclaims it. |
-| Missing backing | The vault cannot locate enough alpha to satisfy its record. | `autoRecoverStray` parks what the clone's staking list reveals, `recoverStray` a named hotkey; `syncBacking` writes off the difference after the window. |
+| Missing backing | The vault cannot locate enough alpha to satisfy its record. | Park it with `syncBacking`, `autoRecoverStray` and `syncBacking`; `recoverStray` names a hotkey; `syncBacking` writes off the difference after the window. |
 
 They can occur together. An attested entry with no usable hotkey blocks allocation
 even while backing is intact.
@@ -121,9 +120,8 @@ even while backing is intact.
    backing on `parkingHotkey` before starting one fixed recovery window, except
    below-floor piles. Other collection failures revert.
 3. After sync declares the loss, call `autoRecoverStray(tokenId)` until it
-   reverts `NothingToRecover`: each call collects up to eight listed hotkeys the
-   record does not name. Call `recoverStray(tokenId, source)` for a hotkey it
-   cannot reach.
+   reverts `NothingToRecover`, then `recoverStray(tokenId, source)` for any
+   hotkey it cannot reach.
    Finds reduce the pooled deficit without validator attribution. If parking is
    empty, collect a movable source first so it can carry smaller sources home.
    `missingStake(tokenId)` reports unlocated alpha;
