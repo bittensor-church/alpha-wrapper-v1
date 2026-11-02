@@ -1,15 +1,15 @@
-"""A stranger cuts the trail behind a validator's rename; the watcher parks the position.
+"""A stranger cuts the trail behind a validator's hotkey swap; the watcher parks the position.
 
-A validator renames its hotkey on every subnet, which moves the vault's alpha to the
-new name and records the edge the vault follows. Before the vault records that, a
-stranger renames a junk key onto the vacated name: the chain lets anyone claim a name
-with no owner, and the rename erases the name's own edge. The vault can no longer find
-the alpha and refuses every priced operation.
+A validator swaps its hotkey on every subnet, which moves the vault's alpha to the
+new hotkey and records the edge the vault follows. Before the vault records that, a
+stranger swaps a junk hotkey onto the vacated one: the chain lets anyone claim a hotkey
+with no owner, and the swap erases its own edge. The vault can no longer find the
+alpha and refuses every priced operation.
 
-The watcher calls `syncBacking`, recovers the successor with `recoverStray`, and syncs
-again. Backing rests on the vault's parking hotkey, and the vault holds
-deposits and weight alignment shut until the owner publishes a set without the
-vacated name. Exits keep working from the parking hotkey throughout.
+The watcher calls `syncBacking`, recovers the alpha with `scripts/find_strays.py
+--recover`, and syncs again. Backing rests on the vault's parking hotkey, and the vault
+holds deposits and weight alignment shut until the owner publishes a set without the
+vacated hotkey. Exits keep working from the parking hotkey throughout.
 """
 import pytest
 

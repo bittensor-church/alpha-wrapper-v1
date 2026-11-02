@@ -119,13 +119,6 @@ class Environment:
             4_000_000, "syncBacking failed", "syncBacking(uint256)", token_id, label=label,
         )
 
-    def recover_stray(self, token_id: int, source_pubkey: str, message: str) -> dict:
-        """Collect one source; sync must declare any shortfall first."""
-        return self.vault_send(
-            4_000_000, message, "recoverStray(uint256,bytes32)", token_id, source_pubkey,
-            label="recoverStray",
-        )
-
     def awaiting_attestation(self, token_id: int) -> bool:
         """Whether the position rests on the parking hotkey with deposits and alignment shut
         until the registry publishes a newer set."""

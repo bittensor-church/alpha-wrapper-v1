@@ -34,8 +34,9 @@ def _tokens_per_line(raw: str) -> List[str]:
 def run(
     cmd: List[str], *, check: bool = True, capture: bool = True,
     input: Optional[str] = None, timeout: Optional[float] = config.COMMAND_TIMEOUT_SECONDS,
+    extra_env: Optional[dict] = None,
 ) -> subprocess.CompletedProcess:
-    env = dict(os.environ)
+    env = dict(os.environ, **(extra_env or {}))
     # A missing optional mixHash field only triggers a benign receipt-poller diagnostic.
     env.setdefault("RUST_LOG", "error,alloy_provider::blocks=off")
     try:
