@@ -14,13 +14,13 @@ import { VaultReads } from "src/libraries/VaultReads.sol";
 import { MockStaking, CHAIN_MIN_STAKE, CHAIN_MIN_TRANSFER, CHAIN_NOMINATOR_MIN_STAKE } from "./mocks/MockStaking.sol";
 import { MockAddressMapping } from "./mocks/MockAddressMapping.sol";
 import { MockSubnetPrecompile } from "./mocks/MockSubnetPrecompile.sol";
-import { MockAlpha, DEFAULT_ALPHA_PRICE_E18 } from "./mocks/MockAlpha.sol";
+import { MockAlpha, DEFAULT_ALPHA_PRICE_E18, MIN_SELL_PRICE_E18 } from "./mocks/MockAlpha.sol";
 import { MockNeuron } from "./mocks/MockNeuron.sol";
 import { MockBalanceTransfer } from "./mocks/MockBalanceTransfer.sol";
 import { CloneOwner } from "src/CloneOwner.sol";
 import { RegistryTestHelper } from "./helpers/RegistryTestHelper.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
-import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { STAKING_LIST_PAGE, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { ADDRESS_MAPPING_PRECOMPILE } from "src/interfaces/IAddressMapping.sol";
 import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { NEURON_PRECOMPILE } from "src/interfaces/INeuron.sol";
@@ -36,6 +36,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
 
     address public alice = makeAddr("alice");
     address public bob = makeAddr("bob");
+    address public strangerDonor = makeAddr("strangerDonor");
 
     bytes32 public hotkey1 = keccak256("hotkey1");
     bytes32 public hotkey2 = keccak256("hotkey2");
@@ -214,6 +215,19 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
 
     function _stakingHotkeyCount(bytes32 coldkey) internal view returns (uint64 total) {
         (, total) = MockStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, 0, 1);
+    }
+
+    function _listedHotkeys(bytes32 coldkey) internal view returns (bytes32[] memory listed) {
+        uint64 total = _stakingHotkeyCount(coldkey);
+        listed = new bytes32[](total);
+        for (uint64 offset; offset < total;) {
+            (bytes32[] memory page,) =
+                MockStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, offset, STAKING_LIST_PAGE);
+            for (uint256 i; i < page.length; ++i) {
+                listed[offset + i] = page[i];
+            }
+            offset += uint64(page.length);
+        }
     }
 
     /// @dev Entries a clone collected through rotations, each kept by a crumb on another subnet.
@@ -588,5 +602,29 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
 
     function _parkedStake(uint256 netuid) internal view returns (uint256) {
         return _getVaultStake(vault.parkingHotkey(), netuid);
+    }
+
+    function _sweepDuringCrash(uint256 netuid, bytes32 hotkey) internal returns (uint256 swept) {
+        swept = _getVaultStake(hotkey, netuid);
+        uint256 price = MockAlpha(ALPHA_PRECOMPILE).chainAlphaPrice(uint16(netuid));
+        _setAlphaPrice(netuid, MIN_SELL_PRICE_E18);
+        MockStaking(STAKING_PRECOMPILE)
+            .sweepSmallNomination(hotkey, vault.subnetClone(vault.currentTokenId(netuid)), netuid);
+        _setAlphaPrice(netuid, price);
+    }
+
+    function _keepListed(uint256 netuid, bytes32 hotkey) internal {
+        uint256 otherNetuid = netuid == NETUID1 ? NETUID2 : NETUID1;
+        MockStaking(STAKING_PRECOMPILE).setStake(hotkey, _subnetColdkey(netuid), otherNetuid, CRUMB);
+    }
+
+    function _strangerReturns(uint256 netuid, bytes32 hotkey, uint256 amount) internal {
+        MockStaking mock = MockStaking(STAKING_PRECOMPILE);
+        bytes32 cloneColdkey = _subnetColdkey(netuid);
+        mock.setHotkeyOwned(hotkey, true);
+        _simulateHotkeyOwnerPresent(hotkey);
+        mock.setStake(hotkey, _toSubstrate(strangerDonor), netuid, amount);
+        vm.prank(strangerDonor);
+        mock.transferStake(cloneColdkey, hotkey, netuid, netuid, amount);
     }
 }

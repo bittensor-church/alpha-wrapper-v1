@@ -55,16 +55,17 @@ public UID only forces a retry.
 
 ## Recovery-window tradeoff and late-recovery attack
 
-When a validator hotkey swap leaves vault alpha unlocated, the watcher parks the
+When a validator hotkey swap leaves vault alpha unlocated, anyone parks the
 located backing and starts one fixed recovery window. Alpha still missing at
 expiry is written off: a real loss for holders at that time, and anything
 recovered later belongs to whoever holds shares then. Balances too small to move
 can be written off as well.
 
-A validator can exploit that policy:
+A holder of alpha the sync cannot move, below the movement floor at the
+current price, can exploit that policy:
 
-1. Swap its hotkey, carrying vault alpha, and erase the trail the vault follows.
-2. Let the write-off finalize if watchers miss the window.
+1. Keep that alpha out of reach until the window expires.
+2. Let the write-off finalize if nobody collects it in time.
 3. Deposit against the reduced backing to acquire a larger share of the supply.
 4. Reveal the hidden alpha, so the new shares take part in its recovery.
 
@@ -87,8 +88,9 @@ later recovery.
 - A stranger who claims a vacated validator hotkey receives allocations for a
   slot with no live followed record until the registry replaces it. The alpha
   stays under the vault's coldkey; moving it without a trail freezes every
-  priced call until a watcher parks the position, which earns again once the
-  registry publishes a new set.
+  priced call until anyone runs `syncBacking`, `autoRecoverStray` and
+  `syncBacking`, and the parked position earns again once the registry
+  publishes a new set.
 - Alpha a clone holds on another subnet stays outside the backing, and so do piles
   a clone replacement leaves behind. Anyone holding enough alpha can push a pile
   below the floor by dumping the price around a replacement and so destroy

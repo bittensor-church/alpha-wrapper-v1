@@ -262,6 +262,20 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         assertEq(_parkedStake(NETUID1), 10 * ALPHA);
     }
 
+    function test_gas_autoRecoverStray_fullStakingList_10Validators() public {
+        bytes32[] memory hotkeys = _setValidatorCount(NETUID1, MAX_VALIDATORS);
+        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+        _fillListTo(_subnetColdkey(NETUID1), MAX_STAKING_HOTKEYS - 2);
+        _simulateOffVaultSwap(NETUID1, hotkeys[0], keccak256("edgeless destination"));
+        vault.syncBacking(TOKEN1);
+
+        vault.autoRecoverStray(TOKEN1);
+        vm.snapshotGasLastCall("AlphaVault", "autoRecoverStray: one source, full staking list (10 validators)");
+
+        vault.syncBacking(TOKEN1);
+        assertEq(lens.totalStake(TOKEN1), 10 * ALPHA);
+    }
+
     function test_gas_recoverStray_merged_10Validators() public {
         bytes32[] memory hotkeys = _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);

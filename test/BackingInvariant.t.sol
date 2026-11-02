@@ -13,6 +13,7 @@ import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { NothingToRecover } from "src/VaultErrors.sol";
 
 contract BackingHandler is BackingCampaignHandler {
     uint256 public strayAnnexations;
@@ -71,33 +72,56 @@ contract BackingHandler is BackingCampaignHandler {
         _recover(held[bound(sourceSeed, 0, held.length - 1)]);
     }
 
+    function autoRecoverStray() external {
+        uint256 slotsBefore = vault.recordedSlots(tokenId).length;
+        if (slotsBefore == 0) return;
+        uint256 owedBefore = harness.trackedBacking();
+        uint256 supplyBefore = vault.totalSupply(tokenId);
+        try vault.autoRecoverStray(tokenId) {
+            _afterRecovery(slotsBefore, owedBefore, supplyBefore);
+        } catch (bytes memory reason) {
+            bytes4 selector = bytes4(reason);
+            if (selector == NothingToRecover.selector) {
+                assertTrue(_backing().nothingListedToCollect(), "refused listed strays it could collect");
+            } else if (selector == IAlphaVaultAbi.ConsolidationBelowFloor.selector) {
+                assertTrue(_backing().listedAnnexBelowFloor(), "refused to annex listed strays that clear the floor");
+            } else {
+                _requireJustifiedRevert(reason, recoverErrors(), Attempt(0, 0, 0, bytes32(0), false));
+            }
+        }
+    }
+
     function _recover(bytes32 source) private {
         uint256 slotsBefore = vault.recordedSlots(tokenId).length;
         if (slotsBefore == 0) return;
         uint256 owedBefore = harness.trackedBacking();
         uint256 supplyBefore = vault.totalSupply(tokenId);
         try vault.recoverStray(tokenId, source) {
-            (uint256 since,) = vault.recovery(tokenId);
-            if (since == 0) {
-                ++strayAnnexations;
-                bool[] memory covered = _backing().coveredSlots();
-                for (uint256 i; i < covered.length; ++i) {
-                    assertTrue(covered[i], "annexation left a slot short");
-                }
-            } else {
-                ++strayCollections;
-                assertEq(harness.trackedBacking(), owedBefore, "collection changed the obligation");
-            }
-            assertEq(vault.totalSupply(tokenId), supplyBefore, "recovery changed the supply");
-            // The record is rewritten from live balances; those balances must still answer for what was owed.
-            assertGe(
-                harness.trackedBacking() + _backing().recoverySlack(slotsBefore),
-                owedBefore,
-                "recovery discarded part of the obligation"
-            );
+            _afterRecovery(slotsBefore, owedBefore, supplyBefore);
         } catch (bytes memory reason) {
             _requireJustifiedRevert(reason, recoverErrors(), Attempt(0, 0, 0, source, false));
         }
+    }
+
+    function _afterRecovery(uint256 slotsBefore, uint256 owedBefore, uint256 supplyBefore) private {
+        (uint256 since,) = vault.recovery(tokenId);
+        if (since == 0) {
+            ++strayAnnexations;
+            bool[] memory covered = _backing().coveredSlots();
+            for (uint256 i; i < covered.length; ++i) {
+                assertTrue(covered[i], "annexation left a slot short");
+            }
+        } else {
+            ++strayCollections;
+            assertEq(harness.trackedBacking(), owedBefore, "collection changed the obligation");
+        }
+        assertEq(vault.totalSupply(tokenId), supplyBefore, "recovery changed the supply");
+        // The record is rewritten from live balances; those balances must still answer for what was owed.
+        assertGe(
+            harness.trackedBacking() + _backing().recoverySlack(slotsBefore),
+            owedBefore,
+            "recovery discarded part of the obligation"
+        );
     }
 
     function rotateValidators(uint256 seed) external {
@@ -176,6 +200,47 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
 
     function simulateSilentMove(bytes32 from, bytes32 to) external {
         _simulateOffVaultSwap(NETUID1, from, to);
+    }
+
+    function nothingListedToCollect() external view returns (bool) {
+        bytes32[] memory strays = _listedStrays();
+        if (strays.length == 0) return true;
+        (uint256 shortSince,) = vault.recovery(TOKEN1);
+        if (shortSince == 0) return false;
+        uint256 richest = _parkedStake(NETUID1);
+        for (uint256 i; i < strays.length; ++i) {
+            uint256 held = _getVaultStake(strays[i], NETUID1);
+            if (held > richest) richest = held;
+        }
+        return _belowFloorAtAnyPrice(richest);
+    }
+
+    function listedAnnexBelowFloor() external view returns (bool) {
+        bytes32[] memory strays = _listedStrays();
+        (bytes32[] memory hotkeys,,) = resolvedSlots();
+        uint256 richest = _getVaultStake(hotkeys[0], NETUID1);
+        for (uint256 i; i < strays.length; ++i) {
+            uint256 held = _getVaultStake(strays[i], NETUID1);
+            if (held > richest) richest = held;
+        }
+        return strays.length != 0 && _belowFloorAtAnyPrice(richest);
+    }
+
+    /// @dev Mirrors the library: listed hotkeys outside the record and parking holding stake on the subnet, in list
+    ///      order, at most a page.
+    function _listedStrays() private view returns (bytes32[] memory strays) {
+        (bytes32[] memory recorded,,) = resolvedSlots();
+        bytes32[] memory listed = _listedHotkeys(_subnetColdkey(NETUID1));
+        strays = new bytes32[](8);
+        uint256 count;
+        for (uint256 i; i < listed.length && count < 8; ++i) {
+            bytes32 hotkey = listed[i];
+            if (hotkey == vault.parkingHotkey() || _contains(recorded, hotkey)) continue;
+            if (_getVaultStake(hotkey, NETUID1) != 0) strays[count++] = hotkey;
+        }
+        assembly {
+            mstore(strays, count)
+        }
     }
 }
 

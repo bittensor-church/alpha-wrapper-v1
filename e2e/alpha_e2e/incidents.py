@@ -53,15 +53,19 @@ def cut_trail(
     return Stranding(lost_pubkey, lost_ss58, successor_pubkey, successor_ss58, stranger_ss58, backing_before)
 
 
-def park(env: Environment, token_id: int, stranding: Stranding, context: str) -> int:
-    """The watcher's answer to a shortfall."""
+def park(env: Environment, token_id: int, stranding: Stranding, context: str, *, by_name: bool = False) -> int:
+    """Declare the shortfall, collect the alpha, finalize. `by_name` names the successor to
+    `recoverStray`; otherwise `autoRecoverStray` finds it through the clone's staking list."""
     netuid = env.netuids[env.token_ids.index(token_id)]
     clone_coldkey = env.clone_coldkey(token_id)
     backing_before = stranding.backing_before
 
     env.sync_backing(token_id, label="syncBacking [declare]")
     assert env.write_off_deadline(token_id) > 0, f"{context}: the shortfall should be on file with a deadline"
-    env.recover_stray(token_id, stranding.successor_pubkey, f"{context}: recoverStray failed")
+    if by_name:
+        env.recover_stray(token_id, stranding.successor_pubkey, f"{context}: recoverStray failed")
+    else:
+        env.auto_recover_stray(token_id, f"{context}: autoRecoverStray failed")
 
     env.sync_backing(token_id, label="syncBacking [finalize]")
     parked = env.stake(env.parking_hotkey(), clone_coldkey, netuid)

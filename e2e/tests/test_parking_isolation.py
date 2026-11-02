@@ -30,7 +30,7 @@ def test_parked_subnets_share_the_hotkey_without_sharing_state(env):
     stakes_b_before = [env.stake(hotkey, clone_b, netuid_b) for hotkey in hotkeys_b]
 
     stranding_a = incidents.cut_trail(env, 0, 0, "//IsolationSuccessorA", "//IsolationJunkA", "Isolation: A")
-    parked_a = incidents.park(env, token_a, stranding_a, "Isolation: A")
+    parked_a = incidents.park(env, token_a, stranding_a, "Isolation: A", by_name=True)
 
     assert not env.awaiting_attestation(token_b), "B should not be parked by A's incident"
     assert env.backing_intact(token_b), "B's backing should be untouched"

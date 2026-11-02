@@ -71,8 +71,8 @@ Scenario files in `tests/` cover:
   last exit, so a gift to the emptied token lands, is swept and written off; the token
   stays open and the next deposit wraps without a registry update.
 - `test_retained_entries_recovery.py`: with such a crumb retained, a stranger cuts
-  the trail behind a validator's rename; the watcher parks the position, an owner
-  update releases, and deposits and exits continue.
+  the trail behind a validator's hotkey swap; `autoRecoverStray` parks the position, an
+  owner update releases, and deposits and exits continue.
 - `test_squatted_vacated_hotkey.py`: after the vault follows a validator's hotkey swap, a
   stranger claims the vacated hotkey; deposits and rebalances keep the slot on the
   successor and the position exits once the registry names it.
@@ -85,9 +85,11 @@ Scenario files in `tests/` cover:
   where exits keep paying from the old name and follow the successor once the owner
   names it; and a rename that carries the stake, which exits follow before the registry
   changes.
-- `test_parked_recovery.py`: a stranger cuts the trail behind a rename; the watcher
-  parks the position, exits pay from the parking hotkey, an owner update releases.
-- `test_parking_isolation.py`: two subnets park on the one parking hotkey; each keeps
+- `test_parked_recovery.py`: a stranger cuts the trail behind a hotkey swap;
+  `autoRecoverStray` parks the position, exits pay from the parking hotkey, an owner
+  update releases.
+- `test_parking_isolation.py`: two subnets park on the one parking hotkey, one by naming
+  the successor to `recoverStray` and one through `autoRecoverStray`; each keeps
   its own balance, the other keeps trading, and each releases on its own owner update.
 - `test_subnet_generation.py`: a rewritten registration block leaves the token and its
   exits untouched; dissolving and re-registering the netuid yields a new token, and the

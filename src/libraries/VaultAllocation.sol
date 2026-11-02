@@ -8,7 +8,7 @@ import { VaultClones } from "./VaultClones.sol";
 import { VaultMath } from "./VaultMath.sol";
 import { VaultReads } from "./VaultReads.sol";
 import { IAlpha, ALPHA_PRECOMPILE } from "../interfaces/IAlpha.sol";
-import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
+import { IStaking, STAKING_LIST_PAGE, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { LockedDeposit, ZeroAmount } from "../VaultErrors.sol";
 import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
 import { CloneFactory } from "../CloneFactory.sol";
@@ -51,6 +51,34 @@ library VaultAllocation {
         alphaPriceE18 = IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(nid);
         if (StakeOps.isBelowFloorAtReadPrice(totalDeposit, alphaPriceE18)) { revert IAlphaVaultAbi.DepositTooSmall(); }
         if (VaultReads.lockedAlphaOf(mailboxColdkey, nid) != 0) revert LockedDeposit();
+    }
+
+    /// @dev Each stray costs one clone-signed move, which pays the chain's walk of the whole staking list.
+    uint256 internal constant LISTED_STRAYS_PER_CALL = 8;
+
+    /// @dev Hotkeys in the clone's staking list, outside `known` and parking, that hold stake on the subnet, in
+    ///      list order and at most a page of them. A hotkey swap keeps the clone's stake under a listed hotkey, so
+    ///      this finds a move the chain wrote no edge for.
+    function listedStrays(bytes32 coldkey, uint16 netuid, bytes32[] memory known, bytes32 parking)
+        external view returns (bytes32[] memory strays) {
+        IStaking staking = IStaking(STAKING_PRECOMPILE);
+        bytes32[] memory found = new bytes32[](LISTED_STRAYS_PER_CALL); uint256 count;
+        uint64 offset; uint64 total;
+        do {
+            (bytes32[] memory page, uint64 listed) = staking.getStakingHotkeys(coldkey, offset, STAKING_LIST_PAGE);
+            total = listed;
+            for (uint256 i; i < page.length && count < LISTED_STRAYS_PER_CALL;) {
+                bytes32 hotkey = page[i];
+                if (hotkey != parking && !VaultMath.contains(known, hotkey) && staking.getStake(hotkey, coldkey, netuid) != 0) {
+                    found[count++] = hotkey;
+                }
+                unchecked { ++i; }
+            }
+            if (page.length == 0) break;
+            offset += SafeCast.toUint64(page.length);
+        } while (offset < total && count < LISTED_STRAYS_PER_CALL);
+        strays = new bytes32[](count);
+        for (uint256 i; i < count;) { strays[i] = found[i]; unchecked { ++i; } }
     }
 
     /// @dev Moves the depositor's `amount` of stake from their mailbox into the clone, staked under `target`.

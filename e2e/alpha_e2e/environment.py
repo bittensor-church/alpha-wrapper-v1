@@ -126,6 +126,12 @@ class Environment:
             label="recoverStray",
         )
 
+    def auto_recover_stray(self, token_id: int, message: str) -> dict:
+        """Collect the strays the clone's staking list reveals; sync must declare any shortfall first."""
+        return self.vault_send(
+            6_000_000, message, "autoRecoverStray(uint256)", token_id, label="autoRecoverStray",
+        )
+
     def awaiting_attestation(self, token_id: int) -> bool:
         """Whether the position rests on the parking hotkey with deposits and alignment shut
         until the registry publishes a newer set."""

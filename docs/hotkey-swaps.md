@@ -41,7 +41,10 @@ the successor covers that slot's expectation within 1000 RAO of accounting slack
 It counts each hotkey for at most one slot. Separately observed swaps can advance the
 record repeatedly: any priced operation, and a `syncBacking` call on a position
 that accounts for itself, writes a followed swap into the record. Two
-unobserved swaps, an erased edge or a collision need a watcher. Subnet re-registration can erase lineage.
+unobserved swaps, an erased edge or a collision need `syncBacking`,
+`autoRecoverStray` and `syncBacking` again, each open to anyone: a swap keeps
+the clone's alpha under a hotkey in the clone's staking list, which
+`autoRecoverStray` reads. Subnet re-registration can erase lineage.
 
 ## Receiving hotkeys
 
@@ -99,7 +102,7 @@ hotkey was already replaced or irrelevant.
 | Problem | Meaning | Repair |
 | --- | --- | --- |
 | Attested hotkey has no usable hotkey | No owner record on the attested hotkey or its successor; none, or an outgoing swap edge, on its recorded hotkey. | Registry governance publishes a set without it, or the validator reclaims it. |
-| Missing backing | The vault cannot locate enough alpha to satisfy its record. | Park it with `recoverStray`, or let `syncBacking` write off the difference after the window. |
+| Missing backing | The vault cannot locate enough alpha to satisfy its record. | `autoRecoverStray` parks what the clone's staking list reveals, `recoverStray` a named hotkey; `syncBacking` writes off the difference after the window. |
 
 They can occur together. An attested entry with no usable hotkey blocks allocation
 even while backing is intact.
@@ -116,8 +119,10 @@ even while backing is intact.
 2. For missing backing, call `syncBacking(tokenId)`. It secures all located
    backing on `parkingHotkey` before starting one fixed recovery window, except
    below-floor piles. Other collection failures revert.
-3. Locate more alpha under the clone's coldkey and call
-   `recoverStray(tokenId, source)` once per hotkey, after sync declares the loss.
+3. After sync declares the loss, call `autoRecoverStray(tokenId)` until it
+   reverts `NothingToRecover`: each call collects up to eight listed hotkeys the
+   record does not name. Call `recoverStray(tokenId, source)` for a hotkey it
+   cannot reach.
    Finds reduce the pooled deficit without validator attribution. If parking is
    empty, collect a movable source first so it can carry smaller sources home.
    `missingStake(tokenId)` reports unlocated alpha;
@@ -165,7 +170,7 @@ registry attestation arrives. A validator can swap and re-register its
 old hotkey to cut a successor edge the vault still needs. After an all-subnet
 swap, anyone paying the burn can register that ownerless hotkey on the affected token's
 subnet if registration is open. If backing goes short, call `syncBacking(tokenId)`, then
-`recoverStray(tokenId, successor)`, then `syncBacking(tokenId)` before write-off.
+`autoRecoverStray(tokenId)`, then `syncBacking(tokenId)` before write-off.
 
 A revert preserves shares and stake, but costs gas. A finalized write-off really
 reduces holders' accounted backing; alpha recovered later belongs to holders at

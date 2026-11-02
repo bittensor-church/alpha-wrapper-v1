@@ -1,8 +1,8 @@
 """Recovery after a hotkey swap still works while a crumb keeps an entry on the clone's list.
 
 A stranger sends a crumb under the attested validator on another subnet, which the chain
-admits because the clone lists that validator. The validator then renames its hotkey and a
-stranger cuts the trail, as in the parked-recovery scenario. The watcher parks the position,
+admits because the clone lists that validator. The validator then swaps its hotkey and a
+stranger cuts the trail, as in the parked-recovery scenario. `autoRecoverStray` parks the position,
 the clone's own move onto the parking hotkey, and the owner's update releases the position
 onto the successor while the crumb keeps its entry. Exits pay throughout and deposits resume
 afterwards.

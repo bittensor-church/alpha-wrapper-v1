@@ -583,7 +583,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         return _belowFloorAtAnyPrice(held > parkedHeld ? held : parkedHeld);
     }
 
-    function _belowFloorAtAnyPrice(uint256 alpha) private view returns (bool) {
+    function _belowFloorAtAnyPrice(uint256 alpha) internal view returns (bool) {
         return alpha != 0 && alpha * (_alphaPriceRead(NETUID1) + 1e9) / 1e18 < CHAIN_MIN_STAKE;
     }
 
@@ -616,7 +616,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         (exists,) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey);
     }
 
-    function _contains(bytes32[] memory hotkeys, bytes32 hotkey) private pure returns (bool) {
+    function _contains(bytes32[] memory hotkeys, bytes32 hotkey) internal pure returns (bool) {
         return _indexOf(hotkeys, hotkey) != type(uint256).max;
     }
 
