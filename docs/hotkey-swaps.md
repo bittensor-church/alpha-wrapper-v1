@@ -116,8 +116,9 @@ even while backing is intact.
 2. For missing backing, call `syncBacking(tokenId)`. It secures all located
    backing on `parkingHotkey` before starting one fixed recovery window, except
    below-floor piles. Other collection failures revert.
-3. Locate more alpha under the clone's coldkey and call
-   `recoverStray(tokenId, source)` once per hotkey, after sync declares the loss.
+3. After sync declares the loss, run `scripts/find_strays.py`: it lists every
+   hotkey the clone stakes under that the record does not name, largest pile
+   first, and with `--recover` calls `recoverStray(tokenId, source)` for each.
    Finds reduce the pooled deficit without validator attribution. If parking is
    empty, collect a movable source first so it can carry smaller sources home.
    `missingStake(tokenId)` reports unlocated alpha;
@@ -164,8 +165,8 @@ A parked position pays exits; deposits and emissions resume once a newer
 registry attestation arrives. A validator can swap and re-register its
 old hotkey to cut a successor edge the vault still needs. After an all-subnet
 swap, anyone paying the burn can register that ownerless hotkey on the affected token's
-subnet if registration is open. If backing goes short, call `syncBacking(tokenId)`, then
-`recoverStray(tokenId, successor)`, then `syncBacking(tokenId)` before write-off.
+subnet if registration is open. If backing goes short, call `syncBacking(tokenId)`, run
+`scripts/find_strays.py --recover`, then `syncBacking(tokenId)` before write-off.
 
 A revert preserves shares and stake, but costs gas. A finalized write-off really
 reduces holders' accounted backing; alpha recovered later belongs to holders at
