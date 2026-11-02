@@ -144,7 +144,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         // A fresh deposit can carry rotated-out dust through above-floor consolidation hops.
         VaultAllocation.collectDeposit(mailbox, mailboxColdkey, context, actives[chosenIndex], totalDeposit);
         VaultAllocation.consolidateRotatedStake(
-            context, backing.keys, actives, VaultAllocation.CollectionPolicy.RevertBelowFloor);
+            context, backing.hotkeys, actives, VaultAllocation.CollectionPolicy.RevertBelowFloor);
         VaultAllocation.rebalance(context, actives, set.weights);
         uint256 totalAlpha = _settle(tokenId, destColdkey, set.hotkeys, actives);
 
@@ -180,7 +180,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     }
 
     /// @notice Sell backing for native TAO; prefer `unwrap` to avoid moving the pool price.
-    /// @dev Sells from recorded keys without registry alignment. Pool fees and price impact apply.
+    /// @dev Sells from recorded hotkeys without registry alignment. Pool fees and price impact apply.
     ///      Unsold alpha is refunded as shares, except a full-supply burn discards a sub-floor remainder.
     ///      Full drains bypass the stake minimum.
     /// @param minTaoOut Minimum native TAO in EVM wei (18 decimals, unlike alpha's 9).
@@ -206,7 +206,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
 
         bytes32 cloneColdkey = VaultReads.coldkeyOf(clone);
         (, VaultReads.Backing memory backing) = _openBacking(tokenId, cloneColdkey, netuid);
-        bytes32[] memory hotkeys = backing.keys;
+        bytes32[] memory hotkeys = backing.hotkeys;
         if (excludedSlots >> hotkeys.length != 0) revert SlotMaskOutOfRange();
         uint256[] memory balances = backing.balances; uint256 total = backing.total;
         if (total == 0) revert NothingToUnwrap();
@@ -275,7 +275,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         VaultReads.ValidatorSet memory set; bytes32[] memory actives; bytes32 retired;
         if (parked) {
             // A parked position pays from the parking hotkey and stays there.
-            set.hotkeys = backing.keys; actives = backing.keys;
+            set.hotkeys = backing.hotkeys; actives = backing.hotkeys;
         } else {
             set = VaultReads.resolveValidators(validatorRegistry, netuid);
             (actives, retired) = _assignActives(slots, backing, set, netuid);
@@ -286,7 +286,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         uint256 alphaPriceE18 = IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid);
         VaultAllocation.Context memory context = _context(tokenId, clone, coldkey, alphaPriceE18);
         VaultAllocation.consolidateRotatedStake(
-            context, backing.keys, actives, VaultAllocation.CollectionPolicy.RevertBelowFloor);
+            context, backing.hotkeys, actives, VaultAllocation.CollectionPolicy.RevertBelowFloor);
 
         uint256[] memory balances = VaultReads.fetchBalances(actives, coldkey, netuid);
         uint256 totalAlpha = VaultMath.sumBalances(balances);
@@ -348,7 +348,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         VaultAllocation.Context memory context =
             _context(tokenId, clone, coldkey, IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(nid));
         VaultAllocation.consolidateRotatedStake(
-            context, backing.keys, actives, VaultAllocation.CollectionPolicy.RevertBelowFloor);
+            context, backing.hotkeys, actives, VaultAllocation.CollectionPolicy.RevertBelowFloor);
         VaultAllocation.rebalance(context, actives, set.weights);
         _settle(tokenId, coldkey, set.hotkeys, actives);
     }
@@ -409,9 +409,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         });
     }
 
-    function _holdsRotatedOutStake(VaultReads.Backing memory backing, bytes32[] memory currentSet) private pure returns (bool) {
-        for (uint256 i; i < backing.keys.length;) {
-            if (backing.balances[i] != 0 && !VaultMath.contains(currentSet, backing.keys[i])) return true;
+    function _holdsRotatedOutStake(VaultReads.Backing memory backing, bytes32[] memory attestedHotkeys) private pure returns (bool) {
+        for (uint256 i; i < backing.hotkeys.length;) {
+            if (backing.balances[i] != 0 && !VaultMath.contains(attestedHotkeys, backing.hotkeys[i])) return true;
             unchecked { ++i; }
         }
         return false;
@@ -429,8 +429,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         bytes32[] memory sources = new bytes32[](1); sources[0] = source;
         if (recovery[tokenId].shortSince == 0) {
             (, VaultReads.Backing memory backing) = _openBacking(tokenId, coldkey, netuid);
-            if (VaultMath.contains(backing.keys, source)) revert NothingToRecover();
-            _annex(tokenId, clone, coldkey, backing.keys, sources);
+            if (VaultMath.contains(backing.hotkeys, source)) revert NothingToRecover();
+            _annex(tokenId, clone, coldkey, backing.hotkeys, sources);
             return;
         }
         if (source == parkingHotkey) revert NothingToRecover();
@@ -455,31 +455,31 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (!VaultReads.replacementOpen(coldkey)) revert StakingListHasRoom();
         address successor = VaultAllocation.replaceClone(
             cloneFactory, _context(tokenId, clone, coldkey, IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid)),
-            backing.keys, backing.balances, uid);
+            backing.hotkeys, backing.balances, uid);
         subnetClone[tokenId] = successor;
-        _reanchor(tokenId, backing.keys, VaultReads.fetchBalances(backing.keys, VaultReads.coldkeyOf(successor), netuid));
+        _reanchor(tokenId, backing.hotkeys, VaultReads.fetchBalances(backing.hotkeys, VaultReads.coldkeyOf(successor), netuid));
         emit SubnetCloneReplaced(tokenId, clone, successor);
     }
 
-    /// @dev Keep resolved keys and old-key residue locations.
-    function _collectionKeys(bytes32[] memory raw, bytes32[] memory resolved) private pure returns (bytes32[] memory) {
+    /// @dev Keep resolved hotkeys and old-hotkey residue locations.
+    function _collectionHotkeys(bytes32[] memory raw, bytes32[] memory resolved) private pure returns (bytes32[] memory) {
         bytes32[] memory extra = VaultMath.novelSources(resolved, raw);
         return VaultMath.concat(resolved, extra);
     }
 
     /// @dev Below-floor piles may stay exposed until write-off. Other collection failures revert.
     ///      A movable parking balance carries even sub-floor sources through consolidation.
-    function _secureBacking(uint256 tokenId, address clone, bytes32 coldkey, bytes32[] memory keys) private returns (uint256 parked) {
+    function _secureBacking(uint256 tokenId, address clone, bytes32 coldkey, bytes32[] memory hotkeys) private returns (uint256 parked) {
         bool leftBelowFloor;
         (parked, leftBelowFloor) =
-            _gather(tokenId, clone, coldkey, keys, parkingHotkey, VaultAllocation.CollectionPolicy.LeaveBelowFloor);
+            _gather(tokenId, clone, coldkey, hotkeys, parkingHotkey, VaultAllocation.CollectionPolicy.LeaveBelowFloor);
         if (leftBelowFloor) return parked;
         uint16 netuid = VaultMath.netuidOf(tokenId);
         // Defensive invariant: a successful collection must drain exposed backing within slack.
         uint256 exposed;
-        for (uint256 i; i < keys.length;) {
-            if (keys[i] != parkingHotkey) {
-                exposed += IStaking(STAKING_PRECOMPILE).getStake(keys[i], coldkey, netuid);
+        for (uint256 i; i < hotkeys.length;) {
+            if (hotkeys[i] != parkingHotkey) {
+                exposed += IStaking(STAKING_PRECOMPILE).getStake(hotkeys[i], coldkey, netuid);
             }
             unchecked { ++i; }
         }
@@ -487,13 +487,13 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     }
 
     /// @dev Only parking carries the pooled obligation; other entries are collection locations.
-    function _startRecovery(uint256 tokenId, bytes32[] memory keys, uint256 expected, uint256 parked) private {
+    function _startRecovery(uint256 tokenId, bytes32[] memory hotkeys, uint256 expected, uint256 parked) private {
         VaultReads.Slot[] storage slots = _slots[tokenId];
         _writeSlot(slots, 0, parkingHotkey, parkingHotkey, expected);
         uint256 count = 1;
-        for (uint256 i; i < keys.length;) {
-            if (keys[i] != parkingHotkey) {
-                _writeSlot(slots, count, keys[i], keys[i], 0);
+        for (uint256 i; i < hotkeys.length;) {
+            if (hotkeys[i] != parkingHotkey) {
+                _writeSlot(slots, count, hotkeys[i], hotkeys[i], 0);
                 unchecked { ++count; }
             }
             unchecked { ++i; }
@@ -512,13 +512,13 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     }
 
     /// @dev With no shortfall, add strays to live backing. A movable pile also collects dust.
-    function _annex(uint256 tokenId, address clone, bytes32 coldkey, bytes32[] memory keys, bytes32[] memory strays) private {
+    function _annex(uint256 tokenId, address clone, bytes32 coldkey, bytes32[] memory hotkeys, bytes32[] memory strays) private {
         uint16 netuid = VaultMath.netuidOf(tokenId);
-        bytes32 home = keys[0];
+        bytes32 home = hotkeys[0];
         uint256 before = IStaking(STAKING_PRECOMPILE).getStake(home, coldkey, netuid);
         (uint256 balance,) = _gather(tokenId, clone, coldkey, strays, home, VaultAllocation.CollectionPolicy.RevertBelowFloor);
         if (balance <= before) revert NothingToRecover();
-        _reanchor(tokenId, keys, VaultReads.fetchBalances(keys, coldkey, netuid));
+        _reanchor(tokenId, hotkeys, VaultReads.fetchBalances(hotkeys, coldkey, netuid));
         emit BackingRecovered(tokenId, home, balance - before);
     }
 
@@ -543,26 +543,26 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (VaultReads.isDissolved(tokenId)) revert BackingUnchanged();
         Recovery storage state = recovery[tokenId]; VaultReads.Slot[] memory slots = _slots[tokenId];
         bytes32 coldkey = VaultReads.coldkeyOf(clone);
-        bytes32[] memory keys = VaultReads.activesOf(slots);
+        bytes32[] memory hotkeys = VaultReads.activesOf(slots);
         if (state.shortSince == 0) {
             VaultReads.Backing memory backing = VaultReads.resolveBacking(slots, coldkey, netuid);
             if (VaultReads.firstShortOf(backing.short) == VaultReads.NO_SHORT_SLOT) {
-                if (!_followedSwap(slots, backing.keys)) revert BackingUnchanged();
-                _reanchor(tokenId, backing.keys, backing.balances);
+                if (!_followedSwap(slots, backing.hotkeys)) revert BackingUnchanged();
+                _reanchor(tokenId, backing.hotkeys, backing.balances);
                 return;
             }
-            keys = _collectionKeys(keys, backing.keys);
+            hotkeys = _collectionHotkeys(hotkeys, backing.hotkeys);
             uint256 initialExpected = _totalTracked(slots);
-            uint256 secured = _secureBacking(tokenId, clone, coldkey, keys);
+            uint256 secured = _secureBacking(tokenId, clone, coldkey, hotkeys);
             if (VaultReads.coversTracked(secured, initialExpected)) {
                 _finishRecovery(tokenId, secured);
             } else {
-                _startRecovery(tokenId, keys, initialExpected, secured);
+                _startRecovery(tokenId, hotkeys, initialExpected, secured);
             }
             return;
         }
         uint256 before = IStaking(STAKING_PRECOMPILE).getStake(parkingHotkey, coldkey, netuid);
-        uint256 parked = _secureBacking(tokenId, clone, coldkey, keys);
+        uint256 parked = _secureBacking(tokenId, clone, coldkey, hotkeys);
         uint256 expected = _totalTracked(slots);
         if (VaultReads.coversTracked(parked, expected)) {
             emit BackingShortfallCleared(tokenId);
@@ -579,8 +579,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
 
     function recordedSlots(uint256 tokenId) external view returns (VaultReads.Slot[] memory) { return _slots[tokenId]; }
 
-    function _followedSwap(VaultReads.Slot[] memory slots, bytes32[] memory keys) private pure returns (bool) {
-        for (uint256 i; i < slots.length;) { if (slots[i].active != keys[i]) return true; unchecked { ++i; } }
+    function _followedSwap(VaultReads.Slot[] memory slots, bytes32[] memory hotkeys) private pure returns (bool) {
+        for (uint256 i; i < slots.length;) { if (slots[i].active != hotkeys[i]) return true; unchecked { ++i; } }
         return false;
     }
 
@@ -597,7 +597,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         VaultReads.requireIntact(slots, backing, netuid);
     }
 
-    /// @dev Reject unresolved receiving keys before a chain call can consume the forwarded gas.
+    /// @dev Reject unresolved receiving hotkeys before a chain call can consume the forwarded gas.
     function _assignFundableActives(VaultReads.Slot[] memory slots, VaultReads.Backing memory backing, VaultReads.ValidatorSet memory set,
         uint16 netuid) private view returns (bytes32[] memory actives) {
         bytes32 retired;
@@ -609,17 +609,17 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     function _assignActives(VaultReads.Slot[] memory slots, VaultReads.Backing memory backing, VaultReads.ValidatorSet memory set,
         uint16 netuid) private view returns (bytes32[] memory actives, bytes32 retired) {
         return VaultAllocation.assignActives(
-            VaultReads.logicalsOf(slots), backing.keys, backing.balances, set.hotkeys, netuid);
+            VaultReads.attestedOf(slots), backing.hotkeys, backing.balances, set.hotkeys, netuid);
     }
 
     /// @dev Replace the record with actual post-move balances; shortfalls were checked on entry.
-    function _settle(uint256 tokenId, bytes32 coldkey, bytes32[] memory currentSet, bytes32[] memory actives) private
+    function _settle(uint256 tokenId, bytes32 coldkey, bytes32[] memory attestedHotkeys, bytes32[] memory actives) private
         returns (uint256 total) {
         VaultReads.Slot[] storage tokenSlots = _slots[tokenId]; uint16 netuid = VaultMath.netuidOf(tokenId);
-        while (tokenSlots.length > currentSet.length) { tokenSlots.pop(); }
-        for (uint256 i; i < currentSet.length;) {
+        while (tokenSlots.length > attestedHotkeys.length) { tokenSlots.pop(); }
+        for (uint256 i; i < attestedHotkeys.length;) {
             uint256 tracked = IStaking(STAKING_PRECOMPILE).getStake(actives[i], coldkey, netuid);
-            _writeSlot(tokenSlots, i, currentSet[i], actives[i], tracked);
+            _writeSlot(tokenSlots, i, attestedHotkeys[i], actives[i], tracked);
             total += tracked;
             unchecked { ++i; }
         }
@@ -638,13 +638,13 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         }
     }
 
-    /// @dev Preserve resolved keys even when emptied. Falling back to logical names can merge two slots
+    /// @dev Preserve resolved hotkeys even when emptied. Falling back to logical names can merge two slots
     ///      onto one balance after a swap; TAO exits do not apply the current registry.
-    function _reanchor(uint256 tokenId, bytes32[] memory keys, uint256[] memory balances) private {
+    function _reanchor(uint256 tokenId, bytes32[] memory hotkeys, uint256[] memory balances) private {
         VaultReads.Slot[] storage tokenSlots = _slots[tokenId];
         for (uint256 i; i < tokenSlots.length;) {
             VaultReads.Slot storage slot = tokenSlots[i];
-            if (slot.active != keys[i]) slot.active = keys[i];
+            if (slot.active != hotkeys[i]) slot.active = hotkeys[i];
             if (slot.tracked != balances[i]) slot.tracked = balances[i];
             unchecked { ++i; }
         }

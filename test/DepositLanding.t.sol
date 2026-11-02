@@ -106,7 +106,7 @@ contract DepositLandingTest is AlphaVaultTestBase {
         assertGt(_getVaultStake(hotkey4, NETUID1), 0, "the new validator holds its weight");
     }
 
-    function test_FirstDepositAfterAFullExit_LandsOnACrumbPinnedKeyThenMoves() public {
+    function test_FirstDepositAfterAFullExit_LandsOnACrumbPinnedHotkeyThenMoves() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 cloneColdkey = _subnetColdkey(NETUID1);
         _strangerTransfer(hotkey3, cloneColdkey, NETUID2);

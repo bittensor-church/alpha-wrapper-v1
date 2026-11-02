@@ -73,8 +73,8 @@ Scenario files in `tests/` cover:
 - `test_retained_entries_recovery.py`: with such a crumb retained, a stranger cuts
   the trail behind a validator's rename; the watcher parks the position, an owner
   update releases, and deposits and exits continue.
-- `test_squatted_vacated_name.py`: after the vault follows a validator's hotkey swap, a
-  stranger claims the vacated name; deposits and rebalances keep the slot on the
+- `test_squatted_vacated_hotkey.py`: after the vault follows a validator's hotkey swap, a
+  stranger claims the vacated hotkey; deposits and rebalances keep the slot on the
   successor and the position exits once the registry names it.
 - `test_subnet_dissolved.py`: refunds and mailbox recovery.
 - `test_min_stake_floor.py`, `test_dust_dos.py`, `test_min_stake_liveness.py`:

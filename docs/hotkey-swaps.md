@@ -14,7 +14,7 @@ stake operations. It is separate from ownership of delegated alpha: the vault's
 alpha stays under the vault clone's coldkey.
 
 An all-subnet swap that carries the stake removes the old hotkey's owner record;
-a per-subnet swap, or one that leaves the stake under the old key, retains it.
+a per-subnet swap, or one that leaves the stake under the old hotkey, retains it.
 In these docs, “ownerless” means only that the record is absent.
 
 ## An emptied slot after a swap
@@ -23,44 +23,48 @@ Suppose the registry names A and the vault holds 100 alpha there:
 
 1. A swaps to B across all subnets. The 100 alpha moves to B; A loses its owner record.
 2. The vault follows the swap and records B as the actual stake location.
-3. An exit empties that slot. The next allocation for A goes to B, the key that
+3. An exit empties that slot. The next allocation for A goes to B, the hotkey that
    still has an owner record.
 
-For an empty slot the vault takes the recorded key while it has an owner
-record and no outgoing swap edge, else the attested name while it has an owner
-record, else that key's one-hop successor, subject to collision checks. Funded
+For an empty slot the vault takes the recorded hotkey while it has an owner
+record and no outgoing swap edge, else the attested hotkey while it has an owner
+record, else that hotkey's one-hop successor, subject to collision checks. Funded
 slots stay at their resolved location.
 
 ## Automatic handling has limits
 
-The record keeps an attested name (`logical`), actual stake location (`active`)
+The record keeps an attested hotkey (`logical`), actual stake location (`active`)
 and expected alpha (`tracked`). One shortfall clock covers the whole token.
 
-The resolver follows at most one hop from each recorded active key, only when
+The resolver follows at most one hop from each recorded active hotkey, only when
 the successor covers that slot's expectation within 1000 RAO of accounting slack.
-It counts each key for at most one slot. Separately observed swaps can advance the
+It counts each hotkey for at most one slot. Separately observed swaps can advance the
 record repeatedly: any priced operation, and a `syncBacking` call on a position
 that accounts for itself, writes a followed swap into the record. Two
 unobserved swaps, an erased edge or a collision need a watcher. Subnet re-registration can erase lineage.
 
-## Receiving keys
+## Receiving hotkeys
 
-A receiving key needs an owner record, because the chain refuses stake
-operations without one. A name with no usable key reports
+A receiving hotkey needs an owner record, because the chain refuses stake
+operations without one. An attested hotkey with no usable hotkey reports
 `AttestedHotkeyRetired`; the registry owner replaces the target.
 
-A slot the vault has followed a swap from stays on that key while it keeps its
-owner record and no outgoing swap edge, whoever claims the vacated name. A name
+A slot the vault has followed a swap from stays on that hotkey while it keeps its
+owner record and no outgoing swap edge, whoever claims the vacated hotkey. An attested hotkey
 with no followed record receives an empty slot's allocation while it has an
-owner record, whoever holds it; alpha moved off it without a trail is recovered
-as missing backing.
+owner record, whoever holds it. Alpha moved off either without a trail is
+missing backing: every priced call reverts `BackingShortfall` until a watcher
+parks the position, which earns again once the registry publishes a new set.
+The followed hotkey keeps the slot after its validator registers the attested
+hotkey again; a swap from the followed hotkey onto it, or publishing the
+followed hotkey, moves the slot.
 
 The chain refuses to move stake through a hotkey with no owner record. When the
-vault has to move stake off such a key, it claims the key for its own coldkey
-first, then moves. The claim is permanent, and while the name stays attested
-the claimed key counts as a receiving key for an emptied slot, which stays
+vault has to move stake off such a hotkey, it claims the hotkey for its own coldkey
+first, then moves. The claim is permanent, and while the hotkey stays attested
+the claimed hotkey counts as a receiving hotkey for an emptied slot, which stays
 idle there until the registry owner publishes the successor. Anyone paying the
-chain's key-swap fee can block the claim by reserving the ownerless key as a
+chain's hotkey-swap fee can block the claim by reserving the ownerless hotkey as a
 coldkey-swap destination; the stake under it cannot move while the
 reservation lasts.
 
@@ -88,27 +92,27 @@ its own registry authority.
 The first wrap, rebalance or alpha exit after a newer attestation rolls the
 parked alpha onto the attested set, aligns it and clears the parked state.
 Re-publishing the same set under a new nonce releases a position whose lost
-name was already replaced or irrelevant.
+hotkey was already replaced or irrelevant.
 
 ## Two independent recovery jobs
 
 | Problem | Meaning | Repair |
 | --- | --- | --- |
-| Name has no usable key | No owner record on the attested name or its successor; none, or an outgoing swap edge, on its recorded key. | Registry governance publishes a set without the name, or the validator reclaims it. |
+| Attested hotkey has no usable hotkey | No owner record on the attested hotkey or its successor; none, or an outgoing swap edge, on its recorded hotkey. | Registry governance publishes a set without it, or the validator reclaims it. |
 | Missing backing | The vault cannot locate enough alpha to satisfy its record. | Park it with `recoverStray`, or let `syncBacking` write off the difference after the window. |
 
-They can occur together. An attested entry with no usable key blocks allocation
+They can occur together. An attested entry with no usable hotkey blocks allocation
 even while backing is intact.
 
 ## Watcher runbook
 
-1. Monitor current registry entries, recorded/resolved stake keys, backing
+1. Monitor current registry entries, recorded/resolved stake hotkeys, backing
    status and `awaitingAttestation`. Include empty entries and newly attested
-   keys with no recorded slot. If the vault resolves a successor after a swap,
-   call `syncBacking(tokenId)` before the old key is re-registered to record it.
-   Watch the chain's hotkey swap events for attested names. After any swap of
-   an attested name, publish the successor at once: until then an emptied slot
-   stays on the followed key, or with no record re-stakes under the old name.
+   hotkeys with no recorded slot. If the vault resolves a successor after a swap,
+   call `syncBacking(tokenId)` before the old hotkey is re-registered to record it.
+   Watch the chain's hotkey swap events for attested hotkeys. After any swap of
+   an attested hotkey, publish the successor at once: until then an emptied slot
+   stays on the followed hotkey, or with no record re-stakes under the old hotkey.
 2. For missing backing, call `syncBacking(tokenId)`. It secures all located
    backing on `parkingHotkey` before starting one fixed recovery window, except
    below-floor piles. Other collection failures revert.
@@ -117,7 +121,7 @@ even while backing is intact.
    Finds reduce the pooled deficit without validator attribution. If parking is
    empty, collect a movable source first so it can carry smaller sources home.
    `missingStake(tokenId)` reports unlocated alpha;
-   dust at recorded keys reduces that amount and is written off when it is too small to park.
+   dust at recorded hotkeys reduces that amount and is written off when it is too small to park.
 4. While recovery is open, priced operations refuse. Further syncs collect
    returns at recorded locations. The deadline stays fixed through partial recovery.
    At expiry, sync collects returns before writing off the remaining deficit.
@@ -125,7 +129,7 @@ even while backing is intact.
    Full recovery or write-off leaves the position parked unless no shares remain. Alpha recovered later
    belongs to the holders at that time.
 5. After completion with shares outstanding, registry governance publishes a newer set even if all backing returned.
-   Remove any lost or captured name, naming the intended successor. The next wrap
+   Remove any lost or captured hotkey and publish the intended successor. The next wrap
    or `rebalance(netuid)` releases the parked position onto it.
 6. The lens's `stakingListEntries(tokenId)` reports the clone's staking list. From
    128 entries, half the chain's cap, anyone can call `replaceClone(tokenId, uid)`
@@ -137,18 +141,18 @@ Collection emits `BackingRecovered`; sync finalization emits
 `BackingParked`. A write-off emits `BackingWrittenOff` before it. Both calls
 are permissionless.
 
-Declaration cost grows with the number of located keys: simulate the call and
+Declaration cost grows with the number of located hotkeys: simulate the call and
 budget above the estimate. Keep funds for retries when a chain restriction
 blocks collection.
 
 ## Exit behavior and accepted tradeoffs
 
-If an attested entry has no usable receiving key, `AttestedHotkeyRetired`
+If an attested entry has no usable receiving hotkey, `AttestedHotkeyRetired`
 blocks wraps, rebalances and partial alpha exits. The guard is conservative: it
 applies even if that entry's rebalance move would be too small to execute. A
 full-supply alpha exit may proceed. "Full supply" means all outstanding shares.
 
-`unwrapForTao` ignores registry weights and sells from recorded keys, including
+`unwrapForTao` ignores registry weights and sells from recorded hotkeys, including
 the parking hotkey. It still needs intact backing, an executable pool sale and
 an acceptable payout. Partial sales face post-fee minimums and dust protections.
 
@@ -158,8 +162,8 @@ claimable TAO and mailbox recovery stay available.
 
 A parked position pays exits; deposits and emissions resume once a newer
 registry attestation arrives. A validator can swap and re-register its
-old key to cut a successor edge the vault still needs. After an all-subnet
-swap, anyone paying the burn can register that ownerless key on the affected token's
+old hotkey to cut a successor edge the vault still needs. After an all-subnet
+swap, anyone paying the burn can register that ownerless hotkey on the affected token's
 subnet if registration is open. If backing goes short, call `syncBacking(tokenId)`, then
 `recoverStray(tokenId, successor)`, then `syncBacking(tokenId)` before write-off.
 

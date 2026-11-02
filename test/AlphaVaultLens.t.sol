@@ -287,16 +287,16 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         assertEq(lens.writeOffDeadline(TOKEN1), 0, "and nothing holding it shut");
     }
 
-    function test_ResolvedBacking_NamesEachRecordedKeyAndItsBalance() public {
+    function test_ResolvedBacking_NamesEachRecordedHotkeyAndItsBalance() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
 
         VaultReads.Backing memory backing = lens.resolvedBacking(TOKEN1);
 
         bytes32[] memory recorded = _hotkeys(hotkey1, hotkey2, hotkey3);
         uint256[3] memory weightedStakes = [uint256(100.02e9), 99.99e9, 99.99e9];
-        assertEq(backing.keys.length, recorded.length, "one entry per recorded slot");
+        assertEq(backing.hotkeys.length, recorded.length, "one entry per recorded slot");
         for (uint256 i; i < recorded.length; ++i) {
-            assertEq(backing.keys[i], recorded[i], "an untouched slot sells from its recorded key");
+            assertEq(backing.hotkeys[i], recorded[i], "an untouched slot sells from its recorded key");
             assertEq(backing.balances[i], weightedStakes[i], "the slot's 3334 or 3333 bps of 300 alpha");
             assertFalse(backing.short[i], "nothing is short");
         }
@@ -309,7 +309,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
 
         VaultReads.Backing memory backing = lens.resolvedBacking(TOKEN1);
 
-        assertEq(backing.keys[0], hotkey4, "the exit sells the renamed slot from its successor");
+        assertEq(backing.hotkeys[0], hotkey4, "the exit sells the renamed slot from its successor");
         assertEq(backing.balances[0], 100.02e9, "the successor carries the slot");
         assertFalse(backing.short[0], "a followed slot is not short");
         assertEq(backing.total, 300 * ALPHA, "and the position is still whole");
@@ -323,10 +323,10 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
 
         VaultReads.Backing memory backing = lens.resolvedBacking(TOKEN1);
 
-        assertEq(backing.keys[0], hotkey4, "the first slot takes the shared successor");
+        assertEq(backing.hotkeys[0], hotkey4, "the first slot takes the shared successor");
         assertEq(backing.balances[0], 200.01e9, "with both renamed slots' alpha");
         assertFalse(backing.short[0], "which leaves it covered");
-        assertEq(backing.keys[1], hotkey2, "the second slot stays on its emptied key");
+        assertEq(backing.hotkeys[1], hotkey2, "the second slot stays on its emptied key");
         assertEq(backing.balances[1], 0, "with nothing on it");
         assertTrue(backing.short[1], "and is reported short");
         assertEq(backing.total, 300 * ALPHA, "located alpha");
@@ -337,7 +337,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
 
         VaultReads.Backing memory backing = lens.resolvedBacking(TOKEN2);
 
-        assertEq(backing.keys.length, 0, "keys");
+        assertEq(backing.hotkeys.length, 0, "keys");
         assertEq(backing.balances.length, 0, "balances");
         assertEq(backing.short.length, 0, "short flags");
         assertEq(backing.total, 0, "total");

@@ -127,7 +127,7 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
         actors[1] = bob;
         _depositAndWrap(alice, NETUID1, 50 * ALPHA);
 
-        currentSet = _hotkeys(hotkey1, hotkey2, hotkey3);
+        attestedHotkeys = _hotkeys(hotkey1, hotkey2, hotkey3);
         bytes32[] memory seeds = _hotkeys(hotkey1, hotkey2, hotkey3);
         handler = new BackingHandler(vault, this, TOKEN1, NETUID1, actors, seeds);
         targetContract(address(handler));
@@ -190,8 +190,8 @@ contract BackingInvariantTest is BackingCampaignSetup {
         _assertReportedBackingWithinChainHoldings();
     }
 
-    function invariant_NoTwoSlotsAnswerForOneKey() public view {
-        _assertNoTwoSlotsAnswerForOneKey();
+    function invariant_NoTwoSlotsAnswerForOneHotkey() public view {
+        _assertNoTwoSlotsAnswerForOneHotkey();
     }
 }
 
@@ -301,6 +301,6 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
 
     /// @dev A parked position rests until an attestation newer than the parking one arrives.
     function _advanceRegistryNonce() private {
-        this.attest(currentSet);
+        this.attest(attestedHotkeys);
     }
 }

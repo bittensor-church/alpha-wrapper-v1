@@ -108,38 +108,38 @@ library VaultReads {
         return newTao;
     }
 
-    /// @dev `logical` is the attested name; `active` is the recorded stake location, possibly a successor.
+    /// @dev `logical` is the attested hotkey; `active` is the recorded stake location, possibly a successor.
     ///      During recovery, only the parking slot carries the pooled tracked obligation.
     struct Slot { bytes32 logical; bytes32 active; uint256 tracked; }
 
     struct Backing {
-        bytes32[] keys;
+        bytes32[] hotkeys;
         uint256[] balances;
         bool[] short;
         uint256 total;
     }
 
-    function logicalsOf(Slot[] memory slots) internal pure returns (bytes32[] memory logicals) {
-        logicals = new bytes32[](slots.length);
-        for (uint256 i; i < slots.length;) { logicals[i] = slots[i].logical; unchecked { ++i; } }
+    function attestedOf(Slot[] memory slots) internal pure returns (bytes32[] memory attested) {
+        attested = new bytes32[](slots.length);
+        for (uint256 i; i < slots.length;) { attested[i] = slots[i].logical; unchecked { ++i; } }
     }
 
     /// @dev Accepted accounting dust; smaller discrepancies do not start recovery.
     uint256 internal constant TRACKED_SLACK_RAO = 1e3;
 
-    /// @dev Resolves at most one successor hop from each recorded active key, without writing it back.
+    /// @dev Resolves at most one successor hop from each recorded active hotkey, without writing it back.
     function resolveBacking(Slot[] memory slots, bytes32 coldkey, uint16 netuid) internal view returns (Backing memory backing) {
         uint256 count = slots.length;
-        backing.keys = activesOf(slots);
+        backing.hotkeys = activesOf(slots);
         backing.balances = new uint256[](count); backing.short = new bool[](count);
         for (uint256 i; i < count;) {
             uint256 tracked = slots[i].tracked;
-            uint256 balance = IStaking(STAKING_PRECOMPILE).getStake(backing.keys[i], coldkey, netuid);
+            uint256 balance = IStaking(STAKING_PRECOMPILE).getStake(backing.hotkeys[i], coldkey, netuid);
             if (!coversTracked(balance, tracked)) {
                 (bool followed, bytes32 successor, uint256 successorBalance) =
-                    _followSwap(backing.keys, i, tracked, coldkey, netuid);
+                    _followSwap(backing.hotkeys, i, tracked, coldkey, netuid);
                 if (followed) {
-                    backing.keys[i] = successor; balance = successorBalance;
+                    backing.hotkeys[i] = successor; balance = successorBalance;
                 } else {
                     backing.short[i] = true;
                 }
@@ -149,13 +149,13 @@ library VaultReads {
         }
     }
 
-    /// @dev Follow only a successor covering the whole slot. Ignore old-key residue and reject
+    /// @dev Follow only a successor covering the whole slot. Ignore old-hotkey residue and reject
     ///      shared successors so one balance never backs two slots. Use alpha, not today's TAO price.
-    function _followSwap(bytes32[] memory keys, uint256 index, uint256 tracked, bytes32 coldkey, uint16 netuid) private view
+    function _followSwap(bytes32[] memory hotkeys, uint256 index, uint256 tracked, bytes32 coldkey, uint16 netuid) private view
         returns (bool, bytes32, uint256) {
-        bytes32 successor = hotkeySuccessor(keys[index], netuid);
+        bytes32 successor = hotkeySuccessor(hotkeys[index], netuid);
         if (successor == bytes32(0)) return (false, bytes32(0), 0);
-        if (VaultMath.contains(keys, successor)) return (false, bytes32(0), 0);
+        if (VaultMath.contains(hotkeys, successor)) return (false, bytes32(0), 0);
         uint256 successorBalance = IStaking(STAKING_PRECOMPILE).getStake(successor, coldkey, netuid);
         if (!coversTracked(successorBalance, tracked)) return (false, bytes32(0), 0);
         return (true, successor, successorBalance);
@@ -167,9 +167,9 @@ library VaultReads {
         return successor;
     }
 
-    function activesOf(Slot[] memory slots) internal pure returns (bytes32[] memory keys) {
-        keys = new bytes32[](slots.length);
-        for (uint256 i; i < keys.length;) { keys[i] = slots[i].active; unchecked { ++i; } }
+    function activesOf(Slot[] memory slots) internal pure returns (bytes32[] memory hotkeys) {
+        hotkeys = new bytes32[](slots.length);
+        for (uint256 i; i < hotkeys.length;) { hotkeys[i] = slots[i].active; unchecked { ++i; } }
     }
 
     function firstShortOf(bool[] memory short) internal pure returns (uint256) {

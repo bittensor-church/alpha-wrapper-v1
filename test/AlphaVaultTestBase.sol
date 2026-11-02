@@ -426,7 +426,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         return balance - leftover < request ? balance - leftover : request;
     }
 
-    function _recordedKeys(uint256 tokenId) internal view returns (bytes32[] memory keys) {
+    function _recordedHotkeys(uint256 tokenId) internal view returns (bytes32[] memory keys) {
         VaultReads.Slot[] memory slots = vault.recordedSlots(tokenId);
         keys = new bytes32[](slots.length);
         for (uint256 i; i < slots.length; ++i) {

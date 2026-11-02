@@ -81,14 +81,14 @@ library VaultAllocation {
 
     /// @dev A fresh clone lists nothing, so its growth flag is down while the old clone transfers in. A pile
     ///      below the floor stays behind rather than fail the call.
-    function replaceClone(CloneFactory factory, Context memory context, bytes32[] memory keys,
+    function replaceClone(CloneFactory factory, Context memory context, bytes32[] memory hotkeys,
         uint256[] memory balances, bytes32 uid) external returns (address successor) {
         successor = VaultClones.deployProtectedClone(factory, context.tokenId, context.netuid, uid);
         bytes32 successorColdkey = VaultReads.coldkeyOf(successor);
         SubnetClone(successor).setRejectStakingHotkeyGrowth(false);
-        for (uint256 i; i < keys.length;) {
+        for (uint256 i; i < hotkeys.length;) {
             if (balances[i] != 0 && !StakeOps.isBelowFloorAtReadPrice(balances[i], context.alphaPriceE18)) {
-                StakeOps.flush(context.clone, keys[i], successorColdkey, context.netuid, balances[i]);
+                StakeOps.flush(context.clone, hotkeys[i], successorColdkey, context.netuid, balances[i]);
             }
             unchecked { ++i; }
         }
@@ -155,54 +155,54 @@ library VaultAllocation {
         return chunk;
     }
 
-    /// @dev Keep funded slots on resolved keys; empty slots need a receiving key with an owner record,
-    ///      which the chain requires for stake operations. Keys remain exclusive even for empty slots.
-    ///      Flat arrays cross this boundary: each struct argument would add its own ABI encoder to the
-    ///      vault, which has no bytecode to spare. `logicals`, `keys` and `balances` are one record per
-    ///      slot; `currentSet` is one entry per attested name.
-    function assignActives(bytes32[] memory logicals, bytes32[] memory keys, uint256[] memory balances,
-        bytes32[] memory currentSet, uint16 netuid
+    /// @dev Keep funded slots on their resolved hotkeys; empty slots need a receiving hotkey with an owner
+    ///      record, which the chain requires for stake operations. Hotkeys remain exclusive even for empty
+    ///      slots. Flat arrays cross this boundary: each struct argument would add its own ABI encoder to
+    ///      the vault, which has no bytecode to spare. `slotAttested`, `slotHotkeys` and `balances` are one
+    ///      record per slot; `attestedHotkeys` is one entry per attested hotkey.
+    function assignActives(bytes32[] memory slotAttested, bytes32[] memory slotHotkeys, uint256[] memory balances,
+        bytes32[] memory attestedHotkeys, uint16 netuid
     ) external view returns (bytes32[] memory actives, bytes32 retired) {
-        actives = new bytes32[](currentSet.length);
-        for (uint256 i; i < currentSet.length;) {
-            bytes32 name = currentSet[i];
-            uint256 ownSlot = VaultMath.indexOf(logicals, name);
-            bytes32 key; bool live;
+        actives = new bytes32[](attestedHotkeys.length);
+        for (uint256 i; i < attestedHotkeys.length;) {
+            bytes32 attested = attestedHotkeys[i];
+            uint256 ownSlot = VaultMath.indexOf(slotAttested, attested);
+            bytes32 hotkey; bool usable;
             if (ownSlot != VaultMath.INDEX_NOT_FOUND && balances[ownSlot] != 0) {
-                key = keys[ownSlot]; live = StakeOps.hasOwner(key);
+                hotkey = slotHotkeys[ownSlot]; usable = StakeOps.hasOwner(hotkey);
             } else {
-                (key, live) = _receivingKey(keys, logicals, currentSet, name, ownSlot, netuid);
-                if (key != name && VaultMath.contains(actives, key)) { revert IAlphaVaultAbi.SwappedHotkeyStillAttested(); }
+                (hotkey, usable) = _receivingHotkey(slotHotkeys, slotAttested, attestedHotkeys, attested, ownSlot, netuid);
+                if (hotkey != attested && VaultMath.contains(actives, hotkey)) { revert IAlphaVaultAbi.SwappedHotkeyStillAttested(); }
             }
-            actives[i] = key;
-            if (!live && retired == bytes32(0)) retired = name;
+            actives[i] = hotkey;
+            if (!usable && retired == bytes32(0)) retired = attested;
             unchecked { ++i; }
         }
     }
 
     /// @dev Start at the richest source or destination, letting a fresh deposit carry rotated-out dust.
-    function chooseRichestSlot(bytes32[] memory sourceKeys, bytes32[] memory currentSet, bytes32 coldkey, uint16 netuid)
+    function chooseRichestSlot(bytes32[] memory sourceHotkeys, bytes32[] memory attestedHotkeys, bytes32 coldkey, uint16 netuid)
         public view returns (
             bytes32 richestHotkey, uint256 richestBalance,
             uint256[] memory sourceBalances, bool hasRotatedOutBalance, bytes32 home) {
-        sourceBalances = new uint256[](sourceKeys.length);
+        sourceBalances = new uint256[](sourceHotkeys.length);
         bytes32 richestRotatedOut; uint256 richestRotatedOutBalance;
         for (uint256 i; i < sourceBalances.length;) {
-            bytes32 candidate = sourceKeys[i];
-            if (!VaultMath.contains(currentSet, candidate)) {
+            bytes32 candidate = sourceHotkeys[i];
+            if (!VaultMath.contains(attestedHotkeys, candidate)) {
                 uint256 balance = IStaking(STAKING_PRECOMPILE).getStake(candidate, coldkey, netuid);
                 sourceBalances[i] = balance;
                 if (balance > richestRotatedOutBalance) { richestRotatedOut = candidate; richestRotatedOutBalance = balance; }
             }
             unchecked { ++i; }
         }
-        if (richestRotatedOutBalance == 0) return (currentSet[0], 0, sourceBalances, false, currentSet[0]);
+        if (richestRotatedOutBalance == 0) return (attestedHotkeys[0], 0, sourceBalances, false, attestedHotkeys[0]);
 
         hasRotatedOutBalance = true;
-        richestHotkey = currentSet[0];
-        for (uint256 i; i < currentSet.length;) {
-            uint256 balance = IStaking(STAKING_PRECOMPILE).getStake(currentSet[i], coldkey, netuid);
-            if (balance > richestBalance) { richestHotkey = currentSet[i]; richestBalance = balance; }
+        richestHotkey = attestedHotkeys[0];
+        for (uint256 i; i < attestedHotkeys.length;) {
+            uint256 balance = IStaking(STAKING_PRECOMPILE).getStake(attestedHotkeys[i], coldkey, netuid);
+            if (balance > richestBalance) { richestHotkey = attestedHotkeys[i]; richestBalance = balance; }
             unchecked { ++i; }
         }
         home = richestHotkey;
@@ -211,33 +211,33 @@ library VaultAllocation {
         }
     }
 
-    /// @dev A still-attested slot reserves its resolved key even while empty.
-    function _keyHeldElsewhere(bytes32[] memory keys, bytes32[] memory logicals, bytes32[] memory currentSet,
-        bytes32 key, uint256 ownSlot) private pure returns (bool) {
-        uint256 holder = VaultMath.indexOf(keys, key);
+    /// @dev A still-attested slot reserves its resolved hotkey even while empty.
+    function _hotkeyHeldByAnotherAttestedSlot(bytes32[] memory slotHotkeys, bytes32[] memory slotAttested, bytes32[] memory attestedHotkeys,
+        bytes32 hotkey, uint256 ownSlot) private pure returns (bool) {
+        uint256 holder = VaultMath.indexOf(slotHotkeys, hotkey);
         if (holder == VaultMath.INDEX_NOT_FOUND || holder == ownSlot) return false;
-        return VaultMath.contains(currentSet, logicals[holder]);
+        return VaultMath.contains(attestedHotkeys, slotAttested[holder]);
     }
 
-    /// @dev The recorded active key while it has an owner record and no outgoing swap edge, else the
-    ///      attested name while it has an owner record, else the record's one-hop successor. The record
-    ///      comes first so an emptied slot follows the validator, whoever claims the vacated name.
-    function _receivingKey(bytes32[] memory keys, bytes32[] memory logicals, bytes32[] memory currentSet,
-        bytes32 name, uint256 ownSlot,
-        uint16 netuid) private view returns (bytes32 key, bool live) {
-        bool nameReserved = _keyHeldElsewhere(keys, logicals, currentSet, name, ownSlot);
-        if (nameReserved && ownSlot == VaultMath.INDEX_NOT_FOUND) revert IAlphaVaultAbi.SwappedHotkeyStillAttested();
+    /// @dev The recorded active hotkey while it has an owner record and no outgoing swap edge, else the
+    ///      attested hotkey while it has an owner record, else the record's one-hop successor. The record
+    ///      comes first so an emptied slot follows the validator, whoever claims the vacated attested hotkey.
+    function _receivingHotkey(bytes32[] memory slotHotkeys, bytes32[] memory slotAttested, bytes32[] memory attestedHotkeys,
+        bytes32 attested, uint256 ownSlot,
+        uint16 netuid) private view returns (bytes32 hotkey, bool usable) {
+        bool attestedHeldElsewhere = _hotkeyHeldByAnotherAttestedSlot(slotHotkeys, slotAttested, attestedHotkeys, attested, ownSlot);
+        if (attestedHeldElsewhere && ownSlot == VaultMath.INDEX_NOT_FOUND) revert IAlphaVaultAbi.SwappedHotkeyStillAttested();
 
-        key = ownSlot == VaultMath.INDEX_NOT_FOUND ? name : keys[ownSlot];
-        bytes32 successor = VaultReads.hotkeySuccessor(key, netuid);
-        live = key != name && successor == bytes32(0) && StakeOps.hasOwner(key);
-        if (!live) {
-            if (!nameReserved && StakeOps.hasOwner(name)) return (name, true);
-            if (successor != bytes32(0) && successor != name && StakeOps.hasOwner(successor)) { key = successor; live = true; }
+        hotkey = ownSlot == VaultMath.INDEX_NOT_FOUND ? attested : slotHotkeys[ownSlot];
+        bytes32 successor = VaultReads.hotkeySuccessor(hotkey, netuid);
+        usable = hotkey != attested && successor == bytes32(0) && StakeOps.hasOwner(hotkey);
+        if (!usable) {
+            if (!attestedHeldElsewhere && StakeOps.hasOwner(attested)) return (attested, true);
+            if (successor != bytes32(0) && successor != attested && StakeOps.hasOwner(successor)) { hotkey = successor; usable = true; }
         }
         if (
-            key != name
-                && (VaultMath.contains(currentSet, key) || _keyHeldElsewhere(keys, logicals, currentSet, key, ownSlot))
+            hotkey != attested
+                && (VaultMath.contains(attestedHotkeys, hotkey) || _hotkeyHeldByAnotherAttestedSlot(slotHotkeys, slotAttested, attestedHotkeys, hotkey, ownSlot))
         ) {
             revert IAlphaVaultAbi.SwappedHotkeyStillAttested();
         }
@@ -296,14 +296,14 @@ library VaultAllocation {
         return true;
     }
 
-    /// @dev Move all dropped-key backing onto tracked destinations before rewriting the record.
+    /// @dev Move all dropped-hotkey backing onto tracked destinations before rewriting the record.
     ///      Recovery may leave a below-floor pile in place; other callers refuse it.
     /// @return leftBelowFloor True only when the richest source/destination is below the floor.
-    function consolidateRotatedStake(Context memory context, bytes32[] memory sourceKeys, bytes32[] memory currentSet,
+    function consolidateRotatedStake(Context memory context, bytes32[] memory sourceHotkeys, bytes32[] memory attestedHotkeys,
         CollectionPolicy policy) external returns (bool leftBelowFloor) {
-        if (!_anyRotatedOut(sourceKeys, currentSet)) return false;
+        if (!_anyRotatedOut(sourceHotkeys, attestedHotkeys)) return false;
         (bytes32 rollerHotkey, uint256 richestBalance, uint256[] memory sourceBalances, bool hasRotatedOutBalance, bytes32 home)
-            = chooseRichestSlot(sourceKeys, currentSet, context.coldkey, context.netuid);
+            = chooseRichestSlot(sourceHotkeys, attestedHotkeys, context.coldkey, context.netuid);
         if (!hasRotatedOutBalance) return false;
         // The pile starts at the largest balance and only grows, up to rounding on each move,
         // so its starting size bounds every hop to within that rounding.
@@ -311,17 +311,17 @@ library VaultAllocation {
             if (policy == CollectionPolicy.LeaveBelowFloor) return true;
             revert IAlphaVaultAbi.ConsolidationBelowFloor();
         }
-        _rollRotatedStake(context, sourceKeys, home, rollerHotkey, sourceBalances);
+        _rollRotatedStake(context, sourceHotkeys, home, rollerHotkey, sourceBalances);
         return false;
     }
 
-    /// @dev Never revisit the starting key: its cached balance is stale once the pile leaves.
-    function _rollRotatedStake(Context memory context, bytes32[] memory sourceKeys, bytes32 home,
+    /// @dev Never revisit the starting hotkey: its cached balance is stale once the pile leaves.
+    function _rollRotatedStake(Context memory context, bytes32[] memory sourceHotkeys, bytes32 home,
         bytes32 rollerHotkey, uint256[] memory sourceBalances) private {
         bytes32 richestHotkey = rollerHotkey;
         bytes32 coldkey = context.coldkey; uint16 netuid = context.netuid;
         for (uint256 i; i < sourceBalances.length;) {
-            bytes32 sourceHotkey = sourceKeys[i];
+            bytes32 sourceHotkey = sourceHotkeys[i];
             if (sourceHotkey != richestHotkey && sourceBalances[i] > 0) {
                 // Read the live pile; summing earlier credits would over-ask after chain rounding.
                 uint256 pile = IStaking(STAKING_PRECOMPILE).getStake(rollerHotkey, coldkey, netuid);
@@ -335,9 +335,9 @@ library VaultAllocation {
         else StakeOps.move(context.clone, coldkey, rollerHotkey, home, netuid, finalPile, context.parking);
     }
 
-    function _anyRotatedOut(bytes32[] memory hotkeys, bytes32[] memory currentSet) private pure returns (bool) {
+    function _anyRotatedOut(bytes32[] memory hotkeys, bytes32[] memory attestedHotkeys) private pure returns (bool) {
         for (uint256 i; i < hotkeys.length;) {
-            if (!VaultMath.contains(currentSet, hotkeys[i])) return true;
+            if (!VaultMath.contains(attestedHotkeys, hotkeys[i])) return true;
             unchecked { ++i; }
         }
         return false;
