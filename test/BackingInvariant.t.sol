@@ -11,6 +11,7 @@ import {
 import { AlphaVault } from "src/AlphaVault.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
+import { VaultAllocation } from "src/libraries/VaultAllocation.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { NothingToRecover } from "src/VaultErrors.sol";
@@ -84,7 +85,7 @@ contract BackingHandler is BackingCampaignHandler {
             if (selector == NothingToRecover.selector) {
                 assertTrue(_backing().nothingListedToCollect(), "refused listed strays it could collect");
             } else if (selector == IAlphaVaultAbi.ConsolidationBelowFloor.selector) {
-                assertTrue(_backing().listedAnnexBelowFloor(), "refused to annex listed strays that clear the floor");
+                assertTrue(false, "auto-recovery met a sub-floor stray the scan should have skipped");
             } else {
                 _requireJustifiedRevert(reason, recoverErrors(), Attempt(0, 0, 0, bytes32(0), false));
             }
@@ -203,40 +204,21 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
     }
 
     function nothingListedToCollect() external view returns (bool) {
-        bytes32[] memory strays = _listedStrays();
-        if (strays.length == 0) return true;
-        (uint256 shortSince,) = vault.recovery(TOKEN1);
-        if (shortSince == 0) return false;
-        uint256 richest = _parkedStake(NETUID1);
-        for (uint256 i; i < strays.length; ++i) {
-            uint256 held = _getVaultStake(strays[i], NETUID1);
-            if (held > richest) richest = held;
-        }
-        return _belowFloorAtAnyPrice(richest);
+        return _listedStrays().length == 0;
     }
 
-    function listedAnnexBelowFloor() external view returns (bool) {
-        bytes32[] memory strays = _listedStrays();
-        (bytes32[] memory hotkeys,,) = resolvedSlots();
-        uint256 richest = _getVaultStake(hotkeys[0], NETUID1);
-        for (uint256 i; i < strays.length; ++i) {
-            uint256 held = _getVaultStake(strays[i], NETUID1);
-            if (held > richest) richest = held;
-        }
-        return strays.length != 0 && _belowFloorAtAnyPrice(richest);
-    }
-
-    /// @dev Mirrors the library: listed hotkeys outside the record and parking holding stake on the subnet, in list
-    ///      order, at most a page.
+    /// @dev Mirrors the library: listed hotkeys outside the record and parking whose pile on the subnet clears the
+    ///      floor, in list order, at most `LISTED_STRAYS_PER_CALL`.
     function _listedStrays() private view returns (bytes32[] memory strays) {
         (bytes32[] memory recorded,,) = resolvedSlots();
         bytes32[] memory listed = _listedHotkeys(_subnetColdkey(NETUID1));
-        strays = new bytes32[](8);
+        strays = new bytes32[](VaultAllocation.LISTED_STRAYS_PER_CALL);
         uint256 count;
-        for (uint256 i; i < listed.length && count < 8; ++i) {
+        for (uint256 i; i < listed.length && count < VaultAllocation.LISTED_STRAYS_PER_CALL; ++i) {
             bytes32 hotkey = listed[i];
             if (hotkey == vault.parkingHotkey() || _contains(recorded, hotkey)) continue;
-            if (_getVaultStake(hotkey, NETUID1) != 0) strays[count++] = hotkey;
+            uint256 pile = _getVaultStake(hotkey, NETUID1);
+            if (pile != 0 && !_belowFloorAtAnyPrice(pile)) strays[count++] = hotkey;
         }
         assembly {
             mstore(strays, count)

@@ -4,6 +4,7 @@ pragma solidity 0.8.36;
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { MAX_STAKING_HOTKEYS } from "src/interfaces/IStaking.sol";
 import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
+import { VaultAllocation } from "src/libraries/VaultAllocation.sol";
 
 // Mock-based measurements, not live-chain gas estimates; use e2e receipts for sizing.
 
@@ -271,6 +272,22 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
 
         vault.autoRecoverStray(TOKEN1);
         vm.snapshotGasLastCall("AlphaVault", "autoRecoverStray: one source, full staking list (10 validators)");
+
+        vault.syncBacking(TOKEN1);
+        assertEq(lens.totalStake(TOKEN1), 10 * ALPHA);
+    }
+
+    function test_gas_autoRecoverStray_fullPage_fullStakingList_10Validators() public {
+        bytes32[] memory hotkeys = _setValidatorCount(NETUID1, MAX_VALIDATORS);
+        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+        _fillListTo(_subnetColdkey(NETUID1), MAX_STAKING_HOTKEYS - 2);
+        for (uint256 i; i < VaultAllocation.LISTED_STRAYS_PER_CALL; ++i) {
+            _simulateOffVaultSwap(NETUID1, hotkeys[i], keccak256(abi.encode("edgeless destination", i)));
+        }
+        vault.syncBacking(TOKEN1);
+
+        vault.autoRecoverStray(TOKEN1);
+        vm.snapshotGasLastCall("AlphaVault", "autoRecoverStray: eight sources, full staking list (10 validators)");
 
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), 10 * ALPHA);

@@ -56,8 +56,9 @@ A slot the vault has followed a swap from stays on that hotkey while it keeps it
 owner record and no outgoing swap edge, whoever claims the vacated hotkey. An attested hotkey
 with no followed record receives an empty slot's allocation while it has an
 owner record, whoever holds it. Alpha moved off either without a trail is
-missing backing: every priced call reverts `BackingShortfall` until a watcher
-parks the position, which earns again once the registry publishes a new set.
+missing backing: every priced call reverts `BackingShortfall` until anyone parks
+the position with `syncBacking`, `autoRecoverStray` and `syncBacking`, and it
+earns again once the registry publishes a new set.
 The followed hotkey keeps the slot after its validator registers the attested
 hotkey again; a swap from the followed hotkey onto it, or publishing the
 followed hotkey, moves the slot.

@@ -61,15 +61,15 @@ expiry is written off: a real loss for holders at that time, and anything
 recovered later belongs to whoever holds shares then. Balances too small to move
 can be written off as well.
 
-A holder of alpha the sync cannot move, below the movement floor at the
-current price, can exploit that policy:
+The policy is open to abuse when the window passes with nobody running
+`syncBacking`, `autoRecoverStray` and `syncBacking`, or when the alpha sits
+below the movement floor, which a large holder can force by dumping the price:
 
-1. Keep that alpha out of reach until the window expires.
-2. Let the write-off finalize if nobody collects it in time.
-3. Deposit against the reduced backing to acquire a larger share of the supply.
-4. Reveal the hidden alpha, so the new shares take part in its recovery.
+1. The write-off finalizes with that alpha uncollected.
+2. Deposit against the reduced backing to acquire a larger share of the supply.
+3. The alpha is collected once the price allows, so the new shares take part in it.
 
-The original holders lose at most the hidden alpha and what it earned
+The original holders lose at most the uncollected alpha and what it earned
 meanwhile. Parking before write-off defeats the attack, which makes watcher
 responsiveness a financial concern. After a write-off, deposits stay shut until
 the registry is updated, and holders who keep their shares keep their claim on

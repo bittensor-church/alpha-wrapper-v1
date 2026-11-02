@@ -81,10 +81,10 @@ Scenario files in `tests/` cover:
   minimums, top-ups, dust and repeated position changes.
 - `test_claimable_tao.py`: forced-sale proceeds become claimable, and the swept
   position's loss is written off once a short recovery window expires.
-- `test_parked_stake.py`: a rename that leaves the stake and the owner record behind,
-  where exits keep paying from the old name and follow the successor once the owner
-  names it; and a rename that carries the stake, which exits follow before the registry
-  changes.
+- `test_parked_stake.py`: a hotkey swap that leaves the stake and the owner record
+  behind, where exits keep paying from the old hotkey and follow the successor once the
+  owner attests it; and a swap that carries the stake, which exits follow before the
+  registry changes.
 - `test_parked_recovery.py`: a stranger cuts the trail behind a hotkey swap;
   `autoRecoverStray` parks the position, exits pay from the parking hotkey, an owner
   update releases.

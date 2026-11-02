@@ -56,12 +56,14 @@ library VaultAllocation {
     /// @dev Each stray costs one clone-signed move, which pays the chain's walk of the whole staking list.
     uint256 internal constant LISTED_STRAYS_PER_CALL = 8;
 
-    /// @dev Hotkeys in the clone's staking list, outside `known` and parking, that hold stake on the subnet, in
-    ///      list order and at most a page of them. A hotkey swap keeps the clone's stake under a listed hotkey, so
-    ///      this finds a move the chain wrote no edge for.
+    /// @dev Hotkeys in the clone's staking list, outside `known` and parking, holding a pile on the subnet that
+    ///      clears the movement floor, in list order and at most `LISTED_STRAYS_PER_CALL` of them. A hotkey swap
+    ///      keeps the clone's stake under a listed hotkey, so this finds a move the chain wrote no edge for. Piles
+    ///      below the floor are skipped so they cannot fill the page ahead of a movable one.
     function listedStrays(bytes32 coldkey, uint16 netuid, bytes32[] memory known, bytes32 parking)
         external view returns (bytes32[] memory strays) {
         IStaking staking = IStaking(STAKING_PRECOMPILE);
+        uint256 alphaPriceE18 = IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid);
         bytes32[] memory found = new bytes32[](LISTED_STRAYS_PER_CALL); uint256 count;
         uint64 offset; uint64 total;
         do {
@@ -69,8 +71,9 @@ library VaultAllocation {
             total = listed;
             for (uint256 i; i < page.length && count < LISTED_STRAYS_PER_CALL;) {
                 bytes32 hotkey = page[i];
-                if (hotkey != parking && !VaultMath.contains(known, hotkey) && staking.getStake(hotkey, coldkey, netuid) != 0) {
-                    found[count++] = hotkey;
+                if (hotkey != parking && !VaultMath.contains(known, hotkey)) {
+                    uint256 pile = staking.getStake(hotkey, coldkey, netuid);
+                    if (pile != 0 && !StakeOps.isBelowFloorAtAnyPrice(pile, alphaPriceE18)) found[count++] = hotkey;
                 }
                 unchecked { ++i; }
             }

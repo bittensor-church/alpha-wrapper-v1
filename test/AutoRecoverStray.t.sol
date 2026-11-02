@@ -6,6 +6,7 @@ import { NothingToRecover } from "src/VaultErrors.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
+import { VaultAllocation } from "src/libraries/VaultAllocation.sol";
 
 contract AutoRecoverStrayTest is AlphaVaultTestBase {
     uint256 private constant FIRST_SLOT = 10_002_000_000;
@@ -69,7 +70,7 @@ contract AutoRecoverStrayTest is AlphaVaultTestBase {
         assertEq(lens.missingStake(TOKEN1), 0);
     }
 
-    function test_AutoRecoverStray_CollectsAPagePerCall() public {
+    function test_AutoRecoverStray_CollectsEightStraysPerCall() public {
         uint256 netuid = 9;
         _setRegBlock(netuid, 400);
         bytes32[] memory hotkeys = _setValidatorCount(netuid, MAX_VALIDATORS);
@@ -82,7 +83,7 @@ contract AutoRecoverStrayTest is AlphaVaultTestBase {
         vault.syncBacking(tokenId);
 
         vault.autoRecoverStray(tokenId);
-        assertEq(_parkedStake(netuid), 8 * ALPHA, "one page of eight strays per call");
+        assertEq(_parkedStake(netuid), VaultAllocation.LISTED_STRAYS_PER_CALL * ALPHA, "eight strays per call");
         vault.autoRecoverStray(tokenId);
         assertEq(_parkedStake(netuid), MAX_VALIDATORS * ALPHA, "the next call takes the rest");
         vm.expectRevert(NothingToRecover.selector);
@@ -112,6 +113,29 @@ contract AutoRecoverStrayTest is AlphaVaultTestBase {
 
         assertEq(_parkedStake(NETUID1), amount, "the moved pile was found wherever the list holds it");
         assertEq(_getVaultStake(hotkey4, NETUID1), 0);
+    }
+
+    function test_AutoRecoverStray_SkipsSubFloorPilesListedAheadOfTheMovedOnes() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        for (uint256 i; i < VaultAllocation.LISTED_STRAYS_PER_CALL; ++i) {
+            bytes32 pinned = keccak256(abi.encode("dust ahead", i));
+            _keepListed(NETUID1, pinned);
+            _strangerReturns(NETUID1, pinned, ALPHA_FLOOR / 2);
+        }
+        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
+        _simulateOffVaultSwap(NETUID1, hotkey2, hotkey5);
+        _simulateOffVaultSwap(NETUID1, hotkey3, keccak256("third destination"));
+        vault.syncBacking(TOKEN1);
+        assertEq(_parkedStake(NETUID1), 0, "nothing movable was located at declaration");
+
+        vault.autoRecoverStray(TOKEN1);
+
+        assertEq(_parkedStake(NETUID1), 30 * ALPHA, "the moved piles behind the dust were collected");
+        assertEq(
+            _getVaultStake(keccak256(abi.encode("dust ahead", 0)), NETUID1), ALPHA_FLOOR / 2, "the dust stays listed"
+        );
+        vm.expectRevert(NothingToRecover.selector);
+        vault.autoRecoverStray(TOKEN1);
     }
 
     function test_AutoRecoverStray_AnnexesAStrangersPileUnderAListedHotkey() public {
