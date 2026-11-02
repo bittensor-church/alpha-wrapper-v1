@@ -1,0 +1,5 @@
+name	alpha-wrapper-v1
+mode	filename
+files	./src/AlphaVaultLens.sol ./src/AlphaVault.sol ./src/BasicValidatorRegistry.sol ./src/CloneBase.sol ./src/CloneFactory.sol ./src/CloneOwner.sol ./src/DepositMailbox.sol ./src/libraries/StakeOps.sol ./src/libraries/VaultAllocation.sol ./src/libraries/VaultClones.sol ./src/libraries/VaultMath.sol ./src/libraries/VaultReads.sol ./src/SubnetClone.sol ./src/VaultErrors.sol
+passes_planned	1
+pass_1_agents	12/12

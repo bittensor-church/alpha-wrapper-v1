@@ -1,0 +1,9 @@
+## Agent 3 — economic-security
+
+No FINDINGs. One LEAD.
+
+Chain checks (ruled out): same-subnet moves charge no fee and conserve alpha exactly (stake_utils.rs:1402-1461); third parties cannot grow the clone's staking list (stake_utils.rs:1568-1586) so recoverStray/replaceClone not attacker-reachable, mailbox admits deposits only on its own hotkey; locked alpha into rejecting coldkey refused on-chain (lock.rs:2131), Lock row only creatable by the clone itself (lock.rs:792) so no forced LockedBacking; coldkey-swap reservation cannot target clone/mailbox (NewColdKeyIsHotkey, swap_coldkey.rs:564); dissolution credits TAO to staker coldkey free balance (remove_stake.rs:898-903); full unstakes bypass TAO minimum (stake_utils.rs:1818-1826), NominatorMinRequiredStake default 0 (lib.rs:2407), vault leftover guard more conservative than chain; getAlphaPrice 1e9 quantum (alpha.rs:82-88); refund mints cannot exceed SUPPLY_CAP (refundShares <= supply, burn precedes).
+
+LEAD | contract: AlphaVault | function: wrap | bug_class: stranded-stake-at-zero-supply
+code_smells: VaultMath.sharesFor(preStake, 0, totalDeposit) prices alpha already in the clone into the 1e9 virtual shares when totalSupply == 0. Three paths leave alpha recorded with zero supply: recoverStray → _annex after every holder exited; sub-floor unsold that a full-supply _unwrapForTao sets to zero and _reanchor still records; alpha located after a write-off once all holders burned worthless shares (_unwrapFromLiveSubnet totalAlpha == 0 branch). Numbers: R = 1e12 RAO on record, supply 0, deposit A = 1e9 → shares = 1e9*(1e9)/(1e12+1) ≈ 1e6; full redemption pays ≈ 1e9 = A, so R stays in the clone and no later share can claim it.
+description: Alpha that sits in the clone while no shares exist goes to the virtual shares, so no holder can ever redeem it. We found no path where an attacker gains from this.
