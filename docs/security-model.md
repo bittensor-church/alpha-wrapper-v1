@@ -84,8 +84,9 @@ later recovery.
   published and the next wrap, rebalance or alpha exit releases it.
 - After a validator swap, stake can sit idle under the old name until the
   registry publishes the successor.
-- A stranger who claims a vacated validator name receives allocations until the
-  registry replaces it; the alpha stays under the vault's coldkey.
+- A stranger who claims a vacated validator name receives allocations for a
+  slot with no live followed record until the registry replaces the name; the
+  alpha stays under the vault's coldkey.
 - Alpha a clone holds on another subnet stays outside the backing, and so do piles
   a clone replacement leaves behind. Anyone holding enough alpha can push a pile
   below the floor by dumping the price around a replacement and so destroy

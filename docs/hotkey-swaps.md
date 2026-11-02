@@ -26,12 +26,10 @@ Suppose the registry names A and the vault holds 100 alpha there:
 3. An exit empties that slot. The next allocation for A goes to B, the key that
    still has an owner record.
 
-For an empty slot the vault prefers the attested name, then the recorded key,
-then that key's one-hop successor, each only while it has an owner record,
-subject to collision checks. Funded slots stay at their resolved location.
-After a per-subnet swap the name keeps its owner record, so an emptied slot
-returns to the name and stays idle there until the registry owner publishes
-the successor.
+For an empty slot the vault takes the recorded key while it has an owner
+record and no outgoing swap edge, else the attested name while it has an owner
+record, else that key's one-hop successor, subject to collision checks. Funded
+slots stay at their resolved location.
 
 ## Automatic handling has limits
 
@@ -48,13 +46,14 @@ unobserved swaps, an erased edge or a collision need a watcher. Subnet re-regist
 ## Receiving keys
 
 A receiving key needs an owner record, because the chain refuses stake
-operations without one: the attested name, else the recorded active key, else
-its one-hop successor. A name with no usable key reports
+operations without one. A name with no usable key reports
 `AttestedHotkeyRetired`; the registry owner replaces the target.
 
-A vacated attested name that someone else claims receives an empty slot's
-allocation until the registry owner publishes the successor. The alpha stays
-under the vault's coldkey and, if moved, is recovered as missing backing.
+A slot the vault has followed a swap from stays on that key while it keeps its
+owner record and no outgoing swap edge, whoever claims the vacated name. A name
+with no followed record receives an empty slot's allocation while it has an
+owner record, whoever holds it; alpha moved off it without a trail is recovered
+as missing backing.
 
 The chain refuses to move stake through a hotkey with no owner record. When the
 vault has to move stake off such a key, it claims the key for its own coldkey
@@ -95,7 +94,7 @@ name was already replaced or irrelevant.
 
 | Problem | Meaning | Repair |
 | --- | --- | --- |
-| Name has no usable key | The attested name, its recorded key and its successor have no owner record. | Registry governance publishes a set without the name, or the validator reclaims it. |
+| Name has no usable key | No owner record on the attested name or its successor; none, or an outgoing swap edge, on its recorded key. | Registry governance publishes a set without the name, or the validator reclaims it. |
 | Missing backing | The vault cannot locate enough alpha to satisfy its record. | Park it with `recoverStray`, or let `syncBacking` write off the difference after the window. |
 
 They can occur together. An attested entry with no usable key blocks allocation
@@ -109,7 +108,7 @@ even while backing is intact.
    call `syncBacking(tokenId)` before the old key is re-registered to record it.
    Watch the chain's hotkey swap events for attested names. After any swap of
    an attested name, publish the successor at once: until then an emptied slot
-   re-stakes under the old name, which stays idle on that subnet.
+   stays on the followed key, or with no record re-stakes under the old name.
 2. For missing backing, call `syncBacking(tokenId)`. It secures all located
    backing on `parkingHotkey` before starting one fixed recovery window, except
    below-floor piles. Other collection failures revert.
