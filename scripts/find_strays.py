@@ -3,10 +3,11 @@
 """Find the vault's alpha under hotkeys the record does not name, and recover it.
 
 A hotkey swap keeps the clone's alpha under a hotkey the clone stakes under, even
-when the chain leaves no edge for the vault to follow. This lists every such hotkey
-with a pile on the token's subnet, dry-runs `recoverStray` for each, largest pile
-first so a movable one can carry smaller ones, and with `--recover` sends the calls.
-Call `syncBacking` first while a shortfall stands, and again once everything is home.
+when the chain leaves no edge for the vault to follow. This prints one CSV row per
+such hotkey with a pile on the token's subnet, largest pile first so a movable one
+can carry smaller ones, with the `recoverStray` dry-run verdict; `--recover` sends
+the calls the dry run accepts. Call `syncBacking` first while a shortfall stands,
+and again once everything is home.
 """
 
 import argparse
@@ -23,6 +24,7 @@ from common import (
     get_web3_connection,
     load_abi,
     lookup_token_id,
+    make_csv_writer,
     resolve_block,
 )
 
@@ -75,6 +77,14 @@ def find_strays(
         if stake:
             strays.append(Stray(hotkey, stake))
     return sorted(strays, key=lambda stray: stray.stake, reverse=True)
+
+
+def report_rows(strays: Iterable[Stray], verdict_of: Callable[[Stray], Optional[str]]) -> list[dict[str, str]]:
+    """One CSV row per stray: the hotkey, its pile, and `ok` or the error `recoverStray` would revert with."""
+    return [
+        {"hotkey": "0x" + stray.hotkey.hex(), "stake_rao": str(stray.stake), "dry_run": verdict_of(stray) or "ok"}
+        for stray in strays
+    ]
 
 
 def listed_hotkeys(staking, coldkey: bytes, block: int | str) -> list[bytes]:
@@ -138,19 +148,23 @@ def main() -> None:
         parking,
         lambda hotkey: staking.functions.getStake(hotkey, coldkey, netuid).call(block_identifier=block),
     )
-    if not strays:
-        print("no alpha outside the record")
-        return
-    print("shortfall on file: collecting into parking" if short_since else "no shortfall on file: annexing into backing")
-
+    print(
+        "shortfall on file: recovery collects into parking" if short_since else "no shortfall on file: recovery annexes into backing",
+        file=sys.stderr,
+    )
     sender = w3.eth.account.from_key(args.private_key).address if args.private_key else clone
-    for stray in strays:
-        name = "0x" + stray.hotkey.hex()
-        recover_call = vault.functions.recoverStray(token_id, stray.hotkey)
-        revert = dry_run(recover_call, sender, "latest", vault.abi)
-        print(f"{name} holds {stray.stake} RAO: " + (f"recoverStray would revert: {revert}" if revert else "recoverable"))
-        if revert or not args.recover:
+    rows = report_rows(
+        strays, lambda stray: dry_run(vault.functions.recoverStray(token_id, stray.hotkey), sender, "latest", vault.abi),
+    )
+    writer = make_csv_writer(sys.stdout, ["hotkey", "stake_rao", "dry_run"])
+    for row in rows:
+        writer.writerow(row)
+    if not args.recover:
+        return
+    for row in rows:
+        if row["dry_run"] != "ok":
             continue
+        recover_call = vault.functions.recoverStray(token_id, bytes.fromhex(row["hotkey"][2:]))
         tx = recover_call.build_transaction({
             "from": sender, "nonce": w3.eth.get_transaction_count(sender),
             "gas": args.gas_limit, "gasPrice": w3.eth.gas_price, "chainId": w3.eth.chain_id,
@@ -158,7 +172,7 @@ def main() -> None:
         signed = w3.eth.account.sign_transaction(tx, args.private_key)
         receipt = w3.eth.wait_for_transaction_receipt(w3.eth.send_raw_transaction(signed.raw_transaction))
         status = "ok" if receipt["status"] == 1 else "reverted"
-        print(f"recoverStray({token_id}, {name}): {status} in {receipt['transactionHash'].hex()}")
+        print(f"recoverStray({token_id}, {row['hotkey']}): {status} in {receipt['transactionHash'].hex()}", file=sys.stderr)
 
 
 if __name__ == "__main__":

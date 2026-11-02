@@ -1,19 +1,20 @@
-"""A stranger cuts the trail behind a validator's rename; the watcher parks the position.
+"""A stranger cuts the trail behind a validator's hotkey swap; the watcher parks the position.
 
-A validator renames its hotkey on every subnet, which moves the vault's alpha to the
-new name and records the edge the vault follows. Before the vault records that, a
-stranger renames a junk key onto the vacated name: the chain lets anyone claim a name
-with no owner, and the rename erases the name's own edge. The vault can no longer find
-the alpha and refuses every priced operation.
+A validator swaps its hotkey on every subnet, which moves the vault's alpha to the
+new hotkey and records the edge the vault follows. Before the vault records that, a
+stranger swaps a junk hotkey onto the vacated one: the chain lets anyone claim a hotkey
+with no owner, and the swap erases its own edge. The vault can no longer find the
+alpha and refuses every priced operation.
 
-The watcher calls `syncBacking`, recovers the successor with `recoverStray`, and syncs
-again. Backing rests on the vault's parking hotkey, and the vault holds
-deposits and weight alignment shut until the owner publishes a set without the
-vacated name. Exits keep working from the parking hotkey throughout.
+The watcher calls `syncBacking`, asks `scripts/find_strays.py` where the alpha sits,
+recovers each hotkey it reports with `recoverStray`, and syncs again. Backing rests on
+the vault's parking hotkey, and the vault holds deposits and weight alignment shut
+until the owner publishes a set without the vacated hotkey. Exits keep working from
+the parking hotkey throughout.
 """
 import pytest
 
-from alpha_e2e import config, exits, incidents
+from alpha_e2e import checks, config, exits, incidents
 
 
 @pytest.mark.scenario
@@ -39,7 +40,28 @@ def test_watcher_parks_a_position_whose_trail_a_stranger_cut(env):
         "rebalance(uint256)", netuid,
     )
 
-    parked = incidents.park(env, token_id, stranding, "Parked recovery")
+    env.sync_backing(token_id, label="syncBacking [declare]")
+    assert env.write_off_deadline(token_id) > 0, "the shortfall should be on file with a deadline"
+    strays = checks.find_strays(env, token_id)
+    assert [row["hotkey"].lower() for row in strays] == [successor_pubkey.lower()], (
+        f"find_strays should report exactly the successor, got {strays}"
+    )
+    assert strays[0]["dry_run"] == "ok", f"the successor should be recoverable, got {strays}"
+    assert int(strays[0]["stake_rao"]) >= stranding.backing_before - config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO, (
+        f"the successor should hold the moved alpha, got {strays}"
+    )
+    for row in strays:
+        env.recover_stray(token_id, row["hotkey"], f"recoverStray failed for {row['hotkey']}")
+    assert checks.find_strays(env, token_id) == [], "nothing should be left outside the record"
+
+    env.sync_backing(token_id, label="syncBacking [finalize]")
+    parked = env.stake(parking_hotkey, clone_coldkey, netuid)
+    assert parked >= stranding.backing_before - config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO, (
+        f"the parking hotkey holds {parked} against {stranding.backing_before} before the incident"
+    )
+    assert env.awaiting_attestation(token_id), "the position should wait for the registry owner"
+    assert env.backing_intact(token_id), "parked backing accounts for itself"
+    assert env.write_off_deadline(token_id) == 0, "nothing should be on file any more"
     assert env.total_stake_across(clone_coldkey, netuid, hotkeys + [successor_pubkey]) <= (
         config.ROUNDING_DUST_TOTAL_RAO
     ), "alpha stayed behind on validator keys after parking"

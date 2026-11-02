@@ -34,3 +34,13 @@ def test_find_strays_reads_a_repeated_entry_once():
 
 def test_find_strays_with_nothing_listed_is_empty():
     assert finder.find_strays([], [FIRST], PARKING, lambda hotkey: 1) == []
+
+
+def test_report_rows_names_each_pile_with_its_dry_run_verdict():
+    strays = [finder.Stray(FIRST, 5), finder.Stray(SECOND, 1)]
+    verdicts = {SECOND: "NothingToRecover"}
+    rows = finder.report_rows(strays, lambda stray: verdicts.get(stray.hotkey))
+    assert rows == [
+        {"hotkey": "0x" + FIRST.hex(), "stake_rao": "5", "dry_run": "ok"},
+        {"hotkey": "0x" + SECOND.hex(), "stake_rao": "1", "dry_run": "NothingToRecover"},
+    ]

@@ -15,6 +15,14 @@ from . import chain, config
 from .environment import Environment
 
 
+def find_strays(env: Environment, token_id: int) -> List[dict]:
+    """The rows `scripts/find_strays.py` reports for the token: hotkey, stake_rao, dry_run."""
+    report = run_observability_script(
+        "find_strays", "--token-id", str(token_id), address_args=["--vault-address", env.vault_address],
+    )
+    return list(csv.DictReader(io.StringIO(report)))
+
+
 def run_observability_script(
     script_name: str, *extra_args: str,
     address_args: List[str],

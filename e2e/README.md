@@ -45,8 +45,7 @@ chain is unsupported. CI gives each scenario its own container.
 - `checks.py`: shared assertions (payouts, gas, CSV output).
 - `exits.py`: exits measured against the chain: what a holder receives must match
   what the clone gave up in the same block.
-- `incidents.py`: staged hotkey incidents for the recovery scenarios; parking collects
-  through `scripts/find_strays.py --recover`.
+- `incidents.py`: staged hotkey incidents for the recovery scenarios.
 - `bootstrap.py`: one-time localnet setup.
 - `fixtures.py`: the `env` and `recovery_window` fixtures; a scenario overrides
   `recovery_window` to deploy with a different window.
@@ -86,8 +85,9 @@ Scenario files in `tests/` cover:
   where exits keep paying from the old name and follow the successor once the owner
   names it; and a rename that carries the stake, which exits follow before the registry
   changes.
-- `test_parked_recovery.py`: a stranger cuts the trail behind a rename; the watcher
-  parks the position, exits pay from the parking hotkey, an owner update releases.
+- `test_parked_recovery.py`: a stranger cuts the trail behind a hotkey swap; the
+  watcher declares, recovers the hotkeys `scripts/find_strays.py` reports, parks the
+  position, exits pay from the parking hotkey, an owner update releases.
 - `test_parking_isolation.py`: two subnets park on the one parking hotkey; each keeps
   its own balance, the other keeps trading, and each releases on its own owner update.
 - `test_subnet_generation.py`: a rewritten registration block leaves the token and its

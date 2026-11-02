@@ -13,7 +13,7 @@ build the contracts before using them.
 | `get_volumes.py` | Alpha/TAO exit metrics, optionally filtered by user |
 | `get_vault_state.py` | Token state and lens quotes |
 | `plan_tao_exit.py` | Pre-flight for a TAO exit: per-slot quotes, the exclusion mask, a dry run |
-| `find_strays.py` | Vault alpha under hotkeys the record does not name, a `recoverStray` dry run per pile, and the calls with `--recover` |
+| `find_strays.py` | CSV of vault alpha under hotkeys the record does not name, with a `recoverStray` dry run per pile; `--recover` sends the accepted calls |
 
 `get_vault_state.py` and `plan_tao_exit.py` require `--lens-address` and
 `--vault-address`. Use a trusted lens: checking its `vault()` catches a mismatch,
