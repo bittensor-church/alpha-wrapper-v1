@@ -18,11 +18,12 @@ from web3.exceptions import ContractLogicError, Web3RPCError
 
 from common import (
     add_block_argument,
-    extract_error_name,
+    add_target_arguments,
+    dry_run,
     get_web3_connection,
     load_abi,
-    lookup_token_id,
     resolve_block,
+    resolve_position,
 )
 
 ALPHA_PRECOMPILE = "0x0000000000000000000000000000000000000808"
@@ -96,24 +97,13 @@ def quote(alpha_precompile, netuid: int, balance: int, block: int | str = "lates
         raise
 
 
-def dry_run(exit_call, holder: str, block: int | str, abi: list) -> Optional[str]:
-    """The error the exit would revert with at `block`, or None when it would go through."""
-    try:
-        exit_call.call({"from": holder}, block_identifier=block)
-        return None
-    except ContractLogicError as error:
-        return extract_error_name(error, abi)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vault-address", required=True, help="AlphaVault contract address")
     parser.add_argument("--lens-address", required=True,
                         help="AlphaVaultLens contract address, from the same trusted source as the vault")
     parser.add_argument("--rpc-url", required=True, help="HTTP RPC URL of the Subtensor EVM endpoint")
-    target = parser.add_mutually_exclusive_group(required=True)
-    target.add_argument("--netuid", type=int, help="Subnet id; resolves the live token id")
-    target.add_argument("--token-id", type=int, help="Token id, for a position on a retired generation")
+    add_target_arguments(parser)
     parser.add_argument("--holder", required=True, help="EVM address whose shares would be burned")
     parser.add_argument("--shares", required=True, type=int, help="Shares to burn, raw ERC-1155 units")
     parser.add_argument("--min-tao-out", type=int, default=0, help="Minimum TAO out in wei for the dry run")
@@ -131,14 +121,7 @@ def main() -> None:
     if lens_vault != w3.to_checksum_address(args.vault_address):
         sys.exit(f"lens {args.lens_address} reads vault {lens_vault}, not {args.vault_address}")
 
-    token_id = (
-        args.token_id if args.token_id is not None
-        else lookup_token_id(vault, args.netuid, block)
-    )
-    netuid = token_id & 0xFFFF
-    clone = vault.functions.subnetClone(token_id).call(block_identifier=block)
-    if int(clone, 16) == 0:
-        sys.exit(f"token {token_id} has no position")
+    token_id, netuid, _clone = resolve_position(vault, args.netuid, args.token_id, block)
 
     alpha = w3.eth.contract(address=ALPHA_PRECOMPILE, abi=ALPHA_ABI)
     keys, balances, short, _total = lens.functions.resolvedBacking(token_id).call(block_identifier=block)
@@ -154,8 +137,8 @@ def main() -> None:
     holder = w3.to_checksum_address(args.holder)
     # The plan is pinned to one block but the exit runs at the head; a disagreement is the state moving.
     outcomes = {
-        f"block {block}": dry_run(exit_call, holder, block, vault.abi),
-        "latest": dry_run(exit_call, holder, "latest", vault.abi),
+        f"block {block}": dry_run(exit_call, block, vault.abi, sender=holder),
+        "latest": dry_run(exit_call, "latest", vault.abi, sender=holder),
     }
     call_text = f"unwrapForTao({token_id}, {args.shares}, {args.min_tao_out}, {plan.mask})"
     for label, revert in outcomes.items():

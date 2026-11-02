@@ -118,9 +118,9 @@ even while backing is intact.
    below-floor piles. Other collection failures revert.
 3. After sync declares the loss, run `scripts/find_strays.py`: it lists every
    hotkey the clone stakes under that the record does not name, largest pile
-   first, and with `--recover` calls `recoverStray(tokenId, source)` for each.
-   Finds reduce the pooled deficit without validator attribution. If parking is
-   empty, collect a movable source first so it can carry smaller sources home.
+   first, and with `--recover` calls `recoverStray(tokenId, source)` for each in
+   that order, so a pile parked by one call carries the smaller ones home.
+   Finds reduce the pooled deficit without validator attribution.
    `missingStake(tokenId)` reports unlocated alpha;
    dust at recorded hotkeys reduces that amount and is written off when it is too small to park.
 4. While recovery is open, priced operations refuse. Further syncs collect

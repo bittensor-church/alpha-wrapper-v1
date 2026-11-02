@@ -15,10 +15,13 @@ from . import chain, config
 from .environment import Environment
 
 
-def find_strays(env: Environment, token_id: int) -> List[dict]:
-    """The rows `scripts/find_strays.py` reports for the token: hotkey, stake_rao, dry_run."""
+def find_strays(env: Environment, token_id: int, recover: bool = False) -> List[dict]:
+    """The rows `scripts/find_strays.py` reports for the token: hotkey, stake_rao, dry_run.
+    With `recover`, the script also sends `recoverStray` for the piles it accepts."""
     report = run_observability_script(
-        "find_strays", "--token-id", str(token_id), address_args=["--vault-address", env.vault_address],
+        "find_strays", "--token-id", str(token_id), *(["--recover"] if recover else []),
+        address_args=["--vault-address", env.vault_address],
+        extra_env={"RECOVER_PRIVATE_KEY": config.WRAPPER_USER_PRIVATE_KEY},
     )
     return list(csv.DictReader(io.StringIO(report)))
 
@@ -27,6 +30,7 @@ def run_observability_script(
     script_name: str, *extra_args: str,
     address_args: List[str],
     block_start: Optional[int] = None, block_end: Optional[int] = None,
+    extra_env: Optional[dict] = None,
 ) -> str:
     """Run scripts/<script_name>.py and return its CSV stdout. Pass the block
     window for the event readers; omit it for the state readers that take none."""
@@ -34,7 +38,7 @@ def run_observability_script(
     if block_start is not None:
         cmd += ["--block-start", str(block_start), "--block-end", str(block_end)]
     cmd += list(extra_args)
-    return chain.run(cmd).stdout
+    return chain.run(cmd, extra_env=extra_env).stdout
 
 
 def min_tao_out_for(quote_rao: int) -> int:

@@ -1,7 +1,7 @@
 # Observability scripts
 
-Read-only Python tools for vault events and state. They load ABIs from `out/`;
-build the contracts before using them.
+Python tools for vault events and state. They load ABIs from `out/`; build the
+contracts before using them. Only `find_strays.py --recover` sends transactions.
 
 | Script | Output |
 | --- | --- |
@@ -13,11 +13,13 @@ build the contracts before using them.
 | `get_volumes.py` | Alpha/TAO exit metrics, optionally filtered by user |
 | `get_vault_state.py` | Token state and lens quotes |
 | `plan_tao_exit.py` | Pre-flight for a TAO exit: per-slot quotes, the exclusion mask, a dry run |
-| `find_strays.py` | CSV of vault alpha under hotkeys the record does not name, with a `recoverStray` dry run per pile; `--recover` sends the accepted calls |
+| `find_strays.py` | CSV of vault alpha under hotkeys the record does not name, with a `recoverStray` dry run per pile; `--recover` sends the calls, largest pile first |
 
 `get_vault_state.py` and `plan_tao_exit.py` require `--lens-address` and
 `--vault-address`. Use a trusted lens: checking its `vault()` catches a mismatch,
-not fabricated quotes. `find_strays.py` reads the vault and the staking precompile.
+not fabricated quotes. `find_strays.py` reads the vault and the chain's staking and
+address-mapping precompiles; `--recover` signs with `RECOVER_PRIVATE_KEY` from the
+environment.
 
 `get_validator_updates.py` decodes `BasicValidatorRegistry.ValidatorUpdated` events,
 with `count` equal to one. `get_vault_state.py` reads optional validator columns

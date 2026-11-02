@@ -77,6 +77,32 @@ def lookup_token_id(vault: Contract, netuid: int, block: int | str = "latest") -
         sys.exit(f"netuid {netuid}: {extract_error_name(e, vault.abi)}")
 
 
+def add_target_arguments(parser: argparse.ArgumentParser) -> None:
+    """The token a state reader works on: a subnet's live token, or a token id for a retired generation."""
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--netuid", type=int, help="Subnet id; resolves the live token id")
+    target.add_argument("--token-id", type=int, help="Token id, for a position on a retired generation")
+
+
+def resolve_position(vault: Contract, netuid: Optional[int], token_id: Optional[int], block: int | str) -> tuple[int, int, str]:
+    """The token id, its subnet and its clone; exits when the token has no position."""
+    if token_id is None:
+        token_id = lookup_token_id(vault, netuid, block)
+    clone = vault.functions.subnetClone(token_id).call(block_identifier=block)
+    if int(clone, 16) == 0:
+        sys.exit(f"token {token_id} has no position")
+    return token_id, token_id & 0xFFFF, clone
+
+
+def dry_run(call, block: int | str, abi: list, sender: Optional[str] = None) -> Optional[str]:
+    """The error `call` would revert with at `block`, or None when it would go through."""
+    try:
+        call.call({"from": sender} if sender else {}, block_identifier=block)
+        return None
+    except ContractLogicError as error:
+        return extract_error_name(error, abi)
+
+
 def block_number(text: str) -> int:
     """argparse type for an absolute block number; a relative offset would be resolved
     against a fresh head on every call and the report would span several blocks."""
