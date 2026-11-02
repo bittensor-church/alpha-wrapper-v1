@@ -424,8 +424,9 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
     }
 
     /// @dev The documented key assignment for the attested set. A funded slot keeps its resolved key. An empty or new
-    ///      slot takes the name while no other attested slot holds it, else its slot's key, else that key's successor,
-    ///      each only while it has an owner record; `live` marks such a key. The assignment collides when an
+    ///      slot takes its slot's key while it has an owner record and no outgoing edge, else the name while it has
+    ///      an owner record and no other attested slot holds it, else that key's successor while it has an owner
+    ///      record; `live` marks such a key. The assignment collides when an
     ///      empty or new slot settles on another attested name, a key another attested slot holds, or a key already
     ///      assigned.
     function attestedAssignment()
@@ -448,20 +449,20 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
             }
             bool nameHeld = _heldByAnotherAttestedSlot(keys, slots, names, name, slot);
             if (nameHeld && slot == type(uint256).max) return (names, actives, live, true);
-            bytes32 key = name;
-            live[i] = !nameHeld && _hasOwner(name);
+            bytes32 key = slot != type(uint256).max ? keys[slot] : name;
+            bytes32 successor = _successorOf(key);
+            live[i] = key != name && successor == bytes32(0) && _hasOwner(key);
             if (!live[i]) {
-                if (slot != type(uint256).max) key = keys[slot];
-                live[i] = key != name && _hasOwner(key);
-                bytes32 successor = _successorOf(key);
-                if (!live[i] && successor != bytes32(0) && successor != name && _hasOwner(successor)) {
+                if (!nameHeld && _hasOwner(name)) {
+                    key = name;
+                    live[i] = true;
+                } else if (successor != bytes32(0) && successor != name && _hasOwner(successor)) {
                     key = successor;
                     live[i] = true;
                 }
-                if (key != name && (_contains(names, key) || _heldByAnotherAttestedSlot(keys, slots, names, key, slot)))
-                {
-                    return (names, actives, live, true);
-                }
+            }
+            if (key != name && (_contains(names, key) || _heldByAnotherAttestedSlot(keys, slots, names, key, slot))) {
+                return (names, actives, live, true);
             }
             if (key != name && _contains(actives, key)) return (names, actives, live, true);
             actives[i] = key;

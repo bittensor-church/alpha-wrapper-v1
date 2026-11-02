@@ -3,8 +3,8 @@
   "createMailbox: first on subnet": "821146",
   "createMailbox: shared subnet": "402975",
   "rebalance: after registry weight update": "273762",
-  "rebalance: fully rotated (10 validators)": "2948997",
-  "rebalance: release parked position (10 validators)": "3278700",
+  "rebalance: fully rotated (10 validators)": "3008445",
+  "rebalance: release parked position (10 validators)": "3338141",
   "recoverStray: collect merged source (10 validators)": "308140",
   "recoverStray: collect one source (10 validators)": "218535",
   "replaceClone: 3 validators": "4824886",
@@ -17,8 +17,8 @@
   "unwrapForTao: full after a rotation (10 validators)": "942642",
   "unwrapForTao: partial tail above floor": "320073",
   "unwrapForTao: sub-floor tail refunded": "279433",
-  "wrap: first": "1267323",
-  "wrap: first (10 validators)": "3509745",
+  "wrap: first": "1285156",
+  "wrap: first (10 validators)": "3569191",
   "wrap: subsequent": "385634",
   "wrap: subsequent (10 validators)": "877255"
 }

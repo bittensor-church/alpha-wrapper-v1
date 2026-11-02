@@ -219,21 +219,20 @@ library VaultAllocation {
         return VaultMath.contains(currentSet, logicals[holder]);
     }
 
-    /// @dev Prefer the attested name, then the recorded active key, then its one-hop successor, each
-    ///      only while it has an owner record. The name is taken only directly, never by a hop, and never
-    ///      while another attested slot's record holds it, so one key is never counted for two slots.
-    ///      Resume from the record: the name's edge may predate swaps already followed.
+    /// @dev The recorded active key while it has an owner record and no outgoing swap edge, else the
+    ///      attested name while it has an owner record, else the record's one-hop successor. The record
+    ///      comes first so an emptied slot follows the validator, whoever claims the vacated name.
     function _receivingKey(bytes32[] memory keys, bytes32[] memory logicals, bytes32[] memory currentSet,
         bytes32 name, uint256 ownSlot,
         uint16 netuid) private view returns (bytes32 key, bool live) {
         bool nameReserved = _keyHeldElsewhere(keys, logicals, currentSet, name, ownSlot);
         if (nameReserved && ownSlot == VaultMath.INDEX_NOT_FOUND) revert IAlphaVaultAbi.SwappedHotkeyStillAttested();
-        if (!nameReserved && StakeOps.hasOwner(name)) return (name, true);
 
         key = ownSlot == VaultMath.INDEX_NOT_FOUND ? name : keys[ownSlot];
-        live = key != name && StakeOps.hasOwner(key);
+        bytes32 successor = VaultReads.hotkeySuccessor(key, netuid);
+        live = key != name && successor == bytes32(0) && StakeOps.hasOwner(key);
         if (!live) {
-            bytes32 successor = VaultReads.hotkeySuccessor(key, netuid);
+            if (!nameReserved && StakeOps.hasOwner(name)) return (name, true);
             if (successor != bytes32(0) && successor != name && StakeOps.hasOwner(successor)) { key = successor; live = true; }
         }
         if (

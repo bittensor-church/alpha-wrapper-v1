@@ -247,7 +247,7 @@ contract BackingRecordTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "backing whole across the swap");
     }
 
-    function test_PerSubnetSwapAfterADrain_StakesTheShareAtTheAttestedName() public {
+    function test_PerSubnetSwapAfterADrain_KeepsTheShareOnTheSuccessor() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulatePerSubnetSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
@@ -255,8 +255,9 @@ contract BackingRecordTest is AlphaVaultTestBase {
 
         vault.rebalance(NETUID1);
 
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey1, "the slot answers under its own name again");
-        assertEq(_getVaultStake(hotkey1, NETUID1), 6_667_333_200, "3334 bps of the remaining 19.998 alpha");
+        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey4, "the slot keeps answering under the successor");
+        assertEq(_getVaultStake(hotkey4, NETUID1), 6_667_333_200, "3334 bps of the remaining 19.998 alpha");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 0, "nothing returns to the name the validator left");
     }
 
     function _retiredNameWithNoSuccessor() private returns (uint256 shares) {
