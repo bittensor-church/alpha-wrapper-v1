@@ -61,14 +61,19 @@ def test_every_rail_skips_a_vacated_hotkey_a_stranger_claimed(env):
     block = chain.receipt_block_number(receipt, "wrap")
     supply_before = env.vault_total_supply(token_id, block=block - 1)
     stake_before = env.total_stake_across(clone_coldkey, netuid, located, block - 1)
-    expected = env.deposited(receipt, netuid) * (supply_before + config.VIRTUAL_SHARES) // (
-        stake_before + config.VIRTUAL_ASSETS
+    deposited = env.deposited(receipt, netuid)
+    expected = deposited * (supply_before + config.VIRTUAL_SHARES) // (stake_before + config.VIRTUAL_ASSETS)
+    quoted = env.preview_wrap(token_id, deposited, block=block - 1)
+    minted = env.vault_shares(token_id) - before
+    tolerance = config.ROUNDING_DUST_TOTAL_RAO * config.VIRTUAL_SHARES
+    assert abs(minted - expected) <= tolerance, (
+        f"Squatted hotkey: the wrap minted {minted} shares against {expected} owed on the funded position"
     )
-    shares = env.vault_shares(token_id)
-    assert abs(shares - before - expected) <= config.ROUNDING_DUST_TOTAL_RAO * config.VIRTUAL_SHARES, (
-        f"Squatted hotkey: the wrap minted {shares - before} shares against {expected} owed on the funded position"
+    assert abs(minted - quoted) <= tolerance, (
+        f"Squatted hotkey: previewWrap quoted {quoted} shares at the pre-wrap block, the wrap minted {minted}"
     )
     assert env.stake(vacated_pubkey, clone_coldkey, netuid) == 0, "the claimed hotkey must receive nothing"
+    shares = before + minted
 
     quoted_alpha, _ = env.preview_unwrap(token_id, shares // 2)
     _, delivered = exits.unwrap(

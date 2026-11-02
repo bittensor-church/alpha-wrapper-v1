@@ -185,11 +185,11 @@ class Environment:
         its on-chain stake."""
         return substrate.h160_to_substrate_b32(self.clone_address(token_id))
 
-    def preview_wrap(self, token_id: int, assets: int) -> int:
+    def preview_wrap(self, token_id: int, assets: int, block: Optional[int] = None) -> int:
         """Shares a deposit of `assets` alpha would mint, the quote a caller sizes
-        their `minSharesOut` from."""
+        their `minSharesOut` from, against live state or the state at `block`."""
         return int(chain.cast_call(
-            self.lens_address, "previewWrap(uint256,uint256)(uint256)", token_id, assets,
+            self.lens_address, "previewWrap(uint256,uint256)(uint256)", token_id, assets, block=block,
         ))
 
     def preview_unwrap(self, token_id: int, shares: int) -> Tuple[int, int]:
