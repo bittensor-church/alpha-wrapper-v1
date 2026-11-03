@@ -38,28 +38,21 @@ The deployment script reads four environment variables:
 | `RECOVERY_WINDOW` | Length of the recovery window, in seconds. | 21600 (6 hours) |
 | `PARKING_HOTKEY` | An unused 32-byte account id the vault claims for its own coldkey. | required |
 
-Choose a fresh random `PARKING_HOTKEY`. The constructor claims it with
-`tryAssociateHotkey` and confirms the result; deployment reverts
-`ParkingHotkeyUnavailable` when another coldkey already owns that account.
+Deployment reverts `ParkingHotkeyUnavailable` when another coldkey already owns
+`PARKING_HOTKEY`.
 
 ```sh
 forge script script/DeployAlpha.s.sol --rpc-url <url> --private-key <key> --broadcast
 ```
 
-The script broadcasts from whichever signer the command line supplies; a
-keystore account (`--account <name>`) or hardware wallet works in place of the
-raw key.
+The script deploys the mailbox and clone logic, the vault with its `CloneFactory`,
+the lens, and the two linked libraries. The vault links `VaultClones` and
+`VaultAllocation`, the lens `VaultAllocation`, and `VaultAllocation` `VaultClones`;
+a manual deploy passes `--libraries src/libraries/<File>.sol:<Library>:<address>`
+for each.
 
-The broadcast deploys the `DepositMailbox` logic, the `SubnetClone` logic, the
-`AlphaVault` whose constructor deploys its own `CloneFactory`, and
-`AlphaVaultLens(vault)`. The vault and the lens delegatecall `VaultAllocation`,
-whose address is linked into both at build time. Forge deploys and links it in
-the broadcast; deploying by hand needs
-`--libraries src/libraries/VaultAllocation.sol:VaultAllocation:<address>` on both.
-
-Every vault parameter is immutable: `validatorRegistry`, `recoveryWindow`,
-`parkingHotkey` and `cloneFactory` are fixed at deployment. Changing any of them,
-or rebuilding the library, means deploying a new vault.
+`validatorRegistry`, `recoveryWindow`, `parkingHotkey` and `cloneFactory` are
+immutable.
 
 ## Verification after deployment
 
@@ -69,8 +62,8 @@ or rebuilding the library, means deploying a new vault.
 - `getHotkeyOwner(parkingHotkey)` on the staking precompile `0x0805` returns the
   vault's own coldkey, which is `addressMapping(vault)` on the address-mapping
   precompile `0x080C`, and `getRejectStakingHotkeyGrowth` of that coldkey is true.
-- The library address embedded in the deployed vault and lens bytecode equals the
-  deployed `VaultAllocation` address.
+- The library addresses embedded in the deployed vault, lens and `VaultAllocation`
+  bytecode equal the deployed `VaultClones` and `VaultAllocation` addresses.
 - Every address, its runtime code hash and the commit it was built from go into
   the table at the end of this page.
 

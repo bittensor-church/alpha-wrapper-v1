@@ -15,6 +15,7 @@ import { ISubnet, SUBNET_PRECOMPILE } from "./interfaces/ISubnet.sol";
 import { IAlphaVaultAbi } from "./interfaces/IAlphaVaultAbi.sol";
 import { StakeOps } from "./libraries/StakeOps.sol";
 import { VaultAllocation } from "./libraries/VaultAllocation.sol";
+import { VaultClones } from "./libraries/VaultClones.sol";
 import { VaultMath } from "./libraries/VaultMath.sol";
 import { VaultReads } from "./libraries/VaultReads.sol";
 import {
@@ -97,8 +98,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         uint256 tokenId = currentTokenId(netuid);
         uint16 nid = VaultMath.netuidOf(tokenId);
         VaultReads.requireNotDissolving(nid);
-        clone = VaultAllocation.deployMissingClone(cloneFactory, subnetClone, tokenId, nid, uid);
-        mailbox = VaultAllocation.deployMissingMailbox(cloneFactory, _mailboxes, nid, uid);
+        clone = VaultClones.deployMissingClone(cloneFactory, subnetClone, tokenId, nid, uid);
+        mailbox = VaultClones.deployMissingMailbox(cloneFactory, _mailboxes, nid, uid);
     }
 
     /// @notice Zero until `createMailbox` succeeds.

@@ -5,12 +5,12 @@ import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import { StakeOps } from "./StakeOps.sol";
 import { VaultMath } from "./VaultMath.sol";
+import { VaultClones } from "./VaultClones.sol";
 import { VaultReads } from "./VaultReads.sol";
 import { IAlpha, ALPHA_PRECOMPILE } from "../interfaces/IAlpha.sol";
 import { IStaking, STAKING_LIST_PAGE, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { LockedDeposit, ZeroAmount } from "../VaultErrors.sol";
 import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
-import { CloneBase } from "../CloneBase.sol";
 import { CloneFactory } from "../CloneFactory.sol";
 import { DepositMailbox } from "../DepositMailbox.sol";
 import { SubnetClone } from "../SubnetClone.sol";
@@ -28,42 +28,6 @@ library VaultAllocation {
         uint16 netuid;
         uint256 alphaPriceE18;
         bytes32 parking;
-    }
-
-    function deployMissingClone(CloneFactory factory, mapping(uint256 => address) storage subnetClone, uint256 tokenId,
-        uint16 netuid, bytes32 uid) external returns (address clone) {
-        clone = subnetClone[tokenId];
-        if (clone != address(0)) return clone;
-        clone = deployProtectedClone(factory, tokenId, netuid, uid);
-        subnetClone[tokenId] = clone;
-        emit IAlphaVaultAbi.SubnetProxyCreated(tokenId, clone);
-    }
-
-    function deployMissingMailbox(CloneFactory factory, mapping(address => mapping(uint256 => address)) storage mailboxes,
-        uint16 netuid, bytes32 uid) external returns (address mailbox) {
-        mailbox = mailboxes[msg.sender][netuid];
-        if (mailbox != address(0)) return mailbox;
-        mailbox = factory.deployMailbox(msg.sender, netuid, uid);
-        bytes32 mailboxColdkey = VaultReads.coldkeyOf(mailbox);
-        _initializeClone(mailbox, mailboxColdkey, mailboxColdkey);
-        mailboxes[msg.sender][netuid] = mailbox;
-        emit IAlphaVaultAbi.MailboxCreated(msg.sender, netuid, mailbox);
-    }
-
-    function deployProtectedClone(CloneFactory factory, uint256 tokenId, uint16 netuid, bytes32 uid)
-        private returns (address clone) {
-        clone = factory.deploySubnetClone(tokenId, netuid, uid);
-        bytes32 coldkey = VaultReads.coldkeyOf(clone);
-        address owner = factory.deployCloneOwner(coldkey, netuid);
-        _initializeClone(clone, coldkey, VaultReads.coldkeyOf(owner));
-    }
-
-    function _initializeClone(address clone, bytes32 coldkey, bytes32 owner) private {
-        CloneBase(clone).initialize();
-        IStaking staking = IStaking(STAKING_PRECOMPILE);
-        if (
-            !VaultReads.ownedBy(coldkey, owner) || !staking.getRejectLockedAlpha(coldkey)
-        ) revert IAlphaVaultAbi.CloneProtectionFailed(clone);
     }
 
     /// @dev Successors resolve before any list search, so a search never takes a pile another slot's edge leads to.
@@ -189,7 +153,7 @@ library VaultAllocation {
     ///      below the floor stays behind rather than fail the call.
     function replaceClone(CloneFactory factory, Context memory context, bytes32[] memory hotkeys,
         uint256[] memory balances, bytes32 uid) external returns (address successor) {
-        successor = deployProtectedClone(factory, context.tokenId, context.netuid, uid);
+        successor = VaultClones.deployProtectedClone(factory, context.tokenId, context.netuid, uid);
         bytes32 successorColdkey = VaultReads.coldkeyOf(successor);
         SubnetClone(successor).setRejectStakingHotkeyGrowth(false);
         for (uint256 i; i < hotkeys.length;) {

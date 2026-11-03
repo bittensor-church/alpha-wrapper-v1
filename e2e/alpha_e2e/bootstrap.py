@@ -245,14 +245,22 @@ def deploy_contracts(
 
     validator_registry_address = _deploy_registry()
 
+    clones_library = "src/libraries/VaultClones.sol:VaultClones"
+    clones_address = chain.forge_create(clones_library, private_key=config.DEPLOYER_PRIVATE_KEY)
+    print(f"  VaultClones: {clones_address}")
+    clones_link = f"{clones_library}:{clones_address}"
+
     allocation_library = "src/libraries/VaultAllocation.sol:VaultAllocation"
-    allocation_address = chain.forge_create(allocation_library, private_key=config.DEPLOYER_PRIVATE_KEY)
+    allocation_address = chain.forge_create(
+        allocation_library, private_key=config.DEPLOYER_PRIVATE_KEY, libraries=[clones_link],
+    )
     print(f"  VaultAllocation: {allocation_address}")
+    allocation_link = f"{allocation_library}:{allocation_address}"
 
     parking_hotkey = "0x" + secrets.token_hex(32)
     vault_address = chain.forge_create(
         "src/AlphaVault.sol:AlphaVault", private_key=config.DEPLOYER_PRIVATE_KEY,
-        libraries=[f"{allocation_library}:{allocation_address}"],
+        libraries=[clones_link, allocation_link],
         constructor_args=[
             "https://example.com/{id}.json", mailbox_implementation_address,
             subnet_clone_implementation_address, validator_registry_address,
@@ -263,7 +271,7 @@ def deploy_contracts(
 
     lens_address = chain.forge_create(
         "src/AlphaVaultLens.sol:AlphaVaultLens", private_key=config.DEPLOYER_PRIVATE_KEY,
-        libraries=[f"{allocation_library}:{allocation_address}"],
+        libraries=[allocation_link],
         constructor_args=[vault_address],
     )
     print(f"  AlphaVaultLens: {lens_address}")
