@@ -80,18 +80,4 @@ cleanup, then old shares redeem the clone's unreserved TAO.
 - **Dissolved `unwrap`:** exclude reserved TAO claims -> calculate a proportional
   refund -> burn shares -> pay native TAO. The caller must pass zero for `minAlphaOut`.
 
-## Three details that explain surprising code
-
-1. **Moving dust can require moving a large balance through it.** To collect 1
-   unit at B into 100 at A, the code can move A's 100 to B, then 101 back to A.
-   This clears the move minimum that would refuse the 1-unit transfer. Chain rounding
-   requires fresh balance reads. Weight alignment may skip small moves.
-2. **Minting, burning, and transferring also settle TAO.** `_update` synchronizes
-   TAO and credits accounts using their old balances, changes shares, then resets
-   their accounting debt. Accrued TAO stays with the account after its shares leave.
-   A TAO sale pays before refund minting so proceeds stay out of that shared index.
-3. **Reading and recording differ.** `_openBacking` only resolves and
-   checks. `_settle` replaces the allocation record; `_reanchor` updates locations
-   and balances while keeping slot identities.
-
 Start tracing in `AlphaVault`. `VaultAllocation` resolves hotkeys and moves stake. For recovery details, use the [runbook](hotkey-swaps.md).
