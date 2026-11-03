@@ -39,7 +39,6 @@ library VaultAllocation {
         emit IAlphaVaultAbi.SubnetProxyCreated(tokenId, clone);
     }
 
-    /// @dev Runs in the vault's delegatecall, so `msg.sender` is the depositor.
     function deployMissingMailbox(CloneFactory factory, mapping(address => mapping(uint256 => address)) storage mailboxes,
         uint16 netuid, bytes32 uid) external returns (address mailbox) {
         mailbox = mailboxes[msg.sender][netuid];
@@ -67,8 +66,7 @@ library VaultAllocation {
         ) revert IAlphaVaultAbi.CloneProtectionFailed(clone);
     }
 
-    /// @dev One balance never backs two slots. Every slot takes its recorded hotkey or its successor before any
-    ///      slot searches the clone's staking list, so a search never takes a pile another slot's edge leads to.
+    /// @dev Successors resolve before any list search, so a search never takes a pile another slot's edge leads to.
     function resolveBacking(VaultReads.Slot[] memory slots, bytes32 coldkey, uint16 netuid, bytes32 parking)
         external view returns (VaultReads.Backing memory backing) {
         uint256 count = slots.length;
@@ -118,7 +116,6 @@ library VaultAllocation {
         }
     }
 
-    /// @dev The hotkeys the clone stakes under with their piles; parking is left out as a zero entry.
     function _listedPiles(bytes32 coldkey, uint16 netuid, bytes32 parking)
         private view returns (bytes32[] memory candidates, uint256[] memory piles) {
         IStaking staking = IStaking(STAKING_PRECOMPILE);
