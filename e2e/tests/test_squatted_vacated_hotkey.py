@@ -8,7 +8,7 @@ the stake there, and once the registry names the successor the position exits in
 """
 import pytest
 
-from alpha_e2e import config, exits, extrinsics
+from alpha_e2e import chain, config, exits, extrinsics
 
 STRANGER = "//SquatStranger"
 STRANGER_FUNDING_RAO = 2 * config.RAO_PER_TAO
@@ -52,15 +52,18 @@ def test_every_rail_skips_a_vacated_hotkey_a_stranger_claimed(env):
     assert env.stake(successor_pubkey, clone_coldkey, netuid) > 0, "the deposit should sit on the successor"
     assert env.backing_intact(token_id), "the position is whole on the successor"
 
-    # A live subnet emits, so the position only grows between a quote and the call: previews are floors.
+    # A live subnet emits between a quote and the call, so the send takes a slippage floor and the mint is
+    # checked against the quote as of the block before the wrap.
     before = env.vault_shares(token_id)
-    quoted_shares = env.preview_wrap(token_id, deposit)
-    env.deposit_and_wrap(
+    receipt = env.deposit_and_wrap(
         netuid, vacated_pubkey, successor_ss58, deposit, 1_500_000,
         "Squatted hotkey: the second deposit under the claimed hotkey failed", label="wrap [claimed hotkey, funded]",
-        min_shares_out=quoted_shares * 99 // 100,
+        min_shares_out=env.preview_wrap(token_id, deposit) * 95 // 100,
     )
     shares = env.vault_shares(token_id)
+    quoted_shares = env.preview_wrap(
+        token_id, deposit, block=chain.receipt_block_number(receipt, "Squatted hotkey: funded wrap") - 1,
+    )
     assert quoted_shares * 99 // 100 <= shares - before <= quoted_shares, (
         f"Squatted hotkey: previewWrap quoted {quoted_shares} shares, the wrap minted {shares - before}"
     )
