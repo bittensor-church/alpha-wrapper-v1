@@ -233,7 +233,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         // Do not refund a full exit as fresh sub-floor dust; partial refunds merge with remaining shares.
         if (unsold != 0 && shares == supply) {
             uint256 alphaPriceE18 = IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid);
-            if (VaultAllocation.isBelowFloor(unsold, alphaPriceE18)) unsold = 0;
+            if (StakeOps.isBelowFloorAtReadPrice(unsold, alphaPriceE18)) unsold = 0;
         }
 
         uint256 refundShares = VaultMath.sharesFor(total - assets, supply - shares, unsold);
@@ -306,7 +306,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (assets == 0) revert ZeroAmount();
         if (assets < minAlphaOut) revert SlippageExceeded(assets);
 
-        if (VaultAllocation.isBelowFloor(assets, alphaPriceE18)) revert WithdrawTooSmall();
+        if (StakeOps.isBelowFloorAtReadPrice(assets, alphaPriceE18)) revert WithdrawTooSmall();
 
         _burn(msg.sender, tokenId, shares);
         // A parked position has one slot, so its payout leaves nothing to align.
