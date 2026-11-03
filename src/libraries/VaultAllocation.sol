@@ -73,7 +73,6 @@ library VaultAllocation {
                 uint256 pick = _smallestCovering(backing.hotkeys, candidates, piles, slots[i].tracked);
                 if (pick != VaultMath.INDEX_NOT_FOUND) {
                     backing.hotkeys[i] = candidates[pick]; backing.balances[i] = piles[pick]; backing.short[i] = false;
-                    candidates[pick] = bytes32(0);
                 }
             }
             unchecked { ++i; }

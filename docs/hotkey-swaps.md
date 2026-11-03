@@ -44,8 +44,11 @@ Failing that, it takes, among the hotkeys the clone stakes under that no other s
 holds, the one with the smallest pile that covers the slot. It counts each hotkey
 for at most one slot. Separately observed swaps can advance the record repeatedly:
 any priced call, and a `syncBacking` call on a position that accounts for
-itself, writes a followed or found hotkey into the record. A sweep, a pile split
-across hotkeys or two slots merged onto one hotkey need a watcher.
+itself, writes a followed or found hotkey into the record. A found hotkey keeps
+the slot like a followed one, even when it is a rotated-out validator; a later
+registry set moves the slot. A sweep, a pile split across hotkeys, two slots
+merged onto one hotkey, or a pile found under a hotkey the registry attests for
+another slot need a watcher or a registry update.
 
 ## Receiving hotkeys
 
