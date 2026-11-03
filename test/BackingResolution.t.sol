@@ -104,6 +104,22 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
     }
 
+    function test_ARecordedHotkeyTheSearchFrees_CanHoldAnotherSlot() public {
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(6000, 2000, 2000));
+        _depositAndWrap(alice, NETUID1, 40 * ALPHA);
+        _cutTheEdge(hotkey1, hotkey4);
+        _simulateFollowedSwap(NETUID1, hotkey2, hotkey1);
+
+        VaultReads.Backing memory backing = lens.resolvedBacking(TOKEN1);
+
+        assertEq(backing.hotkeys[0], hotkey4, "the 24 alpha slot is found on the list");
+        assertEq(backing.hotkeys[1], hotkey1, "the 8 alpha slot takes the hotkey the first slot left");
+        assertEq(backing.total, 40 * ALPHA);
+        assertTrue(lens.isBackingIntact(TOKEN1));
+        vault.rebalance(NETUID1);
+        assertEq(vault.recordedSlots(TOKEN1)[1].active, hotkey1);
+    }
+
     function test_AHotkeyAnotherSlotHolds_NeverCoversASlot() public {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(2000, 6000, 2000));
         _depositAndWrap(alice, NETUID1, 40 * ALPHA);
