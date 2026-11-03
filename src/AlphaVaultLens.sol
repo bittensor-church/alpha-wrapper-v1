@@ -2,6 +2,7 @@
 pragma solidity 0.8.36;
 
 import { AlphaVault } from "./AlphaVault.sol";
+import { VaultAllocation } from "./libraries/VaultAllocation.sol";
 import { VaultMath } from "./libraries/VaultMath.sol";
 import { VaultReads } from "./libraries/VaultReads.sol";
 import {
@@ -49,13 +50,13 @@ contract AlphaVaultLens {
         return expected > read.backing.total ? expected - read.backing.total : 0;
     }
 
-    /// @notice Backing keys and alpha RAO, following at most one swap per slot.
-    /// @dev TAO exits sell from `keys`; any `short` flag blocks the exit.
+    /// @notice Backing hotkeys and alpha RAO, each slot followed through one swap or found on the clone's staking list.
+    /// @dev TAO exits sell from `hotkeys`; any `short` flag blocks the exit.
     function resolvedBacking(uint256 tokenId) external view returns (VaultReads.Backing memory backing) {
         address clone = vault.subnetClone(tokenId);
         if (clone == address(0)) return backing;
-        return VaultReads.resolveBacking(
-            vault.recordedSlots(tokenId), VaultReads.coldkeyOf(clone), VaultMath.netuidOf(tokenId));
+        return VaultAllocation.resolveBacking(
+            vault.recordedSlots(tokenId), VaultReads.coldkeyOf(clone), VaultMath.netuidOf(tokenId), vault.parkingHotkey());
     }
 
     /// @notice Recorded active hotkeys, without resolving later swaps.
@@ -102,7 +103,7 @@ contract AlphaVaultLens {
             return;
         }
         read.slots = vault.recordedSlots(tokenId);
-        read.backing = VaultReads.resolveBacking(read.slots, read.coldkey, read.netuid);
+        read.backing = VaultAllocation.resolveBacking(read.slots, read.coldkey, read.netuid, vault.parkingHotkey());
     }
 
     function _intactStakeOf(BackingRead memory read) private view returns (uint256) {

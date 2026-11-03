@@ -3,7 +3,9 @@ pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { AlphaVaultTestBase } from "../AlphaVaultTestBase.sol";
-import { CHAIN_MIN_STAKE, MockStaking } from "../mocks/MockStaking.sol";
+import { CHAIN_MIN_STAKE, CHAIN_MIN_TRANSFER, MockStaking } from "../mocks/MockStaking.sol";
+import { MockAlpha } from "../mocks/MockAlpha.sol";
+import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
@@ -343,7 +345,8 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
     }
 
     /// @dev Each slot where the record finds it: the recorded hotkey if that covers the slot within slack, else a
-    ///      successor that covers it and no other slot holds; a slot neither covers is short.
+    ///      successor that covers it and no other slot holds, else the listed hotkey with the smallest pile that
+    ///      covers it; a slot none covers is short.
     function resolvedSlots()
         public
         view
@@ -368,11 +371,47 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
                     hotkeys[i] = successor;
                     held = successorHeld;
                 } else {
-                    short[i] = true;
+                    (bytes32 holder, uint256 holderHeld) = _smallestCoveringListed(hotkeys, slots[i].tracked);
+                    if (holder != bytes32(0)) {
+                        hotkeys[i] = holder;
+                        held = holderHeld;
+                    } else {
+                        short[i] = true;
+                    }
                 }
             }
             balances[i] = held;
         }
+    }
+
+    function _smallestCoveringListed(bytes32[] memory taken, uint256 tracked)
+        private
+        view
+        returns (bytes32 holder, uint256 held)
+    {
+        bytes32[] memory listed = _listedHotkeys(_subnetColdkey(NETUID1));
+        for (uint256 i; i < listed.length; ++i) {
+            if (listed[i] == vault.parkingHotkey() || _contains(taken, listed[i])) continue;
+            uint256 balance = _getVaultStake(listed[i], NETUID1);
+            if (balance + BACKING_SLACK_RAO >= tracked && (holder == bytes32(0) || balance < held)) {
+                holder = listed[i];
+                held = balance;
+            }
+        }
+    }
+
+    /// @dev A sweep and two partial returns leave a pile the list search cannot resolve; both halves must clear
+    ///      the chain's transfer minimum for the returns to land.
+    function strandable(bytes32 hotkey) external view returns (bool) {
+        uint256 held = _getVaultStake(hotkey, NETUID1);
+        return held != 0
+            && (held / 2) * MockAlpha(ALPHA_PRECOMPILE).chainAlphaPrice(uint16(NETUID1)) / 1e18 >= CHAIN_MIN_TRANSFER;
+    }
+
+    function simulateSweepReturnedInTwoPiles(bytes32 from, bytes32 first, bytes32 second) external {
+        uint256 swept = _sweepDuringCrash(NETUID1, from);
+        _strangerReturns(NETUID1, first, swept / 2);
+        _strangerReturns(NETUID1, second, swept - swept / 2);
     }
 
     function zeroPaySlots() external view returns (uint256) {

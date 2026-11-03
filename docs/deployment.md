@@ -53,8 +53,8 @@ raw key.
 The broadcast deploys the `DepositMailbox` logic, the `SubnetClone` logic, the
 `AlphaVault` whose constructor deploys its own `CloneFactory`, and
 `AlphaVaultLens(vault)`. Forge also deploys the `VaultAllocation` library and
-links its address into the vault bytecode, so each vault is bound to one library
-deployment. Deploying by hand needs the same link, passed as
+links its address into the vault and lens bytecode, so each deployment is bound
+to one library deployment. Deploying by hand needs the same link on both, passed as
 `--libraries src/libraries/VaultAllocation.sol:VaultAllocation:<address>`.
 `VaultAllocation` is the only linked library; the other libraries under
 `src/libraries/` compile into the contracts that use them.
@@ -71,7 +71,7 @@ or rebuilding the library, means deploying a new vault.
 - `getHotkeyOwner(parkingHotkey)` on the staking precompile `0x0805` returns the
   vault's own coldkey, which is `addressMapping(vault)` on the address-mapping
   precompile `0x080C`, and `getRejectStakingHotkeyGrowth` of that coldkey is true.
-- The library address embedded in the deployed vault bytecode equals the
+- The library address embedded in the deployed vault and lens bytecode equals the
   deployed `VaultAllocation` address.
 - Every address, its runtime code hash and the commit it was built from go into
   the table at the end of this page.

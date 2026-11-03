@@ -9,22 +9,25 @@ import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 
 contract RecoveryDeadlineTest is AlphaVaultTestBase {
-    /// @dev 40 alpha at 2000 / 6000 / 2000 bps: 8 alpha is lost on hotkey1, 24 on hotkey2, and hotkey3's
-    ///      8 alpha is parked at declaration.
+    /// @dev 40 alpha at 2000 / 6000 / 2000 bps: 8 alpha is swept on hotkey1, 24 on hotkey2, and hotkey3's
+    ///      8 alpha is parked at declaration. Strangers then return the swept piles under hotkey4 and hotkey5.
     function _twoLosses() private returns (bytes32 firstTip, bytes32 secondTip, uint256 deadline) {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(2000, 6000, 2000));
         _depositAndWrap(alice, NETUID1, 40 * ALPHA);
-        firstTip = _buildSwapTrail(NETUID1, hotkey1, 2);
-        secondTip = _buildSwapTrail(NETUID1, hotkey2, 2);
+        uint256 firstSwept = _sweepDuringCrash(NETUID1, hotkey1);
+        uint256 secondSwept = _sweepDuringCrash(NETUID1, hotkey2);
         vault.syncBacking(TOKEN1);
         deadline = lens.writeOffDeadline(TOKEN1);
         assertEq(_parkedStake(NETUID1), 8 * ALPHA);
         assertEq(lens.missingStake(TOKEN1), 32 * ALPHA);
+        (firstTip, secondTip) = (hotkey4, hotkey5);
+        _strangerReturns(NETUID1, firstTip, firstSwept);
+        _strangerReturns(NETUID1, secondTip, secondSwept);
     }
 
     function test_LateSwap_CannotHideBackingSecuredBeforeTheDeadline() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _buildSwapTrail(NETUID1, hotkey1, 2);
+        _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
         uint256 deadline = lens.writeOffDeadline(TOKEN1);
         assertEq(_parkedStake(NETUID1), 19_998_000_000, "hotkey2 and hotkey3 hold 9.999 alpha each");
@@ -115,19 +118,20 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
 
     function test_PartialRecoveryAfterSync_PreservesItsClock() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        bytes32 tip = _buildSwapTrail(NETUID1, hotkey1, 2);
-        _buildSwapTrail(NETUID1, hotkey2, 2);
+        uint256 firstSwept = _sweepDuringCrash(NETUID1, hotkey1);
+        _sweepDuringCrash(NETUID1, hotkey2);
         vault.syncBacking(TOKEN1);
-        vault.recoverStray(TOKEN1, tip);
+        _strangerReturns(NETUID1, hotkey4, firstSwept);
+        vault.recoverStray(TOKEN1, hotkey4);
         assertEq(_parkedStake(NETUID1), 20_001_000_000, "hotkey3's 9.999 alpha plus hotkey1's 10.002");
         assertEq(lens.missingStake(TOKEN1), 9_999_000_000);
-        assertEq(_getVaultStake(tip, NETUID1), 0);
+        assertEq(_getVaultStake(hotkey4, NETUID1), 0);
         assertEq(lens.writeOffDeadline(TOKEN1), block.timestamp + RECOVERY_WINDOW);
     }
 
     function test_FailedParking_RevertsAndStartsTheClockOnRetry() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _buildSwapTrail(NETUID1, hotkey1, 2);
+        _sweepDuringCrash(NETUID1, hotkey1);
         MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(true);
         _expectChainRefusal();
         vault.syncBacking(TOKEN1);
@@ -151,10 +155,11 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
 
     function test_PartialRecovery_CannotCreditAnotherColdkeysStake() public {
         _twoLosses();
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey5, _toSubstrate(bob), NETUID1, 100 * ALPHA);
-        _simulateHotkeyOwnerPresent(hotkey5);
+        bytes32 bobsHotkey = keccak256("bob's own validator");
+        MockStaking(STAKING_PRECOMPILE).setStake(bobsHotkey, _toSubstrate(bob), NETUID1, 100 * ALPHA);
+        _simulateHotkeyOwnerPresent(bobsHotkey);
         vm.expectRevert(NothingToRecover.selector);
-        vault.recoverStray(TOKEN1, hotkey5);
+        vault.recoverStray(TOKEN1, bobsHotkey);
     }
 
     function test_PartialRecovery_CreditsActualParkingBalanceAfterRounding() public {
@@ -196,7 +201,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         uint256 index = bound(rawIndex, 0, MAX_VALIDATORS - 1);
         // 1000 bps of 10 alpha per slot.
         uint256 lost = ALPHA;
-        _buildSwapTrail(netuid, hotkeys[index], 2);
+        _sweepDuringCrash(netuid, hotkeys[index]);
         vault.syncBacking(tokenId);
         assertEq(_parkedStake(netuid), MAX_VALIDATORS * ALPHA - lost);
         assertEq(lens.missingStake(tokenId), lost);
@@ -275,9 +280,9 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         uint256 dust = ALPHA_FLOOR / 2;
         uint256 dustSources = 9;
         _depositAndWrap(alice, NETUID1, ALPHA);
-        _buildSwapTrail(NETUID1, hotkey1, 2);
-        _buildSwapTrail(NETUID1, hotkey2, 2);
-        _buildSwapTrail(NETUID1, hotkey3, 2);
+        _sweepDuringCrash(NETUID1, hotkey1);
+        _sweepDuringCrash(NETUID1, hotkey2);
+        _sweepDuringCrash(NETUID1, hotkey3);
         vault.syncBacking(TOKEN1);
         uint256 deadline = lens.writeOffDeadline(TOKEN1);
         MockStaking staking = MockStaking(STAKING_PRECOMPILE);
@@ -309,7 +314,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
     /// @dev Fault injection of the BackingNotSecured guard: a mock move leaves a residual at its source.
     function test_FaultInjection_MoveResidualAtDeclaration_HoldsTheClockUntilRetried() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _buildSwapTrail(NETUID1, hotkey1, 2);
+        _sweepDuringCrash(NETUID1, hotkey1);
         MockStaking staking = MockStaking(STAKING_PRECOMPILE);
         staking.setMoveStakeResidual(BACKING_SLACK_RAO + 1);
         vm.expectRevert(BackingNotSecured.selector);
@@ -352,8 +357,7 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         uint256 lost;
         for (uint256 i; i < count; ++i) {
             if (lostMask & (uint256(1) << i) != 0) {
-                lost += _getVaultStake(keys[i], netuid);
-                _buildSwapTrail(netuid, keys[i], 2);
+                lost += _sweepDuringCrash(netuid, keys[i]);
             }
         }
         vault.syncBacking(tokenId);

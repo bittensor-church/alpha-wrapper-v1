@@ -20,7 +20,8 @@ The registry attests a validator hotkey, but a hotkey swap can move its stake el
 - `logical`: the attested hotkey the slot was recorded under; `attestedOf` reads it.
 - `active`: the last recorded location of its stake.
 - `tracked`: the alpha expected at the last record update.
-- `Backing.hotkeys`: locations resolved now, possibly after following one swap.
+- `Backing.hotkeys`: locations resolved now, after following one swap or finding the
+  slot's alpha on the clone's staking list.
 
 Example: after a swap from A to B, the record can say `logical = A, active = B`.
 Locating backing and choosing a receiver are separate checks: a receiving hotkey
@@ -93,5 +94,4 @@ cleanup, then old shares redeem the clone's unreserved TAO.
    checks. `_settle` replaces the allocation record; `_reanchor` updates locations
    and balances while keeping slot identities.
 
-Start tracing in `AlphaVault`. `VaultReads` resolves hotkeys; `VaultAllocation`
-moves stake. For recovery details, use the [runbook](hotkey-swaps.md).
+Start tracing in `AlphaVault`. `VaultAllocation` resolves hotkeys and moves stake. For recovery details, use the [runbook](hotkey-swaps.md).

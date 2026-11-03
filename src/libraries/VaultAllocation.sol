@@ -8,7 +8,7 @@ import { VaultClones } from "./VaultClones.sol";
 import { VaultMath } from "./VaultMath.sol";
 import { VaultReads } from "./VaultReads.sol";
 import { IAlpha, ALPHA_PRECOMPILE } from "../interfaces/IAlpha.sol";
-import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
+import { IStaking, STAKING_LIST_PAGE, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { LockedDeposit, ZeroAmount } from "../VaultErrors.sol";
 import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
 import { CloneFactory } from "../CloneFactory.sol";
@@ -42,6 +42,62 @@ library VaultAllocation {
 
     function isBelowFloor(uint256 alphaAmount, uint256 alphaPriceE18) external view returns (bool) {
         return StakeOps.isBelowFloorAtReadPrice(alphaAmount, alphaPriceE18);
+    }
+
+    /// @dev Resolves each slot to its recorded hotkey, else its one-hop successor, else the listed hotkey holding the
+    ///      smallest pile that covers it, without writing anything back. A hotkey backs at most one slot.
+    function resolveBacking(VaultReads.Slot[] memory slots, bytes32 coldkey, uint16 netuid, bytes32 parking)
+        external view returns (VaultReads.Backing memory backing) {
+        uint256 count = slots.length;
+        backing.hotkeys = VaultReads.activesOf(slots);
+        backing.balances = new uint256[](count); backing.short = new bool[](count);
+        for (uint256 i; i < count;) {
+            uint256 tracked = slots[i].tracked;
+            uint256 balance = IStaking(STAKING_PRECOMPILE).getStake(backing.hotkeys[i], coldkey, netuid);
+            if (!VaultReads.coversTracked(balance, tracked)) {
+                (bytes32 holder, uint256 held) = _locateMovedSlot(backing.hotkeys, i, tracked, coldkey, netuid, parking);
+                if (holder != bytes32(0)) {
+                    backing.hotkeys[i] = holder; balance = held;
+                } else {
+                    backing.short[i] = true;
+                }
+            }
+            backing.balances[i] = balance; backing.total += balance;
+            unchecked { ++i; }
+        }
+    }
+
+    /// @dev Follow only a successor covering the whole slot, else search the clone's staking list. Ignore old-hotkey
+    ///      residue and reject hotkeys other slots hold so one balance never backs two slots. Use alpha, not today's
+    ///      TAO price.
+    function _locateMovedSlot(bytes32[] memory taken, uint256 index, uint256 tracked, bytes32 coldkey, uint16 netuid,
+        bytes32 parking) private view returns (bytes32 holder, uint256 held) {
+        bytes32 successor = VaultReads.hotkeySuccessor(taken[index], netuid);
+        if (successor != bytes32(0) && !VaultMath.contains(taken, successor)) {
+            held = IStaking(STAKING_PRECOMPILE).getStake(successor, coldkey, netuid);
+            if (VaultReads.coversTracked(held, tracked)) return (successor, held);
+        }
+        return _smallestCoveringListedHotkey(taken, tracked, coldkey, netuid, parking);
+    }
+
+    /// @dev Smallest covering, not first listed: two moved slots of different sizes each find their own pile.
+    function _smallestCoveringListedHotkey(bytes32[] memory taken, uint256 tracked, bytes32 coldkey, uint16 netuid,
+        bytes32 parking) private view returns (bytes32 holder, uint256 held) {
+        IStaking staking = IStaking(STAKING_PRECOMPILE);
+        uint64 total = VaultReads.stakingHotkeyCount(coldkey);
+        for (uint64 offset; offset < total; offset += STAKING_LIST_PAGE) {
+            (bytes32[] memory page,) = staking.getStakingHotkeys(coldkey, offset, STAKING_LIST_PAGE);
+            for (uint256 i; i < page.length;) {
+                bytes32 candidate = page[i];
+                if (candidate != parking && !VaultMath.contains(taken, candidate)) {
+                    uint256 balance = staking.getStake(candidate, coldkey, netuid);
+                    if (VaultReads.coversTracked(balance, tracked) && (holder == bytes32(0) || balance < held)) {
+                        holder = candidate; held = balance;
+                    }
+                }
+                unchecked { ++i; }
+            }
+        }
     }
 
     function admitDeposit(bytes32 mailboxColdkey, uint16 nid) external view

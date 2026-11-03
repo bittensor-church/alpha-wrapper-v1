@@ -70,9 +70,6 @@ Scenario files in `tests/` cover:
 - `test_empty_token_write_off.py`: a crumb keeps the attested validator listed after the
   last exit, so a gift to the emptied token lands, is swept and written off; the token
   stays open and the next deposit wraps without a registry update.
-- `test_retained_entries_recovery.py`: with such a crumb retained, a stranger cuts
-  the trail behind a validator's hotkey swap; the watcher parks the position, an owner
-  update releases, and deposits and exits continue.
 - `test_squatted_vacated_hotkey.py`: after the vault follows a validator's hotkey swap, a
   stranger claims the vacated hotkey; deposits and rebalances keep the slot on the
   successor and the position exits once the registry names it.
@@ -85,9 +82,13 @@ Scenario files in `tests/` cover:
   behind, where exits keep paying from the old hotkey and follow the successor once the
   owner attests it; and a swap that carries the stake, which exits follow before the
   registry changes.
-- `test_parked_recovery.py`: a stranger cuts the trail behind a hotkey swap; the
-  watcher declares, recovers through `scripts/find_strays.py --recover`, parks the
-  position, exits pay from the parking hotkey, an owner update releases.
+- `test_cut_trail.py`: a stranger cuts the trail behind a hotkey swap; the vault finds
+  the alpha on the clone's staking list, one sync records it, and deposits and exits
+  keep working.
+- `test_parked_recovery.py`: the chain sweeps a position and a stranger returns the
+  alpha under a rotated-out validator a gift keeps listed; the watcher declares,
+  recovers through `scripts/find_strays.py --recover`, parks the position, exits pay
+  from the parking hotkey, an owner update releases.
 - `test_parking_isolation.py`: two subnets park on the one parking hotkey; each keeps
   its own balance, the other keeps trading, and each releases on its own owner update.
 - `test_subnet_generation.py`: a rewritten registration block leaves the token and its

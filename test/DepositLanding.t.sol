@@ -235,9 +235,10 @@ contract DepositLandingTest is AlphaVaultTestBase {
         vm.expectRevert(IAlphaVaultAbi.StakingListFull.selector);
         vault.wrap(NETUID1, hotkey4, 0);
 
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey5);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
-        vault.recoverStray(TOKEN1, hotkey5);
+        _strangerReturns(NETUID1, hotkey3, swept);
+        vault.recoverStray(TOKEN1, hotkey3);
         assertEq(_parkedStake(NETUID1), 30 * ALPHA, "parking took the reserved entry");
         vault.syncBacking(TOKEN1);
         assertTrue(vault.awaitingAttestation(TOKEN1));
@@ -255,8 +256,9 @@ contract DepositLandingTest is AlphaVaultTestBase {
         _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _fillListTo(_subnetColdkey(NETUID1), entries);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey5);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, hotkey5, swept);
 
         vault.recoverStray(TOKEN1, hotkey5);
 
@@ -264,7 +266,7 @@ contract DepositLandingTest is AlphaVaultTestBase {
     }
 
     /// @dev Park with the list at `fillTo` so parking takes entry `fillTo + 1`, pin parking with a crumb, release
-    ///      onto a validator that already holds a residue, then lose the position again.
+    ///      onto a validator that already holds a residue, then lose the position again, returned under hotkey4.
     function _secondShortfallWithParkingListedButUnfunded(uint256 fillTo) private returns (bytes32 cloneColdkey) {
         _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
@@ -273,9 +275,9 @@ contract DepositLandingTest is AlphaVaultTestBase {
         mock.setStake(hotkey3, cloneColdkey, NETUID1, 1);
         _fillListTo(cloneColdkey, fillTo);
 
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey5);
-        _strangerTransfer(hotkey5, cloneColdkey, NETUID2);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, hotkey5, swept);
         vault.recoverStray(TOKEN1, hotkey5);
         vault.syncBacking(TOKEN1);
         assertEq(_parkedStake(NETUID1), 30 * ALPHA, "parked");
@@ -287,8 +289,9 @@ contract DepositLandingTest is AlphaVaultTestBase {
         assertEq(_parkedStake(NETUID1), 0, "released onto the funded validator");
         assertEq(_stakingHotkeyCount(cloneColdkey), fillTo + 1, "the crumb keeps parking listed");
 
-        _simulateOffVaultSwap(NETUID1, hotkey3, hotkey4);
+        uint256 lost = _sweepDuringCrash(NETUID1, hotkey3);
         vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, hotkey4, lost);
     }
 
     function test_AtTheCap_RecoveryParksOntoAListedButUnfundedParkingHotkey() public {
@@ -456,8 +459,9 @@ contract DepositLandingTest is AlphaVaultTestBase {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 cloneColdkey = _subnetColdkey(NETUID1);
         _fillListTo(cloneColdkey, MAX_STAKING_HOTKEYS - 1);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, hotkey4, swept);
         vault.recoverStray(TOKEN1, hotkey4);
         vault.syncBacking(TOKEN1);
         assertTrue(vault.awaitingAttestation(TOKEN1), "the position rests on parking");
@@ -600,7 +604,7 @@ contract DepositLandingTest is AlphaVaultTestBase {
     function test_RevertWhen_ReplacingWhileAShortfallIsOnFile() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _fillListTo(_subnetColdkey(NETUID1), MAX_STAKING_HOTKEYS - 1);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey5);
+        _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey4), _weights(3334, 3333, 3333));
 

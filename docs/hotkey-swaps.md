@@ -38,10 +38,12 @@ and expected alpha (`tracked`). One shortfall clock covers the whole token.
 
 The resolver follows at most one hop from each recorded active hotkey, only when
 the successor covers that slot's expectation within 1000 RAO of accounting slack.
-It counts each hotkey for at most one slot. Separately observed swaps can advance the
-record repeatedly: any priced operation, and a `syncBacking` call on a position
-that accounts for itself, writes a followed swap into the record. Two
-unobserved swaps, an erased edge or a collision need a watcher. Subnet re-registration can erase lineage.
+Failing that, it takes, among the hotkeys the clone stakes under that no other slot
+holds, the one with the smallest pile that covers the slot. It counts each hotkey
+for at most one slot. Separately observed swaps can advance the record repeatedly:
+any priced operation, and a `syncBacking` call on a position that accounts for
+itself, writes a followed or found hotkey into the record. A sweep, a pile split
+across hotkeys or two slots merged onto one hotkey need a watcher.
 
 ## Receiving hotkeys
 
@@ -162,10 +164,8 @@ quotes until the position parks or the loss is written off. Share transfers,
 claimable TAO and mailbox recovery stay available.
 
 A parked position pays exits; deposits and emissions resume once a newer
-registry attestation arrives. A validator can swap and re-register its
-old hotkey to cut a successor edge the vault still needs. After an all-subnet
-swap, anyone paying the burn can register that ownerless hotkey on the affected token's
-subnet if registration is open. If backing goes short, call `syncBacking(tokenId)`, run
+registry attestation arrives. A cut or redirected successor edge is resolved
+through the clone's staking list. If backing goes short, call `syncBacking(tokenId)`, run
 `scripts/find_strays.py --recover`, then `syncBacking(tokenId)` before write-off.
 
 A revert preserves shares and stake, but costs gas. A finalized write-off really

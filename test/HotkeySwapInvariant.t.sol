@@ -223,12 +223,13 @@ contract HotkeySwapCampaignPathsTest is HotkeySwapCampaignSetup {
         _assertSharedInvariants();
         handler.swapToFreshHotkey(0, 2, true);
         _assertSharedInvariants();
+        assertTrue(lens.isBackingIntact(TOKEN1), "two unobserved swaps resolve on the staking list");
+        _sweepDuringCrash(NETUID1, handler.liveHotkeys(0));
         handler.syncBacking();
-        _assertSharedInvariants();
         vm.warp(lens.writeOffDeadline(TOKEN1));
         handler.syncBacking();
         _assertSharedInvariants();
-        assertTrue(vault.awaitingAttestation(TOKEN1), "two unobserved renames park the position");
+        assertTrue(vault.awaitingAttestation(TOKEN1), "a swept slot's write-off parks the position");
         assertGt(_parkedStake(NETUID1), 0, "with the located backing on the parking hotkey");
         bytes32 recipient = keccak256(abi.encode(alice));
         uint256 before = _getStakeForColdkey(vault.parkingHotkey(), recipient, NETUID1);

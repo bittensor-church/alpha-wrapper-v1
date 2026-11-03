@@ -263,6 +263,7 @@ def deploy_contracts(
 
     lens_address = chain.forge_create(
         "src/AlphaVaultLens.sol:AlphaVaultLens", private_key=config.DEPLOYER_PRIVATE_KEY,
+        libraries=[f"{allocation_library}:{allocation_address}"],
         constructor_args=[vault_address],
     )
     print(f"  AlphaVaultLens: {lens_address}")

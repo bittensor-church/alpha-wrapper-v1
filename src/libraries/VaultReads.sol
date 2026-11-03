@@ -127,40 +127,6 @@ library VaultReads {
     /// @dev Accepted accounting dust; smaller discrepancies do not start recovery.
     uint256 internal constant TRACKED_SLACK_RAO = 1e3;
 
-    /// @dev Resolves at most one successor hop from each recorded active hotkey, without writing it back.
-    function resolveBacking(Slot[] memory slots, bytes32 coldkey, uint16 netuid) internal view returns (Backing memory backing) {
-        uint256 count = slots.length;
-        backing.hotkeys = activesOf(slots);
-        backing.balances = new uint256[](count); backing.short = new bool[](count);
-        for (uint256 i; i < count;) {
-            uint256 tracked = slots[i].tracked;
-            uint256 balance = IStaking(STAKING_PRECOMPILE).getStake(backing.hotkeys[i], coldkey, netuid);
-            if (!coversTracked(balance, tracked)) {
-                (bool followed, bytes32 successor, uint256 successorBalance) =
-                    _followSwap(backing.hotkeys, i, tracked, coldkey, netuid);
-                if (followed) {
-                    backing.hotkeys[i] = successor; balance = successorBalance;
-                } else {
-                    backing.short[i] = true;
-                }
-            }
-            backing.balances[i] = balance; backing.total += balance;
-            unchecked { ++i; }
-        }
-    }
-
-    /// @dev Follow only a successor covering the whole slot. Ignore old-hotkey residue and reject
-    ///      shared successors so one balance never backs two slots. Use alpha, not today's TAO price.
-    function _followSwap(bytes32[] memory hotkeys, uint256 index, uint256 tracked, bytes32 coldkey, uint16 netuid) private view
-        returns (bool, bytes32, uint256) {
-        bytes32 successor = hotkeySuccessor(hotkeys[index], netuid);
-        if (successor == bytes32(0)) return (false, bytes32(0), 0);
-        if (VaultMath.contains(hotkeys, successor)) return (false, bytes32(0), 0);
-        uint256 successorBalance = IStaking(STAKING_PRECOMPILE).getStake(successor, coldkey, netuid);
-        if (!coversTracked(successorBalance, tracked)) return (false, bytes32(0), 0);
-        return (true, successor, successorBalance);
-    }
-
     function hotkeySuccessor(bytes32 hotkey, uint16 netuid) internal view returns (bytes32) {
         (bool exists, bytes32 successor) = IStaking(STAKING_PRECOMPILE).getHotkeySuccessor(hotkey, netuid);
         if (!exists) return bytes32(0);

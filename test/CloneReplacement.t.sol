@@ -145,9 +145,10 @@ contract CloneReplacementTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
         bytes32[] memory set = _attestedHotkeys(NETUID1);
 
-        _simulateOffVaultSwap(NETUID1, set[0], hotkey5);
+        uint256 swept = _sweepDuringCrash(NETUID1, set[0]);
         vault.syncBacking(TOKEN1);
-        assertEq(lens.missingStake(TOKEN1), 15 * ALPHA, "the swapped half is missing from the successor");
+        assertEq(lens.missingStake(TOKEN1), 15 * ALPHA, "the swept half is missing from the successor");
+        _strangerReturns(NETUID1, hotkey5, swept);
         vault.recoverStray(TOKEN1, hotkey5);
         vault.syncBacking(TOKEN1);
         assertTrue(vault.awaitingAttestation(TOKEN1), "the position rests on parking");

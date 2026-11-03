@@ -545,7 +545,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         bytes32 coldkey = VaultReads.coldkeyOf(clone);
         bytes32[] memory hotkeys = VaultReads.activesOf(slots);
         if (state.shortSince == 0) {
-            VaultReads.Backing memory backing = VaultReads.resolveBacking(slots, coldkey, netuid);
+            VaultReads.Backing memory backing = VaultAllocation.resolveBacking(slots, coldkey, netuid, parkingHotkey);
             if (VaultReads.firstShortOf(backing.short) == VaultReads.NO_SHORT_SLOT) {
                 if (!_followedSwap(slots, backing.hotkeys)) revert BackingUnchanged();
                 _reanchor(tokenId, backing.hotkeys, backing.balances);
@@ -592,7 +592,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         returns (VaultReads.Slot[] memory slots, VaultReads.Backing memory backing) {
         if (recovery[tokenId].shortSince != 0) revert ShortfallOnFile();
         if (VaultReads.lockedAlphaOf(coldkey, netuid) != 0) revert LockedBacking();
-        slots = _slots[tokenId]; backing = VaultReads.resolveBacking(slots, coldkey, netuid);
+        slots = _slots[tokenId]; backing = VaultAllocation.resolveBacking(slots, coldkey, netuid, parkingHotkey);
         // Expiry permits a write-off; it does not authorize deposits or exits to book one implicitly.
         VaultReads.requireIntact(slots, backing, netuid);
     }
