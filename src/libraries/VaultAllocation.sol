@@ -39,6 +39,7 @@ library VaultAllocation {
         emit IAlphaVaultAbi.SubnetProxyCreated(tokenId, clone);
     }
 
+    /// @dev Runs in the vault's delegatecall, so `msg.sender` is the depositor.
     function deployMissingMailbox(CloneFactory factory, mapping(address => mapping(uint256 => address)) storage mailboxes,
         uint16 netuid, bytes32 uid) external returns (address mailbox) {
         mailbox = mailboxes[msg.sender][netuid];
@@ -51,7 +52,7 @@ library VaultAllocation {
     }
 
     function deployProtectedClone(CloneFactory factory, uint256 tokenId, uint16 netuid, bytes32 uid)
-        internal returns (address clone) {
+        private returns (address clone) {
         clone = factory.deploySubnetClone(tokenId, netuid, uid);
         bytes32 coldkey = VaultReads.coldkeyOf(clone);
         address owner = factory.deployCloneOwner(coldkey, netuid);
@@ -66,59 +67,81 @@ library VaultAllocation {
         ) revert IAlphaVaultAbi.CloneProtectionFailed(clone);
     }
 
-    /// @dev Resolves each slot to its recorded hotkey, else its one-hop successor, else the listed hotkey holding the
-    ///      smallest pile that covers it, without writing anything back. A hotkey backs at most one slot.
+    /// @dev One balance never backs two slots. Every slot takes its recorded hotkey or its successor before any
+    ///      slot searches the clone's staking list, so a search never takes a pile another slot's edge leads to.
     function resolveBacking(VaultReads.Slot[] memory slots, bytes32 coldkey, uint16 netuid, bytes32 parking)
         external view returns (VaultReads.Backing memory backing) {
         uint256 count = slots.length;
         backing.hotkeys = VaultReads.activesOf(slots);
         backing.balances = new uint256[](count); backing.short = new bool[](count);
+        bool anyShort;
         for (uint256 i; i < count;) {
             uint256 tracked = slots[i].tracked;
             uint256 balance = IStaking(STAKING_PRECOMPILE).getStake(backing.hotkeys[i], coldkey, netuid);
             if (!VaultReads.coversTracked(balance, tracked)) {
-                (bytes32 holder, uint256 held) = _locateMovedSlot(backing.hotkeys, i, tracked, coldkey, netuid, parking);
-                if (holder != bytes32(0)) {
-                    backing.hotkeys[i] = holder; balance = held;
+                (bytes32 successor, uint256 held) = _coveringSuccessor(backing.hotkeys, i, tracked, coldkey, netuid);
+                if (successor != bytes32(0)) {
+                    backing.hotkeys[i] = successor; balance = held;
                 } else {
-                    backing.short[i] = true;
+                    backing.short[i] = true; anyShort = true;
                 }
             }
-            backing.balances[i] = balance; backing.total += balance;
+            backing.balances[i] = balance;
+            unchecked { ++i; }
+        }
+        if (anyShort) _assignFromStakingList(backing, slots, coldkey, netuid, parking);
+        backing.total = VaultMath.sumBalances(backing.balances);
+    }
+
+    function _coveringSuccessor(bytes32[] memory taken, uint256 index, uint256 tracked, bytes32 coldkey, uint16 netuid)
+        private view returns (bytes32 successor, uint256 held) {
+        successor = VaultReads.hotkeySuccessor(taken[index], netuid);
+        if (successor == bytes32(0) || VaultMath.contains(taken, successor)) return (bytes32(0), 0);
+        held = IStaking(STAKING_PRECOMPILE).getStake(successor, coldkey, netuid);
+        if (!VaultReads.coversTracked(held, tracked)) return (bytes32(0), 0);
+    }
+
+    /// @dev Smallest covering pile, not first listed: two moved slots of different sizes each find their own.
+    function _assignFromStakingList(VaultReads.Backing memory backing, VaultReads.Slot[] memory slots, bytes32 coldkey,
+        uint16 netuid, bytes32 parking) private view {
+        (bytes32[] memory listed, uint256[] memory piles) = _unclaimedListedPiles(backing.hotkeys, coldkey, netuid, parking);
+        for (uint256 i; i < slots.length;) {
+            if (backing.short[i]) {
+                uint256 pick = _smallestCovering(piles, slots[i].tracked);
+                if (pick != VaultMath.INDEX_NOT_FOUND) {
+                    backing.hotkeys[i] = listed[pick]; backing.balances[i] = piles[pick]; backing.short[i] = false;
+                    piles[pick] = 0;
+                }
+            }
             unchecked { ++i; }
         }
     }
 
-    /// @dev Follow only a successor covering the whole slot, else search the clone's staking list. Ignore old-hotkey
-    ///      residue and reject hotkeys other slots hold so one balance never backs two slots. Use alpha, not today's
-    ///      TAO price.
-    function _locateMovedSlot(bytes32[] memory taken, uint256 index, uint256 tracked, bytes32 coldkey, uint16 netuid,
-        bytes32 parking) private view returns (bytes32 holder, uint256 held) {
-        bytes32 successor = VaultReads.hotkeySuccessor(taken[index], netuid);
-        if (successor != bytes32(0) && !VaultMath.contains(taken, successor)) {
-            held = IStaking(STAKING_PRECOMPILE).getStake(successor, coldkey, netuid);
-            if (VaultReads.coversTracked(held, tracked)) return (successor, held);
-        }
-        return _smallestCoveringListedHotkey(taken, tracked, coldkey, netuid, parking);
-    }
-
-    /// @dev Smallest covering, not first listed: two moved slots of different sizes each find their own pile.
-    function _smallestCoveringListedHotkey(bytes32[] memory taken, uint256 tracked, bytes32 coldkey, uint16 netuid,
-        bytes32 parking) private view returns (bytes32 holder, uint256 held) {
+    function _unclaimedListedPiles(bytes32[] memory taken, bytes32 coldkey, uint16 netuid, bytes32 parking)
+        private view returns (bytes32[] memory listed, uint256[] memory piles) {
         IStaking staking = IStaking(STAKING_PRECOMPILE);
-        uint64 total = VaultReads.stakingHotkeyCount(coldkey);
+        (bytes32[] memory page, uint64 total) = staking.getStakingHotkeys(coldkey, 0, STAKING_LIST_PAGE);
+        listed = new bytes32[](total); piles = new uint256[](total);
         for (uint64 offset; offset < total; offset += STAKING_LIST_PAGE) {
-            (bytes32[] memory page,) = staking.getStakingHotkeys(coldkey, offset, STAKING_LIST_PAGE);
+            if (offset != 0) (page,) = staking.getStakingHotkeys(coldkey, offset, STAKING_LIST_PAGE);
             for (uint256 i; i < page.length;) {
-                bytes32 candidate = page[i];
-                if (candidate != parking && !VaultMath.contains(taken, candidate)) {
-                    uint256 balance = staking.getStake(candidate, coldkey, netuid);
-                    if (VaultReads.coversTracked(balance, tracked) && (holder == bytes32(0) || balance < held)) {
-                        holder = candidate; held = balance;
-                    }
+                bytes32 hotkey = page[i];
+                listed[offset + i] = hotkey;
+                if (hotkey != bytes32(0) && hotkey != parking && !VaultMath.contains(taken, hotkey)) {
+                    piles[offset + i] = staking.getStake(hotkey, coldkey, netuid);
                 }
                 unchecked { ++i; }
             }
+        }
+    }
+
+    function _smallestCovering(uint256[] memory piles, uint256 tracked) private pure returns (uint256 pick) {
+        pick = VaultMath.INDEX_NOT_FOUND;
+        for (uint256 i; i < piles.length;) {
+            if (VaultReads.coversTracked(piles[i], tracked) && (pick == VaultMath.INDEX_NOT_FOUND || piles[i] < piles[pick])) {
+                pick = i;
+            }
+            unchecked { ++i; }
         }
     }
 

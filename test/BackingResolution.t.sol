@@ -88,6 +88,22 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1));
     }
 
+    function test_ASweptSlot_NeverTakesAnotherSlotsSuccessor() public {
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(2000, 6000, 2000));
+        _depositAndWrap(alice, NETUID1, 40 * ALPHA);
+        _sweepDuringCrash(NETUID1, hotkey1);
+        _simulatePerSubnetSwap(NETUID1, hotkey2, hotkey5);
+
+        VaultReads.Backing memory backing = lens.resolvedBacking(TOKEN1);
+
+        assertTrue(backing.short[0], "the swept slot stays short");
+        assertEq(backing.hotkeys[1], hotkey5, "the swapped slot follows its own edge");
+        assertFalse(backing.short[1]);
+        assertEq(backing.total, 32 * ALPHA);
+        vm.expectRevert(abi.encodeWithSelector(BackingShortfall.selector, NETUID1, hotkey1, 8 * ALPHA));
+        vault.rebalance(NETUID1);
+    }
+
     function test_AHotkeyAnotherSlotHolds_NeverCoversASlot() public {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(2000, 6000, 2000));
         _depositAndWrap(alice, NETUID1, 40 * ALPHA);

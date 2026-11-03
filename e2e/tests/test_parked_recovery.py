@@ -70,3 +70,10 @@ def test_watcher_parks_a_swept_position_returned_under_a_listed_hotkey(env):
         netuid, swept.attested_pubkey, swept.attested_ss58,
         config.DEPOSIT_RAO // 10, 1_500_000, "Parked recovery: deposits should resume",
     )
+
+    located = hotkeys + [parking_hotkey]
+    receipt, _ = exits.unwrap(
+        env, token_id, env.vault_shares(token_id), "Parked recovery: the full exit after the release failed",
+        hotkeys=located,
+    )
+    exits.assert_drained(env, token_id, located, receipt, "Parked recovery: full exit")

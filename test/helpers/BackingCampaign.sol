@@ -345,8 +345,8 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
     }
 
     /// @dev Each slot where the record finds it: the recorded hotkey if that covers the slot within slack, else a
-    ///      successor that covers it and no other slot holds, else the listed hotkey with the smallest pile that
-    ///      covers it; a slot none covers is short.
+    ///      successor that covers it and no other slot holds; then, for the slots still short, the listed hotkey
+    ///      with the smallest pile that covers it and no slot holds; a slot none covers is short.
     function resolvedSlots()
         public
         view
@@ -371,16 +371,19 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
                     hotkeys[i] = successor;
                     held = successorHeld;
                 } else {
-                    (bytes32 holder, uint256 holderHeld) = _smallestCoveringListed(hotkeys, slots[i].tracked);
-                    if (holder != bytes32(0)) {
-                        hotkeys[i] = holder;
-                        held = holderHeld;
-                    } else {
-                        short[i] = true;
-                    }
+                    short[i] = true;
                 }
             }
             balances[i] = held;
+        }
+        for (uint256 i; i < slots.length; ++i) {
+            if (!short[i]) continue;
+            (bytes32 holder, uint256 holderHeld) = _smallestCoveringListed(hotkeys, slots[i].tracked);
+            if (holder != bytes32(0)) {
+                hotkeys[i] = holder;
+                balances[i] = holderHeld;
+                short[i] = false;
+            }
         }
     }
 
@@ -391,7 +394,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
     {
         bytes32[] memory listed = _listedHotkeys(_subnetColdkey(NETUID1));
         for (uint256 i; i < listed.length; ++i) {
-            if (listed[i] == vault.parkingHotkey() || _contains(taken, listed[i])) continue;
+            if (listed[i] == bytes32(0) || listed[i] == vault.parkingHotkey() || _contains(taken, listed[i])) continue;
             uint256 balance = _getVaultStake(listed[i], NETUID1);
             if (balance + BACKING_SLACK_RAO >= tracked && (holder == bytes32(0) || balance < held)) {
                 holder = listed[i];
