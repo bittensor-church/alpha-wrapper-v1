@@ -4,16 +4,20 @@
   "createMailbox: shared subnet": "402975",
   "rebalance: after registry weight update": "282453",
   "rebalance: fully rotated (10 validators)": "3027155",
+  "rebalance: refused on a swept slot, full staking list (10 validators)": "2651472",
   "rebalance: release parked position (10 validators)": "3349788",
+  "rebalance: resolve a cut edge": "240158",
   "rebalance: resolve a cut edge through a full staking list (10 validators)": "2877228",
   "recoverStray: collect merged source (10 validators)": "333741",
   "recoverStray: collect one source (10 validators)": "220688",
   "replaceClone: 3 validators": "4831180",
   "syncBacking: loss on file (10 validators)": "1166196",
+  "syncBacking: record a cut edge": "137981",
   "unwrap: full": "588045",
   "unwrap: full (10 validators)": "1275687",
   "unwrap: partial": "690316",
   "unwrap: partial (10 validators)": "1472666",
+  "unwrap: partial, resolve a cut edge": "682568",
   "unwrapForTao: full (10 validators)": "953192",
   "unwrapForTao: full after a rotation (10 validators)": "953192",
   "unwrapForTao: partial tail above floor": "326361",
@@ -21,5 +25,6 @@
   "wrap: first": "1289565",
   "wrap: first (10 validators)": "3573604",
   "wrap: subsequent": "394302",
-  "wrap: subsequent (10 validators)": "895954"
+  "wrap: subsequent (10 validators)": "895954",
+  "wrap: subsequent, resolve a cut edge": "433830"
 }
