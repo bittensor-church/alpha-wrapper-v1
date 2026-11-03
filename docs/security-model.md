@@ -87,9 +87,9 @@ later recovery.
 - A stranger who claims a vacated validator hotkey receives allocations for a
   slot with no live followed record until the registry replaces it. The alpha
   stays under the vault's coldkey; moved without a trail it is found on the
-  clone's staking list, and a pile no single listed hotkey covers freezes every
-  priced call until a watcher parks the position, which earns again once the
-  registry publishes a new set.
+  clone's staking list, and a pile no single listed hotkey covers freezes
+  deposits, exits and rebalances until a watcher parks the position, which earns
+  again once the registry publishes a new set.
 - Alpha a clone holds on another subnet stays outside the backing, and so do piles
   a clone replacement leaves behind. Anyone holding enough alpha can push a pile
   below the floor by dumping the price around a replacement and so destroy

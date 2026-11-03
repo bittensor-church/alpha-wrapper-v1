@@ -52,12 +52,10 @@ raw key.
 
 The broadcast deploys the `DepositMailbox` logic, the `SubnetClone` logic, the
 `AlphaVault` whose constructor deploys its own `CloneFactory`, and
-`AlphaVaultLens(vault)`. Forge also deploys the `VaultAllocation` library and
-links its address into the vault and lens bytecode, so each deployment is bound
-to one library deployment. Deploying by hand needs the same link on both, passed as
-`--libraries src/libraries/VaultAllocation.sol:VaultAllocation:<address>`.
-`VaultAllocation` is the only linked library; the other libraries under
-`src/libraries/` compile into the contracts that use them.
+`AlphaVaultLens(vault)`. The vault and the lens delegatecall `VaultAllocation`,
+whose address is linked into both at build time. Forge deploys and links it in
+the broadcast; deploying by hand needs
+`--libraries src/libraries/VaultAllocation.sol:VaultAllocation:<address>` on both.
 
 Every vault parameter is immutable: `validatorRegistry`, `recoveryWindow`,
 `parkingHotkey` and `cloneFactory` are fixed at deployment. Changing any of them,
