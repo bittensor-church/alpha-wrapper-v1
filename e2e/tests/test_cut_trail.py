@@ -41,9 +41,10 @@ def test_a_cut_trail_resolves_on_the_staking_list(env):
         "syncBacking(uint256)", token_id,
     )
 
+    # Alice's stake followed the swap too, so the deposit is funded from the successor.
     successor_before = env.stake(successor, clone_coldkey, netuid)
     env.deposit_and_wrap(
-        netuid, hotkeys[0], env.hotkey_ss58s[0], config.DEPOSIT_RAO // 10, 1_500_000,
+        netuid, hotkeys[0], stranding.successor_ss58, config.DEPOSIT_RAO // 10, 1_500_000,
         "Cut trail: a deposit chosen under the vacated hotkey failed",
     )
     assert env.stake(lost, clone_coldkey, netuid) == 0, "nothing lands on the vacated hotkey"

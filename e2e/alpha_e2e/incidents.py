@@ -87,7 +87,8 @@ def sweep(env: Environment, subnet_index: int, context: str) -> Sweep:
     clone_ss58 = h160_to_ss58(env.clone_address(token_id))
     clone_coldkey = env.clone_coldkey(token_id)
     backing_before = env.vault_total_stake(token_id)
-    threshold_rao = env.alpha_value_tao(netuid, backing_before) + 1
+    # Half again over the position's value: the chain prices the sweep with its own rounding.
+    threshold_rao = env.alpha_value_tao(netuid, backing_before) * 3 // 2 + 1
 
     keeper_ss58 = extrinsics.keypair_ss58(KEEPER_URI)
     extrinsics.fund_account(keeper_ss58, 8 * threshold_rao + config.RAO_PER_TAO)
@@ -102,7 +103,9 @@ def sweep(env: Environment, subnet_index: int, context: str) -> Sweep:
         4_000_000, f"{context}: the rotation rebalance failed", "rebalance(uint256)", netuid,
         label="rebalance [rotate]",
     )
-    assert env.stake(listed_pubkey, clone_coldkey, netuid) == 0, f"{context}: the rotation left alpha behind"
+    assert env.stake(listed_pubkey, clone_coldkey, netuid) <= config.ROUNDING_DUST_SLOT_RAO, (
+        f"{context}: the rotation left alpha behind"
+    )
     swept_rao = env.stake(attested_pubkey, clone_coldkey, netuid)
     assert swept_rao > 0, f"{context}: the rotation moved nothing"
 
@@ -144,7 +147,9 @@ def park(env: Environment, token_id: int, swept: Sweep, context: str) -> int:
         f"{context}: find_strays should report exactly the listed validator, got {strays}"
     )
     assert strays[0]["dry_run"] == "ok", f"{context}: the returned alpha should be recoverable, got {strays}"
-    assert int(strays[0]["stake_rao"]) >= swept.swept_rao, f"{context}: the return fell short, got {strays}"
+    assert int(strays[0]["stake_rao"]) >= swept.swept_rao - config.CONSOLIDATION_ROUNDING_TOLERANCE_RAO, (
+        f"{context}: the return fell short, got {strays}"
+    )
     assert checks.find_strays(env, token_id) == [], f"{context}: nothing should be left outside the record"
 
     env.sync_backing(token_id, label="syncBacking [finalize]")

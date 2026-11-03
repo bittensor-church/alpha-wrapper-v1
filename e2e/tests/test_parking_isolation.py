@@ -26,10 +26,12 @@ def test_parked_subnets_share_the_hotkey_without_sharing_state(env):
     swept_a = incidents.sweep(env, 0, "Isolation: A")
     parked_a = incidents.park(env, token_a, swept_a, "Isolation: A")
 
-    # B's position stays below A's parked balance so B's sweep leaves A's alone.
+    # B's position stays worth a fraction of A's parked balance, so B's sweep cannot reach A's.
+    _, b_deposit = env.floor_boundary(netuid_b, env.alpha_value_tao(netuid_a, parked_a) // 8)
+    b_deposit = min(b_deposit, config.DEPOSIT_RAO // 2)
     env.deposit_and_wrap(
         netuid_b, hotkeys_b[0], env.hotkey_ss58s[VALIDATORS],
-        config.DEPOSIT_RAO // 2, 1_500_000, "Isolation: B should wrap while A is parked",
+        b_deposit, 1_500_000, "Isolation: B should wrap while A is parked",
     )
     assert not env.awaiting_attestation(token_b), "B should not be parked by A's incident"
     assert env.backing_intact(token_b), "B's backing should be untouched"
@@ -37,7 +39,7 @@ def test_parked_subnets_share_the_hotkey_without_sharing_state(env):
 
     env.deposit_and_wrap(
         netuid_b, hotkeys_b[0], env.hotkey_ss58s[VALIDATORS],
-        config.DEPOSIT_RAO // 10, 1_500_000, "Isolation: B should accept a deposit while A is parked",
+        b_deposit // 5, 1_500_000, "Isolation: B should accept a deposit while A is parked",
     )
     env.vault_send(
         4_000_000, "Isolation: B should align while A is parked", "rebalance(uint256)", netuid_b,
