@@ -376,12 +376,21 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
             }
             balances[i] = held;
         }
+        _assignShortSlotsFromList(slots, hotkeys, balances, short);
+    }
+
+    function _assignShortSlotsFromList(
+        VaultReads.Slot[] memory slots,
+        bytes32[] memory hotkeys,
+        uint256[] memory balances,
+        bool[] memory short
+    ) private view {
         for (uint256 i; i < slots.length; ++i) {
             if (!short[i]) continue;
-            (bytes32 holder, uint256 holderHeld) = _smallestCoveringListed(hotkeys, slots[i].tracked);
+            (bytes32 holder, uint256 held) = _smallestCoveringListed(hotkeys, slots[i].tracked);
             if (holder != bytes32(0)) {
                 hotkeys[i] = holder;
-                balances[i] = holderHeld;
+                balances[i] = held;
                 short[i] = false;
             }
         }
