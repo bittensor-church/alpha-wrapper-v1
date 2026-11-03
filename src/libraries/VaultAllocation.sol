@@ -104,30 +104,32 @@ library VaultAllocation {
     /// @dev Smallest covering pile, not first listed: two moved slots of different sizes each find their own.
     function _assignFromStakingList(VaultReads.Backing memory backing, VaultReads.Slot[] memory slots, bytes32 coldkey,
         uint16 netuid, bytes32 parking) private view {
-        (bytes32[] memory listed, uint256[] memory piles) = _unclaimedListedPiles(backing.hotkeys, coldkey, netuid, parking);
+        (bytes32[] memory candidates, uint256[] memory piles) =
+            _unclaimedListedPiles(backing.hotkeys, coldkey, netuid, parking);
         for (uint256 i; i < slots.length;) {
             if (backing.short[i]) {
-                uint256 pick = _smallestCovering(piles, slots[i].tracked);
+                uint256 pick = _smallestCovering(candidates, piles, slots[i].tracked);
                 if (pick != VaultMath.INDEX_NOT_FOUND) {
-                    backing.hotkeys[i] = listed[pick]; backing.balances[i] = piles[pick]; backing.short[i] = false;
-                    piles[pick] = 0;
+                    backing.hotkeys[i] = candidates[pick]; backing.balances[i] = piles[pick]; backing.short[i] = false;
+                    candidates[pick] = bytes32(0);
                 }
             }
             unchecked { ++i; }
         }
     }
 
+    /// @dev Listed hotkeys no slot holds, with their piles; a zero entry is no candidate.
     function _unclaimedListedPiles(bytes32[] memory taken, bytes32 coldkey, uint16 netuid, bytes32 parking)
-        private view returns (bytes32[] memory listed, uint256[] memory piles) {
+        private view returns (bytes32[] memory candidates, uint256[] memory piles) {
         IStaking staking = IStaking(STAKING_PRECOMPILE);
         (bytes32[] memory page, uint64 total) = staking.getStakingHotkeys(coldkey, 0, STAKING_LIST_PAGE);
-        listed = new bytes32[](total); piles = new uint256[](total);
+        candidates = new bytes32[](total); piles = new uint256[](total);
         for (uint64 offset; offset < total; offset += STAKING_LIST_PAGE) {
             if (offset != 0) (page,) = staking.getStakingHotkeys(coldkey, offset, STAKING_LIST_PAGE);
             for (uint256 i; i < page.length;) {
                 bytes32 hotkey = page[i];
-                listed[offset + i] = hotkey;
                 if (hotkey != bytes32(0) && hotkey != parking && !VaultMath.contains(taken, hotkey)) {
+                    candidates[offset + i] = hotkey;
                     piles[offset + i] = staking.getStake(hotkey, coldkey, netuid);
                 }
                 unchecked { ++i; }
@@ -135,10 +137,14 @@ library VaultAllocation {
         }
     }
 
-    function _smallestCovering(uint256[] memory piles, uint256 tracked) private pure returns (uint256 pick) {
+    function _smallestCovering(bytes32[] memory candidates, uint256[] memory piles, uint256 tracked)
+        private pure returns (uint256 pick) {
         pick = VaultMath.INDEX_NOT_FOUND;
         for (uint256 i; i < piles.length;) {
-            if (VaultReads.coversTracked(piles[i], tracked) && (pick == VaultMath.INDEX_NOT_FOUND || piles[i] < piles[pick])) {
+            if (
+                candidates[i] != bytes32(0) && VaultReads.coversTracked(piles[i], tracked)
+                    && (pick == VaultMath.INDEX_NOT_FOUND || piles[i] < piles[pick])
+            ) {
                 pick = i;
             }
             unchecked { ++i; }
