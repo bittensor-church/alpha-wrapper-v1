@@ -605,11 +605,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (retired != bytes32(0)) revert AttestedHotkeyRetired(retired);
     }
 
-    /// @dev The library takes flat arrays so the vault carries no struct encoders for this call.
     function _assignActives(VaultReads.Slot[] memory slots, VaultReads.Backing memory backing, VaultReads.ValidatorSet memory set,
         uint16 netuid) private view returns (bytes32[] memory actives, bytes32 retired) {
-        return VaultAllocation.assignActives(
-            VaultReads.attestedOf(slots), backing.hotkeys, backing.balances, set.hotkeys, netuid);
+        return VaultAllocation.assignActives(slots, backing, set.hotkeys, netuid);
     }
 
     /// @dev Replace the record with actual post-move balances; shortfalls were checked on entry.

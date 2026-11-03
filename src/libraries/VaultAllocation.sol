@@ -213,12 +213,12 @@ library VaultAllocation {
 
     /// @dev Keep funded slots on their resolved hotkeys; empty slots need a receiving hotkey with an owner
     ///      record, which the chain requires for stake operations. Hotkeys remain exclusive even for empty
-    ///      slots. Flat arrays cross this boundary: each struct argument would add its own ABI encoder to
-    ///      the vault, which has no bytecode to spare. `slotAttested`, `slotHotkeys` and `balances` are one
-    ///      record per slot; `attestedHotkeys` is one entry per attested hotkey.
-    function assignActives(bytes32[] memory slotAttested, bytes32[] memory slotHotkeys, uint256[] memory balances,
+    ///      slots.
+    function assignActives(VaultReads.Slot[] memory slots, VaultReads.Backing memory backing,
         bytes32[] memory attestedHotkeys, uint16 netuid
     ) external view returns (bytes32[] memory actives, bytes32 retired) {
+        bytes32[] memory slotAttested = VaultReads.attestedOf(slots);
+        bytes32[] memory slotHotkeys = backing.hotkeys; uint256[] memory balances = backing.balances;
         actives = new bytes32[](attestedHotkeys.length);
         for (uint256 i; i < attestedHotkeys.length;) {
             bytes32 attested = attestedHotkeys[i];
