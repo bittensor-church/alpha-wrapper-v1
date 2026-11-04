@@ -181,7 +181,7 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
 
         uint256 expectedAlphaOut = 300 * ALPHA - 2;
         vm.expectEmit(true, true, false, true, address(vault));
-        emit Unwrapped(alice, TOKEN1, shares, expectedAlphaOut);
+        emit Unwrapped(alice, TOKEN1, _toSubstrate(alice), shares, expectedAlphaOut);
 
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);

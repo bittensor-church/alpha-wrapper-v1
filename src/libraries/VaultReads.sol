@@ -22,6 +22,10 @@ library VaultReads {
         return IAddressMapping(ADDRESS_MAPPING_PRECOMPILE).addressMapping(evmAddress);
     }
 
+    function hasOwner(bytes32 hotkey) internal view returns (bool exists) {
+        (exists,) = IStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey);
+    }
+
     function ownedBy(bytes32 hotkey, bytes32 coldkey) internal view returns (bool) {
         (bool exists, bytes32 owner) = IStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey);
         return exists && owner == coldkey;

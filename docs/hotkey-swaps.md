@@ -145,9 +145,10 @@ even while backing is intact.
    position, its TAO and the token id move to a fresh clone; piles below the
    floor stay on the old clone.
 
-Collection emits `BackingRecovered`; sync finalization emits
-`BackingParked`. A write-off emits `BackingWrittenOff` before it. Both calls
-are permissionless.
+`recoverStray` emits `BackingRecovered`; a sync that collects returns emits
+`BackingCollected`. Sync finalization emits `BackingParked`, and a write-off
+emits `BackingWrittenOff` before it. Both calls are permissionless. The release
+emits `ParkingReleased`.
 
 Declaration cost grows with the number of located hotkeys: simulate the call and
 budget above the estimate. Keep funds for retries when a chain restriction

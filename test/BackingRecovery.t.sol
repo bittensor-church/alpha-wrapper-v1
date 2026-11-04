@@ -15,6 +15,8 @@ import {
     ShortfallOnFile,
     SlippageExceeded,
     SlotMaskOutOfRange,
+    SubnetCloneNotPrepared,
+    SubnetDissolved,
     SubnetInDissolutionBlackoutPeriod,
     WithdrawTooSmall
 } from "src/VaultErrors.sol";
@@ -108,7 +110,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_RevertWhen_SyncingATokenWithNoPosition() public {
-        vm.expectRevert(NothingToUnwrap.selector);
+        vm.expectRevert(SubnetCloneNotPrepared.selector);
         vault.syncBacking(TOKEN1);
     }
 
@@ -116,7 +118,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _reregisterSubnet(NETUID1);
 
-        vm.expectRevert(BackingUnchanged.selector);
+        vm.expectRevert(SubnetDissolved.selector);
         vault.syncBacking(TOKEN1);
     }
 
@@ -194,8 +196,8 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         assertFalse(lens.isBackingIntact(TOKEN1), "the loss is visible first");
         bytes32 parking = vault.parkingHotkey();
 
-        vm.expectEmit(true, true, false, true, address(vault));
-        emit BackingRecovered(TOKEN1, parking, FIRST_SLOT);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit BackingRecovered(TOKEN1, hotkey4, parking, FIRST_SLOT);
         vm.prank(bob);
         vault.recoverStray(TOKEN1, hotkey4);
         vm.expectEmit(true, false, false, true, address(vault));
@@ -359,7 +361,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _reregisterSubnet(NETUID1);
 
-        vm.expectRevert(NothingToRecover.selector);
+        vm.expectRevert(SubnetDissolved.selector);
         vault.recoverStray(TOKEN1, hotkey4);
     }
 
@@ -368,8 +370,8 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey4, _subnetColdkey(NETUID1), NETUID1, 3 * ALPHA);
         _simulateHotkeyOwnerPresent(hotkey4);
 
-        vm.expectEmit(true, true, false, true, address(vault));
-        emit BackingRecovered(TOKEN1, hotkey1, 3 * ALPHA);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit BackingRecovered(TOKEN1, hotkey4, hotkey1, 3 * ALPHA);
         vault.recoverStray(TOKEN1, hotkey4);
 
         assertEq(lens.totalStake(TOKEN1), 33 * ALPHA, "the donation is new backing");
@@ -383,8 +385,8 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey4, _subnetColdkey(NETUID1), NETUID1, 1);
         _simulateHotkeyOwnerPresent(hotkey4);
 
-        vm.expectEmit(true, true, false, true, address(vault));
-        emit BackingRecovered(TOKEN1, hotkey1, 1);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit BackingRecovered(TOKEN1, hotkey4, hotkey1, 1);
         vault.recoverStray(TOKEN1, hotkey4);
 
         assertEq(lens.totalStake(TOKEN1), 30 * ALPHA + 1, "the dust is home");
@@ -399,8 +401,10 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         _simulateHotkeyOwnerPresent(hotkey5);
         assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey1, "the record still names the swapped key");
 
-        vm.expectEmit(true, true, false, true, address(vault));
-        emit BackingRecovered(TOKEN1, hotkey4, 3 * ALPHA);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit SlotRelocated(TOKEN1, 0, hotkey1, hotkey4);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit BackingRecovered(TOKEN1, hotkey5, hotkey4, 3 * ALPHA);
         vault.recoverStray(TOKEN1, hotkey5);
 
         VaultReads.Slot memory slot = vault.recordedSlots(TOKEN1)[0];

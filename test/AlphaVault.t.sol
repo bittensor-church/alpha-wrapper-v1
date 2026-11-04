@@ -11,16 +11,17 @@ import {
     InsufficientShares,
     NetuidOutOfRange,
     NoSharesOutstanding,
-    NothingToUnwrap,
+    NotAContract,
     NoValidatorFound,
     ParkingHotkeyUnavailable,
+    RecoveryWindowOutOfRange,
+    SubnetCloneNotPrepared,
     SubnetDissolved,
     SlippageExceeded,
     SubnetInDissolutionBlackoutPeriod,
     SubnetNotRegistered,
     ValidatorSetMalformed,
     WithdrawTooSmall,
-    ZeroAddress,
     ZeroAmount,
     MailboxNotPrepared,
     ZeroColdkey,
@@ -34,25 +35,50 @@ import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract AlphaVaultTest is AlphaVaultTestBase {
     function test_RevertWhen_ConstructorZeroMailboxLogic() public {
-        vm.expectRevert(ZeroAddress.selector);
+        vm.expectRevert(NotAContract.selector);
         new AlphaVault(VAULT_URI, address(0), address(subnetLogic), address(registry), RECOVERY_WINDOW, PARKING_HOTKEY);
     }
 
     function test_RevertWhen_ConstructorZeroSubnetLogic() public {
-        vm.expectRevert(ZeroAddress.selector);
+        vm.expectRevert(NotAContract.selector);
         new AlphaVault(VAULT_URI, address(mailboxLogic), address(0), address(registry), RECOVERY_WINDOW, PARKING_HOTKEY);
     }
 
     function test_RevertWhen_ConstructorZeroValidatorRegistry() public {
-        vm.expectRevert(ZeroAddress.selector);
+        vm.expectRevert(NotAContract.selector);
         new AlphaVault(
             VAULT_URI, address(mailboxLogic), address(subnetLogic), address(0), RECOVERY_WINDOW, PARKING_HOTKEY
         );
     }
 
+    function test_RevertWhen_ConstructorValidatorRegistryHasNoCode() public {
+        vm.expectRevert(NotAContract.selector);
+        new AlphaVault(
+            VAULT_URI,
+            address(mailboxLogic),
+            address(subnetLogic),
+            makeAddr("registryOwner"),
+            RECOVERY_WINDOW,
+            PARKING_HOTKEY
+        );
+    }
+
     function test_RevertWhen_ConstructorZeroRecoveryWindow() public {
-        vm.expectRevert(ZeroAmount.selector);
+        vm.expectRevert(RecoveryWindowOutOfRange.selector);
         new AlphaVault(VAULT_URI, address(mailboxLogic), address(subnetLogic), address(registry), 0, PARKING_HOTKEY);
+    }
+
+    function testFuzz_RevertWhen_ConstructorRecoveryWindowExceedsAYear(uint256 recoveryWindow) public {
+        recoveryWindow = bound(recoveryWindow, 365 days + 1, type(uint256).max);
+        vm.expectRevert(RecoveryWindowOutOfRange.selector);
+        new AlphaVault(
+            VAULT_URI, address(mailboxLogic), address(subnetLogic), address(registry), recoveryWindow, PARKING_HOTKEY
+        );
+    }
+
+    function test_Constructor_AcceptsAYearLongRecoveryWindow() public {
+        (AlphaVault yearVault,) = _deployVaultAndLens(address(registry), 365 days);
+        assertEq(yearVault.recoveryWindow(), 365 days);
     }
 
     function test_RevertWhen_ConstructorZeroParkingHotkey() public {
@@ -115,8 +141,8 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     function test_Wrap() public {
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
 
-        vm.expectEmit(true, true, false, true, address(vault));
-        emit Deposited(alice, TOKEN1, 10 * ALPHA, 1e19);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit Deposited(alice, TOKEN1, hotkey1, 10 * ALPHA, 1e19);
         _wrapHotkey(alice, NETUID1, hotkey1);
 
         assertEq(vault.balanceOf(alice, TOKEN1), 1e19, "a first deposit mints 1e9 shares per RAO");
@@ -144,8 +170,8 @@ contract AlphaVaultTest is AlphaVaultTestBase {
 
         _simulateAlphaDeposit(alice, NETUID1, 5 * ALPHA);
         // 5e9 * (5e18 + 1e9) / (5e9 + 1) = 5e18 exactly.
-        vm.expectEmit(true, true, false, true, address(vault));
-        emit Deposited(alice, TOKEN1, 5 * ALPHA, 5e18);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit Deposited(alice, TOKEN1, hotkey1, 5 * ALPHA, 5e18);
         _wrapHotkey(alice, NETUID1, hotkey1);
 
         assertEq(vault.balanceOf(alice, TOKEN1), 1e19);
@@ -215,7 +241,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
 
         MockStaking(STAKING_PRECOMPILE).setTransferStakeRoundingLoss(1);
         vm.expectEmit(true, true, false, true, address(vault));
-        emit Unwrapped(alice, TOKEN1, shares, creditedAlpha);
+        emit Unwrapped(alice, TOKEN1, _toSubstrate(alice), shares, creditedAlpha);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), creditedAlpha);
 
@@ -387,14 +413,9 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(hotkey2, NETUID1), 50 * ALPHA);
     }
 
-    function test_RebalanceNoOpWhenCloneNotDeployed() public {
-        vm.recordLogs();
+    function test_RevertWhen_RebalanceBeforeTheCloneExists() public {
+        vm.expectRevert(SubnetCloneNotPrepared.selector);
         vault.rebalance(NETUID1);
-
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 0);
-        assertEq(vault.subnetClone(TOKEN1), address(0));
-        assertEq(lens.totalStake(TOKEN1), 0);
-        assertEq(_lastSeen(TOKEN1).length, 0);
     }
 
     function test_RebalanceEmitsEvent() public {
@@ -505,6 +526,8 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.deal(mailbox, 2 * TAO);
 
         uint256 aliceBefore = alice.balance;
+        vm.expectEmit(true, true, false, true, address(vault));
+        emit MailboxTaoReclaimed(alice, NETUID1, 2 * TAO);
         vm.prank(alice);
         vault.reclaimTaoFromMailbox(NETUID1);
 
@@ -851,7 +874,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         _simulateDissolutionStarted(NETUID1);
 
         vm.prank(alice);
-        vm.expectRevert(NothingToUnwrap.selector);
+        vm.expectRevert(SubnetDissolved.selector);
         vault.unwrapForTao(TOKEN1, shares, 0);
     }
 
@@ -1208,21 +1231,14 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(alpha, 10 * ALPHA);
     }
 
-    function test_RebalanceRecycledSubnetSilentNoop() public {
+    function test_RevertWhen_RebalanceRecycledSubnetBeforeItsClone() public {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-
         address oldClone = vault.subnetClone(TOKEN1);
-
         _reregisterSubnet(NETUID1);
-        uint256 newTokenId = vault.currentTokenId(NETUID1);
 
-        vm.recordLogs();
+        vm.expectRevert(SubnetCloneNotPrepared.selector);
         vault.rebalance(NETUID1);
 
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 0);
-        assertEq(vault.subnetClone(newTokenId), address(0));
-        assertEq(lens.totalStake(newTokenId), 0);
-        assertEq(_lastSeen(newTokenId).length, 0);
         assertEq(_userStakeAcrossHotkeys(oldClone, NETUID1), 10 * ALPHA, "the old generation's alpha stays put");
     }
 

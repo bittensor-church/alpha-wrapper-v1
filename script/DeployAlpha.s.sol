@@ -7,6 +7,8 @@ import { DepositMailbox } from "src/DepositMailbox.sol";
 import { SubnetClone } from "src/SubnetClone.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { AlphaVaultLens } from "src/AlphaVaultLens.sol";
+import { VaultAllocation } from "src/libraries/VaultAllocation.sol";
+import { VaultClones } from "src/libraries/VaultClones.sol";
 
 /// @dev Configure the registry first; the vault's registry address, URI, recovery window and parking
 ///      hotkey are immutable. `PARKING_HOTKEY` is any unused 32-byte account id; the vault claims it at
@@ -18,7 +20,7 @@ contract DeployAlpha is Script {
         uint256 recoveryWindow = vm.envOr("RECOVERY_WINDOW", uint256(6 hours));
         bytes32 parkingHotkey = vm.envBytes32("PARKING_HOTKEY");
         console.log("Recovery window (s):   %s", recoveryWindow);
-        console.logBytes32(parkingHotkey);
+        console.log("Parking hotkey:        %s", vm.toString(parkingHotkey));
 
         vm.startBroadcast();
 
@@ -31,6 +33,8 @@ contract DeployAlpha is Script {
             vaultUri, address(mailboxLogic), address(subnetLogic), validatorRegistry, recoveryWindow, parkingHotkey
         );
         console.log("AlphaVault:            %s", address(vault));
+        console.log("VaultAllocation:       %s", address(VaultAllocation));
+        console.log("VaultClones:           %s", address(VaultClones));
 
         AlphaVaultLens lens = new AlphaVaultLens(vault);
         console.log("AlphaVaultLens:        %s", address(lens));

@@ -36,7 +36,7 @@ The deployment script reads four environment variables:
 | --- | --- | --- |
 | `VALIDATOR_REGISTRY` | Address of the deployed registry. | required |
 | `VAULT_URI` | ERC-1155 metadata URI, with `{id}` substitution. | `https://example.com/metadata/{id}.json` |
-| `RECOVERY_WINDOW` | Length of the recovery window, in seconds. | 21600 (6 hours) |
+| `RECOVERY_WINDOW` | Length of the recovery window, in seconds; at most 365 days. | 21600 (6 hours) |
 | `PARKING_HOTKEY` | An unused 32-byte account id the vault claims for its own coldkey. | required |
 
 Deployment reverts `ParkingHotkeyUnavailable` when another coldkey already owns

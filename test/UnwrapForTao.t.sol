@@ -4,9 +4,10 @@ pragma solidity 0.8.36;
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import {
     InsufficientShares,
-    NothingToUnwrap,
+    SaleExceedsAssets,
     SlippageExceeded,
     SlotMaskOutOfRange,
+    SubnetDissolved,
     WithdrawTooSmall,
     ZeroAmount
 } from "src/VaultErrors.sol";
@@ -21,7 +22,6 @@ import {
     RevertingReceiver
 } from "./helpers/TaoRailReceivers.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import { stdError } from "forge-std/StdError.sol";
 
 /// @dev Unless a test says otherwise, every layout sums to the deposits, so `k * 1e9` shares back `k`
 ///      RAO and a burn of `assets * 1e9` shares is worth exactly `assets`. Sales pay 0.05 TAO per alpha.
@@ -142,7 +142,7 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         MockStaking(STAKING_PRECOMPILE).setPostSalePrice(NETUID1, 1e14);
 
         vm.prank(alice);
-        vm.expectRevert(stdError.arithmeticError);
+        vm.expectRevert(abi.encodeWithSelector(SaleExceedsAssets.selector, 100 * ALPHA, 50 * ALPHA));
         vault.unwrapForTao(TOKEN1, aliceShares, 0);
     }
 
@@ -424,7 +424,7 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         _simulateNewNetworkRegistered(TOKEN1, 5 * TAO);
 
         vm.prank(alice);
-        vm.expectRevert(NothingToUnwrap.selector);
+        vm.expectRevert(SubnetDissolved.selector);
         vault.unwrapForTao(TOKEN1, shares, 0);
     }
 

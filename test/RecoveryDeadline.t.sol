@@ -50,8 +50,8 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
         (bytes32 firstTip, bytes32 secondTip, uint256 deadline) = _twoLosses();
         bytes32 parking = vault.parkingHotkey();
         vm.warp(deadline - 1);
-        vm.expectEmit(true, true, false, true, address(vault));
-        emit BackingRecovered(TOKEN1, parking, 24 * ALPHA);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit BackingRecovered(TOKEN1, secondTip, parking, 24 * ALPHA);
         vault.recoverStray(TOKEN1, secondTip);
         assertEq(_parkedStake(NETUID1), 32 * ALPHA, "the larger source is credited without attribution");
         assertEq(lens.missingStake(TOKEN1), 8 * ALPHA);
@@ -81,12 +81,11 @@ contract RecoveryDeadlineTest is AlphaVaultTestBase {
 
     function test_ReturnedBalance_IsSecuredBeforeItsHotkeyCanSwapAgain() public {
         (bytes32 firstTip, bytes32 secondTip, uint256 deadline) = _twoLosses();
-        bytes32 parking = vault.parkingHotkey();
         vm.warp(deadline - 2);
         _simulateOffVaultSwap(NETUID1, firstTip, hotkey1);
         assertEq(lens.locatedStake(TOKEN1), 16 * ALPHA, "the returned balance is counted once");
-        vm.expectEmit(true, true, false, true, address(vault));
-        emit BackingRecovered(TOKEN1, parking, 8 * ALPHA);
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit BackingCollected(TOKEN1, 8 * ALPHA);
         vault.syncBacking(TOKEN1);
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
         assertEq(_parkedStake(NETUID1), 16 * ALPHA);
