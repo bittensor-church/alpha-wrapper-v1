@@ -31,7 +31,7 @@ Disabling alpha transfers blocks wrapping, live alpha exits and alpha mailbox
 reclaims. The vault reads the switch first and reverts `AlphaTransfersDisabled`,
 so shares and stake are preserved and the caller keeps the gas the chain would
 have taken. `unwrapForTao` and `reclaimMailboxAlphaAsTao` unstake instead and stay
-available, subject to ownership, backing, minimums and pool execution.
+available, subject to backing, minimums and pool execution.
 
 ## Locked alpha
 
@@ -57,6 +57,8 @@ The vault keeps locked alpha out of backing:
 - `reclaimAlphaFromMailbox` refuses a locked mailbox when the destination
   rejects locks; `reclaimMailboxAlphaAsTao` refuses any locked mailbox. Both fail
   before the chain can refuse and burn the forwarded gas.
+- A mailbox may become a subnet owner and receive locked alpha, which blocks
+  deposits from it.
 
 ## Minimum stake size and rounding
 
@@ -79,7 +81,8 @@ the TAO route too. See [exit options](user-guide.md#native-tao-market-sale).
 
 ## Dust sweeps and rotation leftovers
 
-After a partial unstake, the chain may force-sell a below-threshold remainder.
+After a partial unstake, the chain may sell a below-threshold remainder, or
+delete it unpaid if the sale fails.
 The vault avoids sales that would sweep other holders' backing into the caller's
 payout. Unsold alpha is refunded as shares, except a full-supply exit discards a
 sub-floor remainder.
@@ -94,11 +97,12 @@ The exit that takes an exclusion mask sells the other slots and refunds the
 rest as shares; the user guide describes the pre-flight that finds such slots.
 
 The chain's root can raise the minimum a nominator may hold and sweep every
-smaller position into TAO. A vault slot swept that way arrives as TAO on the
-clone, claimable by holders, while the record reads short and the lens reports
-the undeclared-shortfall sentinel. A watcher calls `syncBacking(tokenId)` to
-declare the loss and start the window; a further `syncBacking` after the window
-writes the deficit off and parks the position unless no shares remain.
+smaller position. A vault slot swept that way arrives as TAO on the clone,
+claimable by holders, or is deleted unpaid if the sale fails. Either way the
+record reads short and the lens reports the undeclared-shortfall sentinel. A
+watcher calls `syncBacking(tokenId)` to declare the loss and start the window;
+a further `syncBacking` after the window writes the deficit off and parks the
+position unless no shares remain.
 
 ## Stray TAO and alpha
 

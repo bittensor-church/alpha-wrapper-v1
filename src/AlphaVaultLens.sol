@@ -72,7 +72,7 @@ contract AlphaVaultLens {
     }
 
     /// @notice Whether backing passes coverage and recorded-loss checks.
-    /// @dev Allows per-slot dust; skips coverage during/after dissolution. Ignores locks and ownership.
+    /// @dev Allows per-slot dust; skips coverage during/after dissolution. Ignores locks.
     function isBackingIntact(uint256 tokenId) external view returns (bool) {
         if (_shortSince(tokenId) != 0) return false;
         return VaultReads.firstShortOf(_readBacking(tokenId).backing.short) == VaultReads.NO_SHORT_SLOT;
@@ -98,8 +98,8 @@ contract AlphaVaultLens {
     function _locateBacking(BackingRead memory read, uint256 tokenId, bool alphaInFlux) private view {
         read.coldkey = VaultReads.coldkeyOf(read.clone); read.alphaInFlux = alphaInFlux;
         if (alphaInFlux) {
-            bytes32[] memory keys = VaultReads.stakedUnderOf(vault.recordedSlots(tokenId));
-            read.backing.total = VaultMath.sumBalances(VaultReads.stakesUnder(keys, read.coldkey, read.netuid));
+            bytes32[] memory hotkeys = VaultReads.stakedUnderOf(vault.recordedSlots(tokenId));
+            read.backing.total = VaultMath.sumBalances(VaultReads.stakesUnder(hotkeys, read.coldkey, read.netuid));
             return;
         }
         read.slots = vault.recordedSlots(tokenId);
@@ -114,7 +114,7 @@ contract AlphaVaultLens {
         return read.backing.total;
     }
 
-    /// @notice Alpha per share, scaled by 1e18, including virtual offsets.
+    /// @notice Alpha RAO per 1e18 share units (about 1e9 at the initial rate), including virtual offsets.
     /// @dev Zero backing quotes zero; positive backing below precision reverts. Use `previewUnwrap` for a burn.
     function sharePrice(uint256 tokenId) external view returns (uint256) {
         _requireCurrentRegistration(tokenId);

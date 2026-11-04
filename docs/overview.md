@@ -25,7 +25,6 @@ A token id is `(registrations << 16) | netuid`, where `registrations` is the
 chain's registration counter for that netuid, so a recycled netuid is a
 different token with its own clone.
 
-Read the [source flow guide](source-flow-guide.md) for the position lifecycle
-and transaction ordering, the [user guide](user-guide.md) for transactions,
+Read the [user guide](user-guide.md) for transactions,
 [Hotkey swaps and recovery](hotkey-swaps.md) for swaps and the watcher, and the
 [security model](security-model.md) for trust and loss assumptions.

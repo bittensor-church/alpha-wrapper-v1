@@ -35,11 +35,11 @@ library VaultMath {
     }
 
     /// @dev Unique nonzero sources absent from the record, without balance reads.
-    function unrecordedSources(bytes32[] memory keys, bytes32[] memory sources) internal pure returns (bytes32[] memory strays) {
+    function unrecordedSources(bytes32[] memory hotkeys, bytes32[] memory sources) internal pure returns (bytes32[] memory strays) {
         bytes32[] memory unique = new bytes32[](sources.length); uint256 count;
         for (uint256 i; i < sources.length; ++i) {
             bytes32 source = sources[i];
-            if (source != bytes32(0) && !contains(keys, source) && !contains(unique, source)) { unique[count++] = source; }
+            if (source != bytes32(0) && !contains(hotkeys, source) && !contains(unique, source)) { unique[count++] = source; }
         }
         strays = new bytes32[](count);
         for (uint256 i; i < count; ++i) { strays[i] = unique[i]; }
