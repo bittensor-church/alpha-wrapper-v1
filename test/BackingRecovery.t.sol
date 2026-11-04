@@ -45,14 +45,12 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     uint256 private constant SETUP_NONCE = 1;
     uint256 private constant GIFT = 3_000_000;
 
-    /// @dev Sweeps hotkey1's slot and declares the loss.
     function _declaredShortfall() private returns (uint256 shares) {
         shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
     }
 
-    /// @dev Sweeps hotkey1's slot, declares the loss, then a stranger returns the swept alpha under `stray`.
     function _declaredShortfallReturnedUnder(bytes32 stray) private returns (uint256 shares) {
         shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
@@ -1269,8 +1267,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1));
     }
 
-    /// @dev hotkey1's swept slot returns on hotkey4 short by `missing` RAO and is collected into parking.
-    function _firstSlotReturnedShortBy(uint256 missing) private {
+    function _parkFirstSlotReturnedShortBy(uint256 missing) private {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _sweepDuringCrash(NETUID1, hotkey1);
 
@@ -1281,7 +1278,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function testFuzz_RecoverStray_CompletesWithinTheSlack(uint256 missing) public {
-        _firstSlotReturnedShortBy(bound(missing, 0, BACKING_SLACK_RAO));
+        _parkFirstSlotReturnedShortBy(bound(missing, 0, BACKING_SLACK_RAO));
 
         vault.syncBacking(TOKEN1);
 
@@ -1290,7 +1287,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
     function testFuzz_RecoverStray_PreservesTheUnrecoveredDeficit(uint256 missing) public {
         missing = bound(missing, BACKING_SLACK_RAO + 1, 2 * BACKING_SLACK_RAO);
-        _firstSlotReturnedShortBy(missing);
+        _parkFirstSlotReturnedShortBy(missing);
 
         assertFalse(vault.awaitingAttestation(TOKEN1), "completion requires pooled coverage");
         assertEq(lens.missingStake(TOKEN1), missing);

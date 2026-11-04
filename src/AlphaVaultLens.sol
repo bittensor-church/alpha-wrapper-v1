@@ -50,7 +50,7 @@ contract AlphaVaultLens {
         return expected > read.backing.total ? expected - read.backing.total : 0;
     }
 
-    /// @notice Backing hotkeys and alpha RAO, each slot followed through one swap or found on the clone's staking list.
+    /// @notice Backing hotkeys and alpha RAO as resolved now.
     /// @dev TAO exits sell from `hotkeys`; any `short` flag blocks the exit.
     function resolvedBacking(uint256 tokenId) external view returns (VaultReads.Backing memory backing) {
         address clone = vault.subnetClone(tokenId);

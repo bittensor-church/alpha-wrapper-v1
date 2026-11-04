@@ -56,7 +56,6 @@ contract BackingHandler is BackingCampaignHandler {
         _backing().simulateSilentMove(from, to);
     }
 
-    /// @dev The one stranding the list search cannot resolve: a swept pile returned in two halves.
     function strandInTwoPiles(uint256 fromSeed, uint256 toSeed) external {
         bytes32 from = touchedHotkeys[bound(fromSeed, 0, touchedHotkeys.length - 1)];
         if (!_backing().strandable(from)) return;

@@ -265,8 +265,7 @@ contract DepositLandingTest is AlphaVaultTestBase {
         assertEq(_parkedStake(NETUID1), 30 * ALPHA, "parking always has its entry");
     }
 
-    /// @dev Park with the list at `fillTo` so parking takes entry `fillTo + 1`, pin parking with a crumb, release
-    ///      onto a validator that already holds a residue, then lose the position again, returned under hotkey4.
+    /// @dev Park with the list at `fillTo` so parking takes entry `fillTo + 1`.
     function _secondShortfallWithParkingListedButUnfunded(uint256 fillTo) private returns (bytes32 cloneColdkey) {
         _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);

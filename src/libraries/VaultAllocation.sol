@@ -30,7 +30,6 @@ library VaultAllocation {
         bytes32 parking;
     }
 
-    /// @dev Successors resolve before any list search, so a search never takes a pile another slot's edge leads to.
     function resolveBacking(VaultReads.Slot[] memory slots, bytes32 coldkey, uint16 netuid, bytes32 parking)
         external view returns (VaultReads.Backing memory backing) {
         uint256 count = slots.length;
@@ -63,8 +62,6 @@ library VaultAllocation {
         if (!VaultReads.coversTracked(held, tracked)) return (bytes32(0), 0);
     }
 
-    /// @dev Smallest covering pile, not first listed: two moved slots of different sizes each find their own. A
-    ///      hotkey is taken as the resolution stands at the pick, so a slot that moved on frees its recorded hotkey.
     function _assignFromStakingList(VaultReads.Backing memory backing, VaultReads.Slot[] memory slots, bytes32 coldkey,
         uint16 netuid, bytes32 parking) private view {
         (bytes32[] memory candidates, uint256[] memory piles) = _listedPiles(coldkey, netuid, parking);
@@ -224,9 +221,8 @@ library VaultAllocation {
         return chunk;
     }
 
-    /// @dev Keep funded slots on their resolved hotkeys; empty slots need a receiving hotkey with an owner
-    ///      record, which the chain requires for stake operations. Hotkeys remain exclusive even for empty
-    ///      slots.
+    /// @dev The chain refuses stake operations under a hotkey with no owner record, so an empty slot needs a
+    ///      receiving hotkey that has one.
     function assignActives(VaultReads.Slot[] memory slots, VaultReads.Backing memory backing,
         bytes32[] memory attestedHotkeys, uint16 netuid
     ) external view returns (bytes32[] memory actives, bytes32 retired) {

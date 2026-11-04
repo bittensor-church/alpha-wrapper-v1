@@ -613,8 +613,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         _setAlphaPrice(netuid, price);
     }
 
-    /// @dev A third party's transfer onto a hotkey the clone lists, the one way alpha reaches a clone from outside.
-    ///      A crumb on the other subnet keeps the hotkey listed, as strangers' dust does on chain.
+    /// @dev A crumb on the other subnet keeps the hotkey listed, so the transfer lands under the reject-growth flag.
     function _strangerReturns(uint256 netuid, bytes32 hotkey, uint256 amount) internal {
         MockStaking mock = MockStaking(STAKING_PRECOMPILE);
         bytes32 cloneColdkey = _subnetColdkey(netuid);

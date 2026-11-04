@@ -11,7 +11,6 @@ import { AlphaVaultLens } from "src/AlphaVaultLens.sol";
 /// @dev Configure the registry first; the vault's registry address, URI, recovery window and parking
 ///      hotkey are immutable. `PARKING_HOTKEY` is any unused 32-byte account id; the vault claims it at
 ///      deployment and the deployment fails if another coldkey owns it, so pick a fresh random value.
-///      The broadcast also deploys and links the `VaultClones` and `VaultAllocation` libraries.
 contract DeployAlpha is Script {
     function run() public {
         address validatorRegistry = vm.envAddress("VALIDATOR_REGISTRY");

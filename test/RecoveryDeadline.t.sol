@@ -10,7 +10,7 @@ import { MockStaking } from "./mocks/MockStaking.sol";
 
 contract RecoveryDeadlineTest is AlphaVaultTestBase {
     /// @dev 40 alpha at 2000 / 6000 / 2000 bps: 8 alpha is swept on hotkey1, 24 on hotkey2, and hotkey3's
-    ///      8 alpha is parked at declaration. Strangers then return the swept piles under hotkey4 and hotkey5.
+    ///      8 alpha is parked at declaration.
     function _twoLosses() private returns (bytes32 firstTip, bytes32 secondTip, uint256 deadline) {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(2000, 6000, 2000));
         _depositAndWrap(alice, NETUID1, 40 * ALPHA);

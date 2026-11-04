@@ -344,9 +344,6 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         _setAlphaPrice(NETUID1, _wholeRaoPrice(priceSeed));
     }
 
-    /// @dev Each slot where the record finds it: the recorded hotkey if that covers the slot within slack, else a
-    ///      successor that covers it and no other slot holds; then, for the slots still short, the listed hotkey
-    ///      with the smallest pile that covers it and no slot holds; a slot none covers is short.
     function resolvedSlots()
         public
         view
@@ -412,8 +409,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         }
     }
 
-    /// @dev A sweep and two partial returns leave a pile the list search cannot resolve; both halves must clear
-    ///      the chain's transfer minimum for the returns to land.
+    /// @dev Both halves must clear the chain's transfer minimum for the returns to land.
     function strandable(bytes32 hotkey) external view returns (bool) {
         uint256 held = _getVaultStake(hotkey, NETUID1);
         return held != 0
