@@ -57,12 +57,8 @@ The vault keeps locked alpha out of backing:
 - `reclaimAlphaFromMailbox` refuses a locked mailbox when the destination
   rejects locks; `reclaimMailboxAlphaAsTao` refuses any locked mailbox. Both fail
   before the chain can refuse and burn the forwarded gas.
-- A mailbox owns its own hotkey, so on a subnet at least a year old, conviction
-  others lock to that hotkey can make the mailbox the subnet owner. The chain
-  then stakes the owner cut into it each epoch, and locks it where the subnet's
-  owner-cut auto-lock is enabled. That mailbox's `wrap` and
-  `reclaimMailboxAlphaAsTao` then revert `LockedDeposit`. Deposit from a fresh
-  EVM address.
+- A mailbox may become a subnet owner and receive locked alpha, which blocks
+  deposits from it.
 
 ## Minimum stake size and rounding
 
