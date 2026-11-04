@@ -25,9 +25,9 @@ cast send <registry> 'setValidator(uint256,bytes32)' <netuid> <hotkey> \
 ```
 
 The hotkey must have an owner record. Downstream `IValidatorRegistry`
-implementations must publish only nonzero, distinct hotkeys. The vault decodes
-the two arrays `getValidators` returns only, requires an owner record on every
-hotkey it stakes under, and leaves which coldkey holds that record to the registry.
+implementations must publish only nonzero, distinct hotkeys. The vault reads
+only two arrays from `getValidators`: hotkeys and weights. Every hotkey the
+vault stakes under must have an owner. The registry checks who the owner is.
 
 ## Vault set
 
