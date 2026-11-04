@@ -59,7 +59,7 @@ contract AlphaVaultLens {
             vault.recordedSlots(tokenId), VaultReads.coldkeyOf(clone), VaultMath.netuidOf(tokenId), vault.parkingHotkey());
     }
 
-    /// @notice Recorded active hotkeys, without resolving later swaps.
+    /// @notice Each slot's recorded `stakedUnder` hotkey.
     function lastSeenHotkeys(uint256 tokenId) external view returns (bytes32[] memory) {
         return VaultReads.stakedUnderOf(vault.recordedSlots(tokenId));
     }

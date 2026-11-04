@@ -284,7 +284,7 @@ library VaultAllocation {
         return VaultMath.contains(attestedHotkeys, slotAttested[holder]);
     }
 
-    /// @dev The recorded active hotkey while it has an owner record and no outgoing swap edge, else the
+    /// @dev The recorded `stakedUnder` hotkey while it has an owner record and no outgoing swap edge, else the
     ///      attested hotkey while it has an owner record, else the record's one-hop successor. The record
     ///      comes first so an emptied slot follows the validator, whoever claims the vacated attested hotkey.
     function _receivingHotkeyForEmptySlot(bytes32[] memory slotHotkeys, bytes32[] memory slotAttested, bytes32[] memory attestedHotkeys,
@@ -355,7 +355,7 @@ library VaultAllocation {
         if (context.alphaPriceE18 == 0 || StakeOps.taoValue(moveAmount, context.alphaPriceE18) < minStakeTao) { return false; }
         // A full staking list is no reason to hold an exit; alignment waits for the clone's replacement.
         if (!VaultReads.stakingListAdmits(context.coldkey, hotkeys[underIndex], context.netuid, context.parking)) return false;
-        StakeOps.moveUnchecked(context.clone, hotkeys[overIndex], hotkeys[underIndex], context.netuid, moveAmount);
+        StakeOps.moveToListedHotkey(context.clone, hotkeys[overIndex], hotkeys[underIndex], context.netuid, moveAmount);
         emit IAlphaVaultAbi.Rebalanced(context.tokenId, hotkeys[overIndex], hotkeys[underIndex], moveAmount);
         balances[overIndex] -= moveAmount; balances[underIndex] += moveAmount;
         return true;
@@ -396,7 +396,7 @@ library VaultAllocation {
             unchecked { ++i; }
         }
         uint256 finalPile = IStaking(STAKING_PRECOMPILE).getStake(rollerHotkey, coldkey, netuid);
-        if (richestHotkey == destination) StakeOps.moveUnchecked(context.clone, rollerHotkey, destination, netuid, finalPile);
+        if (richestHotkey == destination) StakeOps.moveToListedHotkey(context.clone, rollerHotkey, destination, netuid, finalPile);
         else StakeOps.moveWithinListCap(context.clone, coldkey, rollerHotkey, destination, netuid, finalPile, context.parking);
     }
 

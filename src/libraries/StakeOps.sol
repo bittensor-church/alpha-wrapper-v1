@@ -31,10 +31,10 @@ library StakeOps {
     function moveWithinListCap(address clone, bytes32 coldkey, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount,
         bytes32 parking) internal {
         if (!VaultReads.stakingListAdmits(coldkey, toHotkey, netuid, parking)) revert IAlphaVaultAbi.StakingListFull();
-        moveUnchecked(clone, fromHotkey, toHotkey, netuid, amount);
+        moveToListedHotkey(clone, fromHotkey, toHotkey, netuid, amount);
     }
 
-    function moveUnchecked(address clone, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount) internal {
+    function moveToListedHotkey(address clone, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount) internal {
         ensureHotkeyHasOwner(fromHotkey);
         ensureHotkeyHasOwner(toHotkey);
         SubnetClone(clone).moveStake(fromHotkey, toHotkey, netuid, amount);
