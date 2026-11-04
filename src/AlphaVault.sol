@@ -31,8 +31,8 @@ import {
 } from "./VaultErrors.sol";
 
 /// @notice ERC-1155 shares of staked alpha, isolated by subnet registration in vault-controlled clones.
-/// @dev Registry signers choose weights; watchers handle unresolved swaps. Missing backing parks a position on
-///      the vault's own hotkey until the registry publishes a newer set; see docs/hotkey-swaps.md.
+/// @dev Registry signers choose weights; watchers handle unresolved swaps. Missing backing parks a position with
+///      shares outstanding on the vault's own hotkey until the registry publishes a newer set; see docs/hotkey-swaps.md.
 contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @dev One shortfall clock per token. A parked position rests on `parkingHotkey` until the
     ///      registry nonce moves past `parkedAtNonce`; zero means the position is not parked.
@@ -75,7 +75,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         INeuron(NEURON_PRECOMPILE).tryAssociateHotkey(_parkingHotkey);
         bytes32 coldkey = VaultReads.coldkeyOf(address(this));
         if (!VaultReads.ownedBy(_parkingHotkey, coldkey)) revert ParkingHotkeyUnavailable();
-        // Only the parking hotkey and the names the vault restores an owner to belong on its own list.
+        // Only the parking hotkey and the hotkeys the vault restores an owner to belong on its own list.
         IStaking(STAKING_PRECOMPILE).setRejectStakingHotkeyGrowth(true);
         cloneFactory = new CloneFactory(_mailboxLogic, _subnetLogic);
         validatorRegistry = IValidatorRegistry(_validatorRegistry);

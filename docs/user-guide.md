@@ -32,8 +32,9 @@ After a netuid is recycled, call `createMailbox` again before wrapping.
 ## Shares and exits
 
 Shares transfer as ERC-1155 balances. Keep the token id from `Deposited`.
-`sharePrice(tokenId)` is alpha per share scaled by 1e18; `previewUnwrap(tokenId,
-shares)` quotes a specific burn. The lens's `totalStake(tokenId)` and
+Shares use 18 decimals. `sharePrice(tokenId)` is alpha RAO per 1e18 share
+units, about 1e9 at the initial rate; `previewUnwrap(tokenId, shares)` quotes a
+specific burn. The lens's `totalStake(tokenId)` and
 `resolvedBacking(tokenId)` show the position's backing.
 
 ### Staked alpha: the default exit

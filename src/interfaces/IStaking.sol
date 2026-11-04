@@ -14,8 +14,8 @@ interface IStaking {
 
     function getStake(bytes32 hotkey, bytes32 coldkey, uint256 netuid) external view returns (uint256);
 
-    /// @dev An all-subnet swap removes the old key's owner record, not the key identifier.
-    ///      Stake operations require this record; association can restore it.
+    /// @dev An all-subnet swap that carries the stake removes the old hotkey's owner record, not the
+    ///      hotkey identifier. Stake operations require this record; association can restore it.
     function getHotkeyOwner(bytes32 hotkey) external view returns (bool exists, bytes32 owner);
 
     /// @dev Subnet re-registration can erase this edge; no edge does not prove there was no swap.
@@ -23,7 +23,8 @@ interface IStaking {
 
     function removeStake(bytes32 hotkey, uint256 amount, uint256 netuid) external payable;
 
-    /// @notice TAO spot-value threshold in RAO below which a partial unstake force-sells the remainder.
+    /// @notice TAO spot-value threshold in RAO below which a partial unstake sells the remainder,
+    ///         or deletes it unpaid if the sale fails.
     function getNominatorMinRequiredStake() external view returns (uint256);
 
     /// @notice Partial-unstake minimum in TAO RAO.

@@ -192,8 +192,8 @@ library VaultAllocation {
         return remaining;
     }
 
-    /// @dev Partial sales must clear the post-fee minimum without leaving dust the chain would force-sell
-    ///      into this caller's payout at the remaining holders' expense.
+    /// @dev Partial sales must clear the post-fee minimum without leaving dust the chain would sell
+    ///      into this caller's payout, or delete, at the remaining holders' expense.
     ///      The chain reports a slot balance as a 64-bit amount, so narrowing one for a quote cannot
     ///      truncate; a wider value is a fixture rather than a position and is refused.
     function _sellableChunk(uint16 netuid, uint256 remaining, uint256 balance, uint256 dustThresholdTao) private view returns (uint256) {

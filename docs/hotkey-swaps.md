@@ -46,9 +46,9 @@ for at most one slot. Separately observed swaps can advance the record repeatedl
 any priced call, and a `syncBacking` call on a position that accounts for
 itself, writes a followed or found hotkey into the record. A found hotkey keeps
 the slot like a followed one, even when it is a rotated-out validator; a later
-registry set moves the slot. A sweep, a pile split across hotkeys, two slots
-merged onto one hotkey, or a pile found under a hotkey the registry attests for
-another slot need a watcher or a registry update.
+registry set moves the slot. A sweep, a pile split across hotkeys, a pile under
+hotkey 0x0, two slots merged onto one hotkey, or a pile found under a hotkey the
+registry attests for another slot need a watcher or a registry update.
 
 ## Receiving hotkeys
 
@@ -81,8 +81,8 @@ At deployment the vault claims one hotkey for its own coldkey, the parking
 hotkey, and holds it for good. Sync gathers
 located backing onto that hotkey when a balance clears the conservative movement
 floor; sub-floor balances may stay behind while the fixed window runs. Completion collapses the record to
-parking; abandoned dust needs explicit `recoverStray` sources later. The position
-is then parked:
+parking; abandoned dust needs explicit `recoverStray` sources later. While shares
+remain, the position is then parked:
 
 - Deposits and weight alignment wait for an attestation newer than the one in
   force when the position parked.
@@ -137,8 +137,8 @@ even while backing is intact.
    Full recovery or write-off leaves the position parked unless no shares remain. Alpha recovered later
    belongs to the holders at that time.
 5. After completion with shares outstanding, registry governance publishes a newer set even if all backing returned.
-   Remove any lost or captured hotkey and publish the intended successor. The next wrap
-   or `rebalance(netuid)` releases the parked position onto it.
+   Remove any lost or captured hotkey and publish the intended successor. The next wrap,
+   alpha exit or `rebalance(netuid)` releases the parked position onto it.
 6. The lens's `stakingListEntries(tokenId)` reports the clone's staking list. From
    128 entries, half the chain's cap, anyone can call `replaceClone(tokenId, uid)`
    with a fresh random UID; `StakingListFull` on any call means the same. The

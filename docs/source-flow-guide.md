@@ -33,8 +33,8 @@ must also have an owner record.
 Missing backing -> syncBacking secures located backing -> fixed recovery window
                        |
                        +-> recoverStray(source) -> collect into parking; window stays open
-                       +-> full coverage + sync -> collect returns; recovery complete; parked
-                       +-> expiry + sync -> collect returns; write off deficit; parked
+                       +-> full coverage + sync -> collect returns; recovery complete; parked while shares remain
+                       +-> expiry + sync -> collect returns; write off deficit; parked while shares remain
 
 Parked -> newer registry update -> next wrap/rebalance/alpha exit can
                                        apply the set and clear parked state

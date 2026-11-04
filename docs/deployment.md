@@ -25,7 +25,8 @@ cast send <registry> 'setValidator(uint256,bytes32)' <netuid> <hotkey> \
 ```
 
 The hotkey must have an owner record. Downstream `IValidatorRegistry`
-implementations must publish only nonzero, distinct hotkeys.
+implementations must publish only nonzero, distinct hotkeys and weights that sum
+to 10000, and keep the nonce nonzero once a set is published.
 
 ## Vault set
 
@@ -80,7 +81,7 @@ image pinned in `.github/workflows/e2e.yml` does.
 | Staking `0x0805` | `getRejectLockedAlpha` | Accounts reject incoming locked alpha by default, and this flag reports that setting. |
 | Staking `0x0805` | `getColdkeyRoot` | Reports whether an account carries coldkey-swap history. A swap into an account already in use, with a staking list, owned hotkeys or swap basket credits, records none. |
 | Staking `0x0805` | `getDefaultMinStake` | The minimum a partial unstake enforces, at or above the minimum on same-subnet moves and transfers; the vault applies it to every move, transfer and partial sale. |
-| Staking `0x0805` | `getNominatorMinRequiredStake` | The minimum a nominator may hold; the chain can sweep smaller positions into TAO. |
+| Staking `0x0805` | `getNominatorMinRequiredStake` | The minimum a nominator may hold; the chain can sell smaller positions, or delete them unpaid if the sale fails. |
 | Staking `0x0805` | `moveStake` | A same-subnet move enforces the chain's transfer minimum, which is the lower of the two minimums. A move onto a hotkey the caller does not list is refused once its staking list holds 256 entries. |
 | Staking `0x0805` | `transferStake` | Delivers alpha to another coldkey on the same subnet; the chain's transfer minimum applies. A receiver reserved as a coldkey-swap destination refuses it. Any other receiver always admits a hotkey it already lists; otherwise only while its list is under the third-party cap and, once it refuses list growth, only a hotkey it owns. |
 | Staking `0x0805` | `transferStakeAndHotkey` | Delivers alpha to another coldkey on the same subnet onto a different hotkey, under the same admission rule and minimum. |
