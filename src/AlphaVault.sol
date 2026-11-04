@@ -425,6 +425,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     function recoverStray(uint256 tokenId, bytes32 source) external nonReentrant {
         address clone = subnetClone[tokenId];
         uint16 netuid = VaultMath.netuidOf(tokenId);
+        if (clone == address(0)) revert SubnetCloneNotPrepared();
         if (VaultReads.isDissolved(tokenId)) revert SubnetDissolved();
         if (_slots[tokenId].length == 0) revert NothingToRecover();
         bytes32 coldkey = VaultReads.coldkeyOf(clone);
@@ -492,11 +493,11 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     /// @dev Only parking carries the pooled obligation; other entries are collection locations.
     function _startRecovery(uint256 tokenId, bytes32[] memory hotkeys, uint256 expected, uint256 parked) private {
         VaultReads.Slot[] storage slots = _slots[tokenId];
-        _writeSlot(slots, 0, parkingHotkey, parkingHotkey, expected);
+        _writeSlot(tokenId, slots, 0, parkingHotkey, parkingHotkey, expected);
         uint256 count = 1;
         for (uint256 i; i < hotkeys.length;) {
             if (hotkeys[i] != parkingHotkey) {
-                _writeSlot(slots, count, hotkeys[i], hotkeys[i], 0);
+                _writeSlot(tokenId, slots, count, hotkeys[i], hotkeys[i], 0);
                 unchecked { ++count; }
             }
             unchecked { ++i; }
@@ -507,8 +508,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
 
     function _finishRecovery(uint256 tokenId, uint256 parked) private {
         VaultReads.Slot[] storage slots = _slots[tokenId];
-        _writeSlot(slots, 0, parkingHotkey, parkingHotkey, parked);
-        while (slots.length > 1) slots.pop();
+        _writeSlot(tokenId, slots, 0, parkingHotkey, parkingHotkey, parked);
+        _truncateSlots(tokenId, slots, 1);
         uint256 nonce = totalSupply(tokenId) == 0 ? 0 : validatorRegistry.nonces(VaultMath.netuidOf(tokenId));
         recovery[tokenId] = Recovery({ shortSince: 0, parkedAtNonce: nonce });
         emit BackingParked(tokenId, parked, nonce);
@@ -618,12 +619,10 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     function _settle(uint256 tokenId, bytes32 coldkey, bytes32[] memory attestedHotkeys, bytes32[] memory stakingHotkeys) private
         returns (uint256 total) {
         VaultReads.Slot[] storage tokenSlots = _slots[tokenId]; uint16 netuid = VaultMath.netuidOf(tokenId);
-        while (tokenSlots.length > attestedHotkeys.length) { tokenSlots.pop(); }
+        _truncateSlots(tokenId, tokenSlots, attestedHotkeys.length);
         for (uint256 i; i < attestedHotkeys.length;) {
             uint256 tracked = IStaking(STAKING_PRECOMPILE).getStake(stakingHotkeys[i], coldkey, netuid);
-            bytes32 previous = i < tokenSlots.length ? tokenSlots[i].stakedUnder : bytes32(0);
-            if (previous != stakingHotkeys[i]) emit SlotRelocated(tokenId, i, previous, stakingHotkeys[i]);
-            _writeSlot(tokenSlots, i, attestedHotkeys[i], stakingHotkeys[i], tracked);
+            _writeSlot(tokenId, tokenSlots, i, attestedHotkeys[i], stakingHotkeys[i], tracked);
             total += tracked;
             unchecked { ++i; }
         }
@@ -638,14 +637,27 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         emit ParkingReleased(tokenId, parkedAtNonce);
     }
 
-    function _writeSlot(VaultReads.Slot[] storage tokenSlots, uint256 index, bytes32 attested, bytes32 stakedUnder, uint256 tracked) private {
-        if (index < tokenSlots.length) {
-            VaultReads.Slot storage slot = tokenSlots[index];
-            if (slot.attested != attested) slot.attested = attested;
-            if (slot.stakedUnder != stakedUnder) slot.stakedUnder = stakedUnder;
-            if (slot.tracked != tracked) slot.tracked = tracked;
-        } else {
-            tokenSlots.push(VaultReads.Slot({ attested: attested, stakedUnder: stakedUnder, tracked: tracked }));
+    function _writeSlot(uint256 tokenId, VaultReads.Slot[] storage tokenSlots, uint256 index,
+        bytes32 attested, bytes32 stakedUnder, uint256 tracked) private {
+        if (index == tokenSlots.length) tokenSlots.push();
+        VaultReads.Slot storage slot = tokenSlots[index];
+        if (slot.attested != attested) slot.attested = attested;
+        _moveSlot(tokenId, slot, index, stakedUnder);
+        if (slot.tracked != tracked) slot.tracked = tracked;
+    }
+
+    function _moveSlot(uint256 tokenId, VaultReads.Slot storage slot, uint256 index, bytes32 stakedUnder) private {
+        bytes32 previous = slot.stakedUnder;
+        if (previous == stakedUnder) return;
+        emit SlotRelocated(tokenId, index, previous, stakedUnder);
+        slot.stakedUnder = stakedUnder;
+    }
+
+    function _truncateSlots(uint256 tokenId, VaultReads.Slot[] storage tokenSlots, uint256 length) private {
+        while (tokenSlots.length > length) {
+            uint256 last = tokenSlots.length - 1;
+            _moveSlot(tokenId, tokenSlots[last], last, bytes32(0));
+            tokenSlots.pop();
         }
     }
 
@@ -655,11 +667,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         VaultReads.Slot[] storage tokenSlots = _slots[tokenId];
         for (uint256 i; i < tokenSlots.length;) {
             VaultReads.Slot storage slot = tokenSlots[i];
-            bytes32 previous = slot.stakedUnder;
-            if (previous != hotkeys[i]) {
-                emit SlotRelocated(tokenId, i, previous, hotkeys[i]);
-                slot.stakedUnder = hotkeys[i];
-            }
+            _moveSlot(tokenId, slot, i, hotkeys[i]);
             if (slot.tracked != balances[i]) slot.tracked = balances[i];
             unchecked { ++i; }
         }

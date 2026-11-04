@@ -357,6 +357,11 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         vault.recoverStray(TOKEN1, hotkey4);
     }
 
+    function test_RevertWhen_RecoveringBeforeTheCloneExists() public {
+        vm.expectRevert(SubnetCloneNotPrepared.selector);
+        vault.recoverStray(TOKEN1, hotkey4);
+    }
+
     function test_RevertWhen_RecoveringOnARetiredTokenId() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _reregisterSubnet(NETUID1);

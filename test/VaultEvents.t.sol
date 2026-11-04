@@ -69,6 +69,42 @@ contract VaultEventsTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
     }
 
+    function test_Rebalance_ClosesTheSlotOfADroppedValidator() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit SlotRelocated(TOKEN1, 2, hotkey3, bytes32(0));
+        vault.rebalance(NETUID1);
+
+        assertEq(vault.recordedSlots(TOKEN1).length, 2);
+    }
+
+    function test_SyncBacking_RecordsTheRecoveryMovesAndClosesCollectionSlots() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
+        bytes32 parking = vault.parkingHotkey();
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit SlotRelocated(TOKEN1, 0, hotkey1, parking);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit SlotRelocated(TOKEN1, 3, bytes32(0), hotkey3);
+        vault.syncBacking(TOKEN1);
+
+        _strangerReturns(NETUID1, hotkey4, swept);
+        vault.recoverStray(TOKEN1, hotkey4);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit SlotRelocated(TOKEN1, 3, hotkey3, bytes32(0));
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit SlotRelocated(TOKEN1, 2, hotkey2, bytes32(0));
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit SlotRelocated(TOKEN1, 1, hotkey1, bytes32(0));
+        vault.syncBacking(TOKEN1);
+
+        assertEq(vault.recordedSlots(TOKEN1).length, 1);
+    }
+
     function test_Rebalance_ReleasesParkingAfterANewerAttestation() public {
         (, uint256 parkedAtNonce) = _parkedPosition();
         _reattestCurrentSet(NETUID1);
