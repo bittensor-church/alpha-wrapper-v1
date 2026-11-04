@@ -58,10 +58,11 @@ The vault keeps locked alpha out of backing:
   rejects locks; `reclaimMailboxAlphaAsTao` refuses any locked mailbox. Both fail
   before the chain can refuse and burn the forwarded gas.
 - A mailbox owns its own hotkey, so on a subnet at least a year old, conviction
-  others lock to that hotkey can make the mailbox the subnet owner. The chain then stakes a locked
-  owner cut into it each epoch, and that mailbox's `wrap` and
-  `reclaimMailboxAlphaAsTao` revert `LockedDeposit`. Deposit from a fresh EVM
-  address.
+  others lock to that hotkey can make the mailbox the subnet owner. The chain
+  then stakes the owner cut into it each epoch, and locks it where the subnet's
+  owner-cut auto-lock is enabled. That mailbox's `wrap` and
+  `reclaimMailboxAlphaAsTao` then revert `LockedDeposit`. Deposit from a fresh
+  EVM address.
 
 ## Minimum stake size and rounding
 
@@ -103,8 +104,9 @@ The chain's root can raise the minimum a nominator may hold and sweep every
 smaller position. A vault slot swept that way arrives as TAO on the clone,
 claimable by holders, or is deleted unpaid if the sale fails. Either way the
 record reads short and the lens reports the undeclared-shortfall sentinel. A
-watcher calls `syncBacking(tokenId)` to declare the loss and start the window; a further `syncBacking` after the window
-writes the deficit off and parks the position unless no shares remain.
+watcher calls `syncBacking(tokenId)` to declare the loss and start the window;
+a further `syncBacking` after the window writes the deficit off and parks the
+position unless no shares remain.
 
 ## Stray TAO and alpha
 
