@@ -6,6 +6,7 @@ prices, quotes) and scenario actions (vault sends, deposits, share transfers,
 validator rotations, revert assertions).
 """
 import math
+import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -205,6 +206,13 @@ class Environment:
             self.lens_address, "lastSeenHotkeys(uint256)(bytes32[])", token_id,
         )
         return hotkey_pubkey.removeprefix("0x").lower() in remembered.lower()
+
+    def resolved_hotkeys(self, token_id: int) -> List[str]:
+        """Each slot's hotkey as the vault resolves it now, which can differ from the record."""
+        resolved = chain.cast_call_raw(
+            self.lens_address, "resolvedBacking(uint256)((bytes32[],uint256[],bool[],uint256))", token_id,
+        )
+        return [hotkey.lower() for hotkey in re.findall(r"0x[0-9a-fA-F]{64}", resolved)]
 
     def alpha_price(self, netuid: int) -> int:
         """Current alpha price for a subnet (TAO per alpha, e18 scale)."""
