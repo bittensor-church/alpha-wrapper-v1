@@ -25,7 +25,9 @@ cast send <registry> 'setValidator(uint256,bytes32)' <netuid> <hotkey> \
 ```
 
 The hotkey must have an owner record. Downstream `IValidatorRegistry`
-implementations must reject duplicate hotkeys before publishing a set.
+implementations must publish only nonzero, distinct hotkeys. The vault reads
+only the two arrays `getValidators` returns, ignores any extra returned data and
+checks no hotkey owner, so any owner rule is the registry's to enforce.
 
 ## Vault set
 
