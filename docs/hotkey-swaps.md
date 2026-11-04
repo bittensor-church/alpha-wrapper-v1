@@ -33,12 +33,12 @@ slots stay at their resolved location.
 
 ## Automatic handling has limits
 
-The record keeps an attested hotkey (`logical`), actual stake location (`active`)
-and expected alpha (`tracked`). One shortfall clock covers the whole token. A
+The record keeps the attested hotkey (`attested`), the hotkey the stake sits under
+(`stakedUnder`) and the expected alpha (`tracked`). One shortfall clock covers the whole token. A
 priced call values the position before it acts: `wrap`, `unwrap`, `unwrapForTao`,
 `rebalance` and the lens previews.
 
-The resolver follows at most one hop from each recorded active hotkey, only when
+The resolver follows at most one hop from each recorded hotkey, only when
 the successor covers that slot's expectation within 1000 RAO of accounting slack.
 Failing that, it takes, among the hotkeys the clone stakes under that no other slot
 holds, the one with the smallest pile that covers the slot. It counts each hotkey

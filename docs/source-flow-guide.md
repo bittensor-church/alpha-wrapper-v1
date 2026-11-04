@@ -17,13 +17,13 @@ AlphaVault: shares and accounting     IValidatorRegistry: target hotkeys and wei
 
 The registry attests a validator hotkey, but a hotkey swap can move its stake elsewhere.
 
-- `logical`: the attested hotkey the slot was recorded under; `attestedOf` reads it.
-- `active`: the last recorded location of its stake.
+- `attested`: the hotkey the registry named when the slot was recorded.
+- `stakedUnder`: the hotkey the slot's stake was last recorded under.
 - `tracked`: the alpha expected at the last record update.
 - `Backing.hotkeys`: locations resolved now, after following one swap or finding the
   slot's alpha on the clone's staking list.
 
-Example: after a swap from A to B, the record can say `logical = A, active = B`.
+Example: after a swap from A to B, the record can say `attested = A, stakedUnder = B`.
 Locating backing and choosing a receiver are separate checks: a receiving hotkey
 must also have an owner record.
 

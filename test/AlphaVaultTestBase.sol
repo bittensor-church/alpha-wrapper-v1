@@ -328,12 +328,12 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         VaultReads.Slot[] memory slots = vault.recordedSlots(tokenId);
         uint256[] memory slotStakes = new uint256[](slots.length);
         for (uint256 i; i < slots.length; ++i) {
-            slotStakes[i] = mock.getStake(slots[i].active, cloneColdkey, netuid);
-            mock.setStake(slots[i].active, cloneColdkey, netuid, 0);
+            slotStakes[i] = mock.getStake(slots[i].stakedUnder, cloneColdkey, netuid);
+            mock.setStake(slots[i].stakedUnder, cloneColdkey, netuid, 0);
         }
         _catchRecordUpFor(tokenId);
         for (uint256 i; i < slots.length; ++i) {
-            mock.setStake(slots[i].active, cloneColdkey, netuid, slotStakes[i]);
+            mock.setStake(slots[i].stakedUnder, cloneColdkey, netuid, slotStakes[i]);
         }
     }
 
@@ -443,7 +443,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         VaultReads.Slot[] memory slots = vault.recordedSlots(tokenId);
         keys = new bytes32[](slots.length);
         for (uint256 i; i < slots.length; ++i) {
-            keys[i] = slots[i].active;
+            keys[i] = slots[i].stakedUnder;
         }
     }
 
@@ -584,7 +584,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
 
     function _drainTheFirstSlot(address holder, uint256 netuid) internal {
         uint256 tokenId = vault.currentTokenId(netuid);
-        bytes32 followed = vault.recordedSlots(tokenId)[0].active;
+        bytes32 followed = vault.recordedSlots(tokenId)[0].stakedUnder;
         uint256 burn =
             (vault.balanceOf(holder, tokenId) * (_getVaultStake(followed, netuid) + 1e6)) / lens.locatedStake(tokenId);
         vm.prank(holder);

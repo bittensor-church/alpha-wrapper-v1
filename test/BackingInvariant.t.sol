@@ -160,7 +160,7 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
         covered = new bool[](slots.length);
         bytes32 coldkey = _subnetColdkey(NETUID1);
         for (uint256 i; i < slots.length; ++i) {
-            uint256 held = _getStakeForColdkey(slots[i].active, coldkey, NETUID1);
+            uint256 held = _getStakeForColdkey(slots[i].stakedUnder, coldkey, NETUID1);
             covered[i] = held >= slots[i].tracked || slots[i].tracked - held <= BACKING_SLACK_RAO;
         }
     }
@@ -268,7 +268,9 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         _assertSharedInvariants();
         assertTrue(lens.isBackingIntact(TOKEN1), "a cut edge resolves on the staking list");
         handler.syncBacking();
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, keccak256(abi.encode("stray", uint256(1))), "and is recorded");
+        assertEq(
+            vault.recordedSlots(TOKEN1)[0].stakedUnder, keccak256(abi.encode("stray", uint256(1))), "and is recorded"
+        );
 
         handler.strandInTwoPiles(3, 1);
         assertGt(vault.recordedSlots(TOKEN1).length, 1, "check the multi-slot record before recovery");

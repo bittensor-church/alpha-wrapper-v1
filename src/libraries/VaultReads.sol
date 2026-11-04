@@ -36,19 +36,19 @@ library VaultReads {
     }
 
     /// @dev The last entry is kept for the parking hotkey, so recovery can always park.
-    function admitsMove(bytes32 coldkey, bytes32 hotkey, uint16 netuid, bytes32 parking) internal view returns (bool) {
+    function stakingListAdmits(bytes32 coldkey, bytes32 hotkey, uint16 netuid, bytes32 parking) internal view returns (bool) {
         if (hotkey == parking || IStaking(STAKING_PRECOMPILE).getStake(hotkey, coldkey, netuid) != 0) return true;
         return stakingHotkeyCount(coldkey) + 2 <= MAX_STAKING_HOTKEYS;
     }
 
-    function replacementOpen(bytes32 coldkey) internal view returns (bool) {
+    function cloneReplacementOpen(bytes32 coldkey) internal view returns (bool) {
         return stakingHotkeyCount(coldkey) >= REPLACEMENT_LIST_LENGTH;
     }
 
     /// @dev One attestation: the target hotkeys and their basis-point weights.
     struct ValidatorSet { bytes32[] hotkeys; uint16[] weights; }
 
-    function resolveValidators(IValidatorRegistry registry, uint16 netuid) internal view returns (ValidatorSet memory set) {
+    function attestedSetOf(IValidatorRegistry registry, uint16 netuid) internal view returns (ValidatorSet memory set) {
         (bytes32[] memory hotkeys, uint16[] memory weights) = registry.getValidators(netuid);
         if (hotkeys.length == 0) revert NoValidatorFound();
         if (hotkeys.length > MAX_VALIDATORS) revert ValidatorSetTooLarge(hotkeys.length);
@@ -56,7 +56,7 @@ library VaultReads {
         set = ValidatorSet({ hotkeys: hotkeys, weights: weights });
     }
 
-    function fetchBalances(bytes32[] memory hotkeys, bytes32 coldkey, uint16 netuid) internal view returns (uint256[] memory balances) {
+    function stakesUnder(bytes32[] memory hotkeys, bytes32 coldkey, uint16 netuid) internal view returns (uint256[] memory balances) {
         balances = new uint256[](hotkeys.length);
         IStaking staking = IStaking(STAKING_PRECOMPILE);
         for (uint256 i; i < hotkeys.length;) {
@@ -108,9 +108,8 @@ library VaultReads {
         return newTao;
     }
 
-    /// @dev `logical` is the attested hotkey; `active` is the recorded stake location, possibly a successor.
-    ///      During recovery, only the parking slot carries the pooled tracked obligation.
-    struct Slot { bytes32 logical; bytes32 active; uint256 tracked; }
+    /// @dev During recovery, only the parking slot carries the pooled tracked obligation.
+    struct Slot { bytes32 attested; bytes32 stakedUnder; uint256 tracked; }
 
     struct Backing {
         bytes32[] hotkeys;
@@ -121,7 +120,7 @@ library VaultReads {
 
     function attestedOf(Slot[] memory slots) internal pure returns (bytes32[] memory attested) {
         attested = new bytes32[](slots.length);
-        for (uint256 i; i < slots.length;) { attested[i] = slots[i].logical; unchecked { ++i; } }
+        for (uint256 i; i < slots.length;) { attested[i] = slots[i].attested; unchecked { ++i; } }
     }
 
     /// @dev Accepted accounting dust; smaller discrepancies do not start recovery.
@@ -133,9 +132,9 @@ library VaultReads {
         return successor;
     }
 
-    function activesOf(Slot[] memory slots) internal pure returns (bytes32[] memory hotkeys) {
+    function stakedUnderOf(Slot[] memory slots) internal pure returns (bytes32[] memory hotkeys) {
         hotkeys = new bytes32[](slots.length);
-        for (uint256 i; i < hotkeys.length;) { hotkeys[i] = slots[i].active; unchecked { ++i; } }
+        for (uint256 i; i < hotkeys.length;) { hotkeys[i] = slots[i].stakedUnder; unchecked { ++i; } }
     }
 
     function firstShortOf(bool[] memory short) internal pure returns (uint256) {
@@ -146,7 +145,7 @@ library VaultReads {
     function requireIntact(Slot[] memory slots, Backing memory backing, uint16 netuid) internal pure {
         uint256 shortIndex = firstShortOf(backing.short);
         if (shortIndex != NO_SHORT_SLOT) {
-            revert BackingShortfall(netuid, slots[shortIndex].active, slots[shortIndex].tracked);
+            revert BackingShortfall(netuid, slots[shortIndex].stakedUnder, slots[shortIndex].tracked);
         }
     }
 

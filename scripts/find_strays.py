@@ -119,7 +119,7 @@ def main() -> None:
 
     strays = find_strays(
         listed_hotkeys(staking, coldkey, block),
-        (active for _logical, active, _tracked in slots),
+        (staked_under for _attested, staked_under, _tracked in slots),
         lambda hotkey: staking.functions.getStake(hotkey, coldkey, netuid).call(block_identifier=block),
     )
     print(

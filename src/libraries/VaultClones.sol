@@ -23,7 +23,7 @@ library VaultClones {
         if (mailbox != address(0)) return mailbox;
         mailbox = factory.deployMailbox(msg.sender, netuid, uid);
         bytes32 mailboxColdkey = VaultReads.coldkeyOf(mailbox);
-        _initializeClone(mailbox, mailboxColdkey, mailboxColdkey);
+        _initializeProtectedClone(mailbox, mailboxColdkey, mailboxColdkey);
         mailboxes[msg.sender][netuid] = mailbox;
         emit IAlphaVaultAbi.MailboxCreated(msg.sender, netuid, mailbox);
     }
@@ -33,10 +33,10 @@ library VaultClones {
         clone = factory.deploySubnetClone(tokenId, netuid, uid);
         bytes32 coldkey = VaultReads.coldkeyOf(clone);
         address owner = factory.deployCloneOwner(coldkey, netuid);
-        _initializeClone(clone, coldkey, VaultReads.coldkeyOf(owner));
+        _initializeProtectedClone(clone, coldkey, VaultReads.coldkeyOf(owner));
     }
 
-    function _initializeClone(address clone, bytes32 coldkey, bytes32 owner) private {
+    function _initializeProtectedClone(address clone, bytes32 coldkey, bytes32 owner) private {
         CloneBase(clone).initialize();
         IStaking staking = IStaking(STAKING_PRECOMPILE);
         if (

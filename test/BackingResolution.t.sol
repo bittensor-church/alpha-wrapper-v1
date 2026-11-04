@@ -26,7 +26,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 30 * ALPHA);
         assertEq(lens.resolvedBacking(TOKEN1).hotkeys[0], hotkey4, "the slot answers under the found hotkey");
         vault.syncBacking(TOKEN1);
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey4, "one sync records it");
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4, "one sync records it");
         assertEq(lens.writeOffDeadline(TOKEN1), 0, "and no clock runs");
         vm.expectRevert(BackingUnchanged.selector);
         vault.syncBacking(TOKEN1);
@@ -43,7 +43,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1), "an edge to an empty hotkey is not followed");
         assertEq(lens.resolvedBacking(TOKEN1).hotkeys[0], hotkey4);
         vault.rebalance(NETUID1);
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey4);
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4);
     }
 
     function test_CutEdge_AllRailsKeepWorking() public {
@@ -66,7 +66,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
 
         assertEq(lens.totalStake(TOKEN1), 60 * ALPHA - quotedAlpha - soldAlpha, "60 alpha less both exits");
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey4, "the slot keeps answering under the found hotkey");
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4, "the slot keeps answering under the found hotkey");
         assertTrue(lens.isBackingIntact(TOKEN1), "record sound throughout");
         vm.prank(alice);
         vault.unwrap(TOKEN1, aliceShares, _toSubstrate(alice), 0);
@@ -117,7 +117,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         assertEq(backing.total, 40 * ALPHA);
         assertTrue(lens.isBackingIntact(TOKEN1));
         vault.rebalance(NETUID1);
-        assertEq(vault.recordedSlots(TOKEN1)[1].active, hotkey1);
+        assertEq(vault.recordedSlots(TOKEN1)[1].stakedUnder, hotkey1);
     }
 
     function test_AHotkeyAnotherSlotHolds_NeverCoversASlot() public {
@@ -178,7 +178,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1), "found wherever the list holds it");
         assertEq(lens.totalStake(TOKEN1), amount);
         vault.syncBacking(TOKEN1);
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey4);
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4);
     }
 
     function testFuzz_CutEdge_CoversWithinTheSlack(uint256 missing) public {
@@ -364,7 +364,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         for (uint256 i; i < slots.length; ++i) {
             for (uint256 j = i + 1; j < slots.length; ++j) {
-                assertTrue(slots[i].active != slots[j].active, "no two slots answer for one key");
+                assertTrue(slots[i].stakedUnder != slots[j].stakedUnder, "no two slots answer for one key");
             }
         }
     }
@@ -375,9 +375,9 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
 
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
-        assertEq(slots[0].active, hotkey4, "the emptied slot kept its resolved key");
-        assertEq(slots[1].active, hotkey1, "beside the slot whose alpha its name carries");
-        assertEq(slots[2].active, hotkey3, "and the untouched third slot");
+        assertEq(slots[0].stakedUnder, hotkey4, "the emptied slot kept its resolved key");
+        assertEq(slots[1].stakedUnder, hotkey1, "beside the slot whose alpha its name carries");
+        assertEq(slots[2].stakedUnder, hotkey3, "and the untouched third slot");
         assertEq(_getVaultStake(hotkey4, NETUID1), 6_667_333_200, "3334 bps of the remaining 19.998 alpha");
         assertEq(lens.totalStake(TOKEN1), 19_998_000_000, "and the total counts each balance once");
     }

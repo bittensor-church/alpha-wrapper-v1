@@ -35,7 +35,7 @@ library VaultMath {
     }
 
     /// @dev Unique nonzero sources absent from the record, without balance reads.
-    function novelSources(bytes32[] memory keys, bytes32[] memory sources) internal pure returns (bytes32[] memory strays) {
+    function unrecordedSources(bytes32[] memory keys, bytes32[] memory sources) internal pure returns (bytes32[] memory strays) {
         bytes32[] memory unique = new bytes32[](sources.length); uint256 count;
         for (uint256 i; i < sources.length; ++i) {
             bytes32 source = sources[i];
@@ -76,19 +76,19 @@ library VaultMath {
     }
 
     /// @dev Cap rounding residue at recorded liability so claims cannot consume dissolution backing.
-    function backedEntitlement(uint256 entitlement, uint256 liability) internal pure returns (uint256) {
+    function entitlementCappedAtLiability(uint256 entitlement, uint256 liability) internal pure returns (uint256) {
         return entitlement > liability ? liability : entitlement;
     }
 
     function toNativeQuantum(uint256 amount) internal pure returns (uint256) { return amount - amount % TAO_NATIVE_QUANTUM; }
 
-    function earnedAt(uint256 balance, uint256 index) internal pure returns (uint256) {
+    function claimableAtIndex(uint256 balance, uint256 index) internal pure returns (uint256) {
         return Math.mulDiv(balance, index, TAO_INDEX_PRECISION);
     }
 
     /// @dev Round liability up so a tiny index increase cannot leave the same TAO available to index again.
     ///      At zero supply, leave arrivals unassigned until shares exist.
-    function syncAmounts(uint256 newTao, uint256 supply) internal pure returns (uint256 indexIncrease, uint256 liabilityIncrease) {
+    function indexAndLiabilityIncrease(uint256 newTao, uint256 supply) internal pure returns (uint256 indexIncrease, uint256 liabilityIncrease) {
         if (supply == 0) return (0, 0);
         indexIncrease = Math.mulDiv(newTao, TAO_INDEX_PRECISION, supply);
         liabilityIncrease = Math.mulDiv(indexIncrease, supply, TAO_INDEX_PRECISION, Math.Rounding.Ceil);

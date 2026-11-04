@@ -7,7 +7,7 @@ import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 
 contract VaultMathWideProductTest is AlphaVaultTestBase {
     /// @dev One share collecting 1 TAO lifts the index to 1e54, so settling a whale's ~5e23 shares
-    ///      multiplies to ~5e77, past 2^256; only the wide product in `earnedAt` keeps it exact.
+    ///      multiplies to ~5e77, past 2^256; only the wide product in `claimableAtIndex` keeps it exact.
     function test_LargeDepositAfterOneShareCollectsAGift_SettlesExactly() public {
         uint256 aliceShares = _depositAndWrap(alice, NETUID1, 1_000 * ALPHA);
         vm.prank(alice);

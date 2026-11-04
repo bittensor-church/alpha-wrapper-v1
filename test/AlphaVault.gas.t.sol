@@ -259,7 +259,7 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
         vm.snapshotGasLastCall("AlphaVault", "rebalance: resolve a cut edge");
 
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey4);
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4);
     }
 
     function test_gas_wrap_subsequentWrap_cutEdge() public {
@@ -289,7 +289,7 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
         vm.snapshotGasLastCall("AlphaVault", "syncBacking: record a cut edge");
 
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey4);
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4);
     }
 
     function test_gas_previewUnwrap_cutEdge() public {
@@ -327,7 +327,7 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         );
 
         assertEq(lens.totalStake(TOKEN1), 10 * ALPHA);
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, keccak256("edgeless destination"));
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, keccak256("edgeless destination"));
     }
 
     function test_gas_recoverStray_10Validators() public {
