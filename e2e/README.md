@@ -73,6 +73,10 @@ Scenario files in `tests/` cover:
 - `test_squatted_vacated_hotkey.py`: after the vault follows a validator's hotkey swap, a
   stranger claims the vacated hotkey; deposits and rebalances keep the slot on the
   successor and the position exits once the registry names it.
+- `test_claimed_hotkey_swapped_away.py`: a fresh token's deposit lands on a vacated hotkey
+  a stranger claimed, and the stranger swaps it away with no edge; the vault finds the
+  alpha on the clone's staking list, every rail works with no watcher, and the position
+  moves to the successor once the registry names it.
 - `test_subnet_dissolved.py`: refunds and mailbox recovery.
 - `test_min_stake_floor.py`, `test_dust_dos.py`, `test_min_stake_liveness.py`:
   minimums, top-ups, dust and repeated position changes.
