@@ -17,12 +17,13 @@ AlphaVault: shares and accounting     IValidatorRegistry: target hotkeys and wei
 
 The registry attests a validator hotkey, but a hotkey swap can move its stake elsewhere.
 
-- `logical`: the attested hotkey the slot was recorded under; `attestedOf` reads it.
-- `active`: the last recorded location of its stake.
+- `attested`: the hotkey the registry named when the slot was recorded.
+- `stakedUnder`: the hotkey the slot's stake was last recorded under.
 - `tracked`: the alpha expected at the last record update.
-- `Backing.hotkeys`: locations resolved now, possibly after following one swap.
+- `Backing.hotkeys`: locations resolved now, after following one swap or finding the
+  slot's alpha on the clone's staking list.
 
-Example: after a swap from A to B, the record can say `logical = A, active = B`.
+Example: after a swap from A to B, the record can say `attested = A, stakedUnder = B`.
 Locating backing and choosing a receiver are separate checks: a receiving hotkey
 must also have an owner record.
 
@@ -79,19 +80,4 @@ cleanup, then old shares redeem the clone's unreserved TAO.
 - **Dissolved `unwrap`:** exclude reserved TAO claims -> calculate a proportional
   refund -> burn shares -> pay native TAO. The caller must pass zero for `minAlphaOut`.
 
-## Three details that explain surprising code
-
-1. **Moving dust can require moving a large balance through it.** To collect 1
-   unit at B into 100 at A, the code can move A's 100 to B, then 101 back to A.
-   This clears the move minimum that would refuse the 1-unit transfer. Chain rounding
-   requires fresh balance reads. Weight alignment may skip small moves.
-2. **Minting, burning, and transferring also settle TAO.** `_update` synchronizes
-   TAO and credits accounts using their old balances, changes shares, then resets
-   their accounting debt. Accrued TAO stays with the account after its shares leave.
-   A TAO sale pays before refund minting so proceeds stay out of that shared index.
-3. **Reading and recording differ.** `_openBacking` only resolves and
-   checks. `_settle` replaces the allocation record; `_reanchor` updates locations
-   and balances while keeping slot identities.
-
-Start tracing in `AlphaVault`. `VaultReads` resolves hotkeys; `VaultAllocation`
-moves stake. For recovery details, use the [runbook](hotkey-swaps.md).
+Start tracing in `AlphaVault`. `VaultAllocation` resolves hotkeys and moves stake. For recovery details, use the [runbook](hotkey-swaps.md).

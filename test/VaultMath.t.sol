@@ -15,7 +15,7 @@ contract VaultMathTest is Test {
         sources[3] = bytes32(uint256(2));
         sources[4] = bytes32(uint256(3));
 
-        bytes32[] memory strays = VaultMath.novelSources(recorded, sources);
+        bytes32[] memory strays = VaultMath.unrecordedSources(recorded, sources);
 
         assertEq(strays.length, 2, "recorded, empty and repeated sources drop out");
         assertEq(strays[0], bytes32(uint256(3)), "the first unrecorded source stays first");

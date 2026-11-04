@@ -13,12 +13,12 @@ contract RecoveryDustTest is AlphaVaultTestBase {
     /// @dev 3333 bps of EXPECTED: above the floor at 0.05 TAO/alpha, below the 0.2 alpha floor at 0.01.
     uint256 private constant THIRD_SLOT = 199_980_000;
 
-    function _missingPosition() private returns (bytes32[] memory tips) {
+    function _missingPosition() private returns (uint256[] memory swept) {
         _depositAndWrap(alice, NETUID1, EXPECTED);
         bytes32[] memory keys = _hotkeys(hotkey1, hotkey2, hotkey3);
-        tips = new bytes32[](keys.length);
+        swept = new uint256[](keys.length);
         for (uint256 i; i < keys.length; ++i) {
-            tips[i] = _buildSwapTrail(NETUID1, keys[i], 2);
+            swept[i] = _sweepDuringCrash(NETUID1, keys[i]);
         }
     }
 
@@ -27,8 +27,8 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         _simulateHotkeyOwnerPresent(key);
     }
 
-    function _emptyRecovery() private returns (bytes32[] memory tips, uint256 deadline) {
-        tips = _missingPosition();
+    function _emptyRecovery() private returns (uint256[] memory swept, uint256 deadline) {
+        swept = _missingPosition();
         vault.syncBacking(TOKEN1);
         deadline = lens.writeOffDeadline(TOKEN1);
         assertEq(_parkedStake(NETUID1), 0);
@@ -66,9 +66,10 @@ contract RecoveryDustTest is AlphaVaultTestBase {
     }
 
     function test_ParkedPile_CollectsDustWithoutExtendingTheWindow() public {
-        (bytes32[] memory tips, uint256 deadline) = _emptyRecovery();
+        (uint256[] memory swept, uint256 deadline) = _emptyRecovery();
         bytes32 parking = vault.parkingHotkey();
-        vault.recoverStray(TOKEN1, tips[2]);
+        _strangerReturns(NETUID1, hotkey4, swept[2]);
+        vault.recoverStray(TOKEN1, hotkey4);
         _plant(hotkey1, DUST);
 
         vm.expectEmit(true, true, false, true, address(vault));
@@ -82,9 +83,9 @@ contract RecoveryDustTest is AlphaVaultTestBase {
     }
 
     function test_AboveFloorReturnAtExpiry_CollectsPreviouslySkippedDust() public {
-        (bytes32[] memory tips, uint256 deadline) = _emptyRecovery();
+        (uint256[] memory swept, uint256 deadline) = _emptyRecovery();
         _plant(hotkey1, DUST);
-        _simulateOffVaultSwap(NETUID1, tips[2], hotkey3);
+        _strangerReturns(NETUID1, hotkey3, swept[2]);
         vm.warp(deadline);
         vm.expectEmit(true, false, false, true, address(vault));
         emit BackingWrittenOff(TOKEN1, EXPECTED, THIRD_SLOT + DUST);
@@ -111,8 +112,9 @@ contract RecoveryDustTest is AlphaVaultTestBase {
     }
 
     function test_PriceFallDuringRecovery_DoesNotLetDustBlockTheParkedBalance() public {
-        (bytes32[] memory tips, uint256 deadline) = _emptyRecovery();
-        vault.recoverStray(TOKEN1, tips[2]);
+        (uint256[] memory swept, uint256 deadline) = _emptyRecovery();
+        _strangerReturns(NETUID1, hotkey4, swept[2]);
+        vault.recoverStray(TOKEN1, hotkey4);
         _plant(hotkey1, DUST);
         _setAlphaPrice(NETUID1, 0.01e18);
         vm.warp(deadline);

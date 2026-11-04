@@ -228,7 +228,7 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
             NETUID1, _hotkeys(hotkey2, hotkey1, hotkey3), _weights(NETUID1_BPS_HK1, NETUID1_BPS_HK2, NETUID1_BPS_HK3)
         );
         vault.rebalance(NETUID1);
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey2, "the record now leads with hotkey2");
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey2, "the record now leads with hotkey2");
 
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares / 4, 0, 1 << 0);

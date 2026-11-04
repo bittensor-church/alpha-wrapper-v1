@@ -47,7 +47,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
         bytes32[] memory recorded = _hotkeys(hotkey1, hotkey2, hotkey3);
         for (uint256 i; i < recorded.length; ++i) {
-            _simulateOffVaultSwap(NETUID1, recorded[i], keccak256(abi.encode("stray", i)));
+            _sweepDuringCrash(NETUID1, recorded[i]);
         }
         _runOutRecoveryWindow(TOKEN1);
         _reattestCurrentSet(NETUID1);
@@ -66,7 +66,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         _depositAndWrap(alice, NETUID1, deposit);
         bytes32[] memory recorded = _hotkeys(hotkey1, hotkey2, hotkey3);
         for (uint256 i; i < recorded.length; ++i) {
-            _simulateOffVaultSwap(NETUID1, recorded[i], keccak256(abi.encode("stray", i)));
+            _sweepDuringCrash(NETUID1, recorded[i]);
         }
         _runOutRecoveryWindow(TOKEN1);
 
@@ -174,8 +174,9 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
 
     function test_ParkedToken_ReportsItsStateAndRefusesTheMintQuote() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, hotkey4, swept);
         vault.recoverStray(TOKEN1, hotkey4);
         vault.syncBacking(TOKEN1);
 
@@ -234,7 +235,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
     function test_DisabledTransfers_PreviewsStillRejectMissingBackingAndRecovery() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
         _setTransfersEnabled(NETUID1, false);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
+        _sweepDuringCrash(NETUID1, hotkey1);
 
         vm.expectPartialRevert(BackingShortfall.selector);
         lens.previewWrap(TOKEN1, ALPHA);
@@ -261,10 +262,10 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
 
     function test_DeclaredShortfall_ReadsAsNotIntactUntilSynced() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         assertEq(lens.writeOffDeadline(TOKEN1), VaultReads.UNDECLARED_SHORTFALL, "short and not yet declared");
         vault.syncBacking(TOKEN1);
-        _simulateOffVaultSwap(NETUID1, hotkey4, hotkey1);
+        _strangerReturns(NETUID1, hotkey1, swept);
 
         assertFalse(lens.isBackingIntact(TOKEN1), "the alpha is back but the shortfall is still on file");
         assertEq(lens.writeOffDeadline(TOKEN1), block.timestamp + RECOVERY_WINDOW, "with its clock still running");

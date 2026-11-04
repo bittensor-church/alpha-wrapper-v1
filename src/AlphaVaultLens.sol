@@ -2,6 +2,7 @@
 pragma solidity 0.8.36;
 
 import { AlphaVault } from "./AlphaVault.sol";
+import { VaultAllocation } from "./libraries/VaultAllocation.sol";
 import { VaultMath } from "./libraries/VaultMath.sol";
 import { VaultReads } from "./libraries/VaultReads.sol";
 import {
@@ -49,18 +50,18 @@ contract AlphaVaultLens {
         return expected > read.backing.total ? expected - read.backing.total : 0;
     }
 
-    /// @notice Backing keys and alpha RAO, following at most one swap per slot.
-    /// @dev TAO exits sell from `keys`; any `short` flag blocks the exit.
+    /// @notice Backing hotkeys and alpha RAO as resolved now.
+    /// @dev TAO exits sell from `hotkeys`; any `short` flag blocks the exit.
     function resolvedBacking(uint256 tokenId) external view returns (VaultReads.Backing memory backing) {
         address clone = vault.subnetClone(tokenId);
         if (clone == address(0)) return backing;
-        return VaultReads.resolveBacking(
-            vault.recordedSlots(tokenId), VaultReads.coldkeyOf(clone), VaultMath.netuidOf(tokenId));
+        return VaultAllocation.locateBacking(
+            vault.recordedSlots(tokenId), VaultReads.coldkeyOf(clone), VaultMath.netuidOf(tokenId), vault.parkingHotkey());
     }
 
-    /// @notice Recorded active hotkeys, without resolving later swaps.
+    /// @notice Each slot's recorded `stakedUnder` hotkey.
     function lastSeenHotkeys(uint256 tokenId) external view returns (bytes32[] memory) {
-        return VaultReads.activesOf(vault.recordedSlots(tokenId));
+        return VaultReads.stakedUnderOf(vault.recordedSlots(tokenId));
     }
 
     /// @notice Entries on the clone's staking list, zero without a clone; `replaceClone` opens at half the cap.
@@ -97,12 +98,12 @@ contract AlphaVaultLens {
     function _locateBacking(BackingRead memory read, uint256 tokenId, bool alphaInFlux) private view {
         read.coldkey = VaultReads.coldkeyOf(read.clone); read.alphaInFlux = alphaInFlux;
         if (alphaInFlux) {
-            bytes32[] memory keys = VaultReads.activesOf(vault.recordedSlots(tokenId));
-            read.backing.total = VaultMath.sumBalances(VaultReads.fetchBalances(keys, read.coldkey, read.netuid));
+            bytes32[] memory keys = VaultReads.stakedUnderOf(vault.recordedSlots(tokenId));
+            read.backing.total = VaultMath.sumBalances(VaultReads.stakesUnder(keys, read.coldkey, read.netuid));
             return;
         }
         read.slots = vault.recordedSlots(tokenId);
-        read.backing = VaultReads.resolveBacking(read.slots, read.coldkey, read.netuid);
+        read.backing = VaultAllocation.locateBacking(read.slots, read.coldkey, read.netuid, vault.parkingHotkey());
     }
 
     function _intactStakeOf(BackingRead memory read) private view returns (uint256) {
@@ -175,7 +176,7 @@ contract AlphaVaultLens {
         uint256 index = vault.cumulativeTaoPerShare(tokenId) + indexIncrease;
         uint256 backing = liability + liabilityIncrease;
         uint256 entitlement = vault.claimableTao(tokenId, account) + _pendingAt(account, tokenId, index);
-        return VaultMath.toNativeQuantum(VaultMath.backedEntitlement(entitlement, backing));
+        return VaultMath.toNativeQuantum(VaultMath.entitlementCappedAtLiability(entitlement, backing));
     }
 
     function _shortSince(uint256 tokenId) private view returns (uint256 shortSince) { (shortSince,) = vault.recovery(tokenId); }
@@ -187,10 +188,10 @@ contract AlphaVaultLens {
     function _previewSyncTao(uint256 tokenId, uint256 liability) private view returns (uint256, uint256) {
         uint256 newTao = VaultReads.indexableTao(tokenId, vault.subnetClone(tokenId).balance, liability);
         if (newTao == 0) return (0, 0);
-        return VaultMath.syncAmounts(newTao, vault.totalSupply(tokenId));
+        return VaultMath.indexAndLiabilityIncrease(newTao, vault.totalSupply(tokenId));
     }
 
     function _pendingAt(address account, uint256 tokenId, uint256 index) private view returns (uint256) {
-        return VaultMath.earnedAt(vault.balanceOf(account, tokenId), index) - vault.taoIndexDebt(tokenId, account);
+        return VaultMath.claimableAtIndex(vault.balanceOf(account, tokenId), index) - vault.taoIndexDebt(tokenId, account);
     }
 }

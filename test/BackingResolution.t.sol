@@ -6,9 +6,190 @@ import { VaultReads } from "src/libraries/VaultReads.sol";
 import { AttestedHotkeyRetired, BackingShortfall, ShortfallOnFile } from "src/VaultErrors.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { CHAIN_MIN_TRANSFER, MockStaking } from "./mocks/MockStaking.sol";
-import { IStaking, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { IStaking, MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { BackingUnchanged, NothingToRecover } from "src/VaultErrors.sol";
 
 contract BackingResolutionTest is AlphaVaultTestBase {
+    /// @dev 30 alpha at 3334 / 3333 / 3333 bps: hotkey1 holds 10.002 alpha.
+    uint256 private constant FIRST_SLOT = 10_002_000_000;
+
+    function _cutTheEdge(bytes32 fromHotkey, bytes32 toHotkey) private {
+        _simulateOffVaultSwap(NETUID1, fromHotkey, toHotkey);
+        MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(fromHotkey, true);
+    }
+
+    function test_CutEdge_ResolvesOnTheStakingList() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _cutTheEdge(hotkey1, hotkey4);
+
+        assertTrue(lens.isBackingIntact(TOKEN1), "the list names where the alpha went");
+        assertEq(lens.totalStake(TOKEN1), 30 * ALPHA);
+        assertEq(lens.resolvedBacking(TOKEN1).hotkeys[0], hotkey4, "the slot answers under the found hotkey");
+        vault.syncBacking(TOKEN1);
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4, "one sync records it");
+        assertEq(lens.writeOffDeadline(TOKEN1), 0, "and no clock runs");
+        vm.expectRevert(BackingUnchanged.selector);
+        vault.syncBacking(TOKEN1);
+        vm.expectRevert(NothingToRecover.selector);
+        vault.recoverStray(TOKEN1, hotkey4);
+    }
+
+    function test_EdgeRepointedAtAnEmptyHotkey_ResolvesOnTheStakingList() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
+        _simulateSquatter(hotkey1);
+        MockStaking(STAKING_PRECOMPILE).setHotkeySuccessor(hotkey1, NETUID1, hotkey5);
+
+        assertTrue(lens.isBackingIntact(TOKEN1), "an edge to an empty hotkey is not followed");
+        assertEq(lens.resolvedBacking(TOKEN1).hotkeys[0], hotkey4);
+        vault.rebalance(NETUID1);
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4);
+    }
+
+    function test_CutEdge_AllRailsKeepWorking() public {
+        uint256 aliceShares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _cutTheEdge(hotkey1, hotkey4);
+
+        uint256 quotedShares = lens.previewWrap(TOKEN1, 30 * ALPHA);
+        uint256 bobShares = _depositAndWrap(bob, NETUID1, 30 * ALPHA);
+        assertEq(bobShares, quotedShares, "previewWrap matches the wrap chosen under the swapped hotkey");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 0, "nothing lands on the vacated hotkey");
+
+        (uint256 quotedAlpha,) = lens.previewUnwrap(TOKEN1, bobShares / 2);
+        vm.prank(bob);
+        vault.unwrap(TOKEN1, bobShares / 2, _toSubstrate(bob), 0);
+        assertEq(_userStakeAcrossHotkeys(bob, NETUID1), quotedAlpha, "the alpha exit paid the quote");
+        (uint256 soldAlpha,) = lens.previewUnwrap(TOKEN1, bobShares / 4);
+        vm.prank(bob);
+        vault.unwrapForTao(TOKEN1, bobShares / 4, 0);
+        assertGt(bob.balance, 0, "the TAO exit paid");
+        vault.rebalance(NETUID1);
+
+        assertEq(lens.totalStake(TOKEN1), 60 * ALPHA - quotedAlpha - soldAlpha, "60 alpha less both exits");
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4, "the slot keeps answering under the found hotkey");
+        assertTrue(lens.isBackingIntact(TOKEN1), "record sound throughout");
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, aliceShares, _toSubstrate(alice), 0);
+        assertEq(_getVaultStake(hotkey1, NETUID1), 0, "and still nothing sits on the vacated hotkey");
+    }
+
+    function test_TwoMovedSlots_EachResolveToTheirOwnPile() public {
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(2000, 6000, 2000));
+        _depositAndWrap(alice, NETUID1, 40 * ALPHA);
+        _cutTheEdge(hotkey2, hotkey5);
+        _cutTheEdge(hotkey1, hotkey4);
+
+        VaultReads.Backing memory backing = lens.resolvedBacking(TOKEN1);
+
+        assertEq(backing.hotkeys[0], hotkey4, "the 8 alpha slot takes the 8 alpha pile, not the 24 listed first");
+        assertEq(backing.hotkeys[1], hotkey5, "the 24 alpha slot takes its own pile");
+        assertEq(backing.hotkeys[2], hotkey3);
+        assertEq(backing.total, 40 * ALPHA);
+        assertTrue(lens.isBackingIntact(TOKEN1));
+    }
+
+    function test_ASweptSlot_NeverTakesAnotherSlotsSuccessor() public {
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(2000, 6000, 2000));
+        _depositAndWrap(alice, NETUID1, 40 * ALPHA);
+        _sweepDuringCrash(NETUID1, hotkey1);
+        _simulatePerSubnetSwap(NETUID1, hotkey2, hotkey5);
+
+        VaultReads.Backing memory backing = lens.resolvedBacking(TOKEN1);
+
+        assertTrue(backing.short[0], "the swept slot stays short");
+        assertEq(backing.hotkeys[1], hotkey5, "the swapped slot follows its own edge");
+        assertFalse(backing.short[1]);
+        assertEq(backing.total, 32 * ALPHA);
+        vm.expectRevert(abi.encodeWithSelector(BackingShortfall.selector, NETUID1, hotkey1, 8 * ALPHA));
+        vault.rebalance(NETUID1);
+    }
+
+    function test_ARecordedHotkeyTheSearchFrees_CanHoldAnotherSlot() public {
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(6000, 2000, 2000));
+        _depositAndWrap(alice, NETUID1, 40 * ALPHA);
+        _cutTheEdge(hotkey1, hotkey4);
+        _simulateFollowedSwap(NETUID1, hotkey2, hotkey1);
+
+        VaultReads.Backing memory backing = lens.resolvedBacking(TOKEN1);
+
+        assertEq(backing.hotkeys[0], hotkey4, "the 24 alpha slot is found on the list");
+        assertEq(backing.hotkeys[1], hotkey1, "the 8 alpha slot takes the hotkey the first slot left");
+        assertEq(backing.total, 40 * ALPHA);
+        assertTrue(lens.isBackingIntact(TOKEN1));
+        vault.rebalance(NETUID1);
+        assertEq(vault.recordedSlots(TOKEN1)[1].stakedUnder, hotkey1);
+    }
+
+    function test_AHotkeyAnotherSlotHolds_NeverCoversASlot() public {
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(2000, 6000, 2000));
+        _depositAndWrap(alice, NETUID1, 40 * ALPHA);
+        _sweepDuringCrash(NETUID1, hotkey1);
+
+        assertTrue(lens.resolvedBacking(TOKEN1).short[0], "hotkey2's 24 alpha belongs to its own slot");
+        vm.expectPartialRevert(BackingShortfall.selector);
+        vault.rebalance(NETUID1);
+    }
+
+    function test_UntrackedParkingStake_NeverCoversASlot() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        MockStaking(STAKING_PRECOMPILE).setStake(vault.parkingHotkey(), _subnetColdkey(NETUID1), NETUID1, FIRST_SLOT);
+        _sweepDuringCrash(NETUID1, hotkey1);
+
+        assertTrue(lens.resolvedBacking(TOKEN1).short[0], "parking is never a slot's hotkey");
+        vm.expectPartialRevert(BackingShortfall.selector);
+        vault.rebalance(NETUID1);
+    }
+
+    function test_SplitPile_StaysShortUntilCollectedByName() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
+        _strangerReturns(NETUID1, hotkey4, swept / 2);
+        _strangerReturns(NETUID1, hotkey5, swept - swept / 2);
+
+        assertTrue(lens.resolvedBacking(TOKEN1).short[0], "no single listed pile covers the slot");
+        vault.syncBacking(TOKEN1);
+        vault.recoverStray(TOKEN1, hotkey4);
+        vault.recoverStray(TOKEN1, hotkey5);
+        vault.syncBacking(TOKEN1);
+        assertEq(_parkedStake(NETUID1), 30 * ALPHA, "both halves are parked by name");
+        assertTrue(lens.isBackingIntact(TOKEN1));
+    }
+
+    function test_Successor_WinsOverASmallerListedPile() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _simulatePerSubnetSwap(NETUID1, hotkey1, hotkey4);
+        _strangerReturns(NETUID1, hotkey5, FIRST_SLOT - BACKING_SLACK_RAO);
+
+        assertEq(lens.resolvedBacking(TOKEN1).hotkeys[0], hotkey4, "the successor edge is followed before the list");
+    }
+
+    function testFuzz_CutEdge_ResolvesAtAnyListPosition(uint256 entriesBefore, uint256 entriesAfter, uint256 amount)
+        public
+    {
+        entriesBefore = bound(entriesBefore, 3, MAX_STAKING_HOTKEYS - 4);
+        entriesAfter = bound(entriesAfter, 0, MAX_STAKING_HOTKEYS - 3 - entriesBefore);
+        amount = bound(amount, ALPHA, 1_000 * ALPHA);
+        _depositAndWrap(alice, NETUID1, amount);
+        bytes32 coldkey = _subnetColdkey(NETUID1);
+        _fillListTo(coldkey, entriesBefore);
+        _cutTheEdge(hotkey1, hotkey4);
+        _fillListTo(coldkey, entriesBefore + 1 + entriesAfter);
+
+        assertTrue(lens.isBackingIntact(TOKEN1), "found wherever the list holds it");
+        assertEq(lens.totalStake(TOKEN1), amount);
+        vault.syncBacking(TOKEN1);
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4);
+    }
+
+    function testFuzz_CutEdge_CoversWithinTheSlack(uint256 missing) public {
+        missing = bound(missing, 0, 2 * BACKING_SLACK_RAO);
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _cutTheEdge(hotkey1, hotkey4);
+        MockStaking(STAKING_PRECOMPILE).setStake(hotkey4, _subnetColdkey(NETUID1), NETUID1, FIRST_SLOT - missing);
+
+        assertEq(lens.isBackingIntact(TOKEN1), missing <= BACKING_SLACK_RAO, "a listed pile covers within the slack");
+    }
+
     function test_SelfSuccessorResponse_LeavesBackingAndValidatorsUnchanged() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32[] memory keysBefore = lens.lastSeenHotkeys(TOKEN1);
@@ -38,41 +219,28 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
     }
 
-    function test_TwoHopSwap_FailsClosedOnEveryPath() public {
+    function test_TwoHopTrail_ResolvesOnTheStakingList() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _depositAndWrap(bob, NETUID1, 30 * ALPHA);
-        _buildSwapTrail(NETUID1, hotkey1, 2);
+        bytes32 tip = _buildSwapTrail(NETUID1, hotkey1, 2);
 
-        assertFalse(lens.isBackingIntact(TOKEN1), "a trail the vault will not walk is not accounted for");
-
-        vm.expectPartialRevert(BackingShortfall.selector);
-        lens.totalStake(TOKEN1);
-        vm.expectPartialRevert(BackingShortfall.selector);
-        lens.sharePrice(TOKEN1);
-        vm.expectPartialRevert(BackingShortfall.selector);
-        lens.previewWrap(TOKEN1, ALPHA);
-        vm.expectPartialRevert(BackingShortfall.selector);
-        lens.previewUnwrap(TOKEN1, shares / 2);
-
-        vm.expectPartialRevert(BackingShortfall.selector);
-        vault.rebalance(NETUID1);
-        _simulateAlphaDeposit(bob, NETUID1, ALPHA);
-        vm.prank(bob);
-        vm.expectPartialRevert(BackingShortfall.selector);
-        vault.wrap(NETUID1, hotkey1, 0);
+        assertTrue(lens.isBackingIntact(TOKEN1), "the tip of a trail the vault will not walk is on the list");
+        assertEq(lens.resolvedBacking(TOKEN1).hotkeys[0], tip);
+        assertEq(lens.totalStake(TOKEN1), 30 * ALPHA);
+        assertGt(lens.sharePrice(TOKEN1), 0);
+        (uint256 quotedAlpha,) = lens.previewUnwrap(TOKEN1, shares / 2);
         vm.prank(alice);
-        vm.expectPartialRevert(BackingShortfall.selector);
         vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
-        vm.prank(bob);
-        vm.expectPartialRevert(BackingShortfall.selector);
-        vault.unwrapForTao(TOKEN1, shares / 4, 0);
+        assertEq(
+            _userStakeAcrossHotkeys(alice, NETUID1) + _getStakeForColdkey(tip, _toSubstrate(alice), NETUID1),
+            quotedAlpha
+        );
     }
 
     function test_ShortfallStanding_LeavesTransfersAndTaoClaimsLive() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _donateToClone(vault.subnetClone(TOKEN1), 4 * TAO);
         vault.rebalance(NETUID1);
-        _buildSwapTrail(NETUID1, hotkey1, 2);
+        _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
 
         vm.prank(alice);
@@ -88,7 +256,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
 
     function test_GrowthElsewhere_DoesNotCoverALoss() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _buildSwapTrail(NETUID1, hotkey1, 2);
+        _sweepDuringCrash(NETUID1, hotkey1);
 
         // hotkey2's own 9.999 alpha, the lost 10.002 alpha and 5 alpha more.
         uint256 richer = 9_999_000_000 + 10_002_000_000 + 5 * ALPHA;
@@ -196,7 +364,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         for (uint256 i; i < slots.length; ++i) {
             for (uint256 j = i + 1; j < slots.length; ++j) {
-                assertTrue(slots[i].active != slots[j].active, "no two slots answer for one key");
+                assertTrue(slots[i].stakedUnder != slots[j].stakedUnder, "no two slots answer for one key");
             }
         }
     }
@@ -207,9 +375,9 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
 
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
-        assertEq(slots[0].active, hotkey4, "the emptied slot kept its resolved key");
-        assertEq(slots[1].active, hotkey1, "beside the slot whose alpha its name carries");
-        assertEq(slots[2].active, hotkey3, "and the untouched third slot");
+        assertEq(slots[0].stakedUnder, hotkey4, "the emptied slot kept its resolved key");
+        assertEq(slots[1].stakedUnder, hotkey1, "beside the slot whose alpha its name carries");
+        assertEq(slots[2].stakedUnder, hotkey3, "and the untouched third slot");
         assertEq(_getVaultStake(hotkey4, NETUID1), 6_667_333_200, "3334 bps of the remaining 19.998 alpha");
         assertEq(lens.totalStake(TOKEN1), 19_998_000_000, "and the total counts each balance once");
     }
@@ -257,16 +425,6 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         vault.rebalance(netuid);
     }
 
-    function test_SwapWithNoEdge_FailsClosed() public {
-        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
-        MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey1, true);
-
-        assertFalse(lens.isBackingIntact(TOKEN1), "an unrecorded move is not accounted for");
-        vm.expectPartialRevert(BackingShortfall.selector);
-        vault.rebalance(NETUID1);
-    }
-
     function test_SweptPosition_ReopensAfterTheWindow() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 coldkey = _subnetColdkey(NETUID1);
@@ -288,7 +446,7 @@ contract BackingResolutionTest is AlphaVaultTestBase {
 
     function test_RegistryUpdate_NeitherClearsALossNorAddsBacking() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _buildSwapTrail(NETUID1, hotkey1, 2);
+        _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
 
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey4, _subnetColdkey(NETUID1), NETUID1, 9 * ALPHA);

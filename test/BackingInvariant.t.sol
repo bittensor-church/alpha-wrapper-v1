@@ -56,6 +56,16 @@ contract BackingHandler is BackingCampaignHandler {
         _backing().simulateSilentMove(from, to);
     }
 
+    function strandInTwoPiles(uint256 fromSeed, uint256 toSeed) external {
+        bytes32 from = touchedHotkeys[bound(fromSeed, 0, touchedHotkeys.length - 1)];
+        if (!_backing().strandable(from)) return;
+        bytes32 first = keccak256(abi.encode("half", toSeed, uint256(0)));
+        bytes32 second = keccak256(abi.encode("half", toSeed, uint256(1)));
+        _remember(first);
+        _remember(second);
+        _backing().simulateSweepReturnedInTwoPiles(from, first, second);
+    }
+
     function sourceFor(uint256 sourceSeed) public view returns (bytes32) {
         return
             touchedHotkeys[bound(uint256(keccak256(abi.encode(sourceSeed, uint256(0)))), 0, touchedHotkeys.length - 1)];
@@ -150,7 +160,7 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
         covered = new bool[](slots.length);
         bytes32 coldkey = _subnetColdkey(NETUID1);
         for (uint256 i; i < slots.length; ++i) {
-            uint256 held = _getStakeForColdkey(slots[i].active, coldkey, NETUID1);
+            uint256 held = _getStakeForColdkey(slots[i].stakedUnder, coldkey, NETUID1);
             covered[i] = held >= slots[i].tracked || slots[i].tracked - held <= BACKING_SLACK_RAO;
         }
     }
@@ -255,6 +265,14 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         uint256 owed = trackedBacking();
 
         handler.swapWithoutAnEdge(0, 1);
+        _assertSharedInvariants();
+        assertTrue(lens.isBackingIntact(TOKEN1), "a cut edge resolves on the staking list");
+        handler.syncBacking();
+        assertEq(
+            vault.recordedSlots(TOKEN1)[0].stakedUnder, keccak256(abi.encode("stray", uint256(1))), "and is recorded"
+        );
+
+        handler.strandInTwoPiles(3, 1);
         assertGt(vault.recordedSlots(TOKEN1).length, 1, "check the multi-slot record before recovery");
         _assertSharedInvariants();
         handler.syncBacking();
@@ -266,9 +284,10 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         _assertSharedInvariants();
         assertEq(handler.recoveriesClosed(), 1, "an expired shortfall is written off");
         assertLt(trackedBacking(), owed, "the write-off shrank the obligation");
-        handler.recoverStray(_seedSelectingLastTouched());
+        handler.recoverStray(_seedSelecting(keccak256(abi.encode("half", uint256(1), uint256(0)))));
+        handler.recoverStray(_seedSelecting(keccak256(abi.encode("half", uint256(1), uint256(1)))));
         _assertSharedInvariants();
-        assertEq(handler.strayAnnexations(), 1, "a stray found after write-off is annexed");
+        assertEq(handler.strayAnnexations(), 2, "both halves found after write-off are annexed");
         assertEq(trackedBacking(), owed, "annexation restores the written-off obligation");
 
         _advanceRegistryNonce();
@@ -276,13 +295,14 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         _assertSharedInvariants();
         assertEq(_parkedStake(NETUID1), 0, "the rebalance spreads the parked backing again");
 
-        handler.swapWithoutAnEdge(0, 1);
+        handler.strandInTwoPiles(1, 2);
         _assertSharedInvariants();
         handler.syncBacking();
         _assertSharedInvariants();
         handler.recoverHeldStray(0);
+        handler.recoverHeldStray(0);
         _assertSharedInvariants();
-        assertEq(handler.strayCollections(), 1, "a stray under an open shortfall is collected");
+        assertEq(handler.strayCollections(), 2, "both halves under an open shortfall are collected");
         vm.expectEmit(true, false, false, true);
         emit IAlphaVaultAbi.BackingShortfallCleared(TOKEN1);
         handler.syncBacking();
@@ -292,9 +312,8 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         _assertSharedInvariants();
     }
 
-    function _seedSelectingLastTouched() private view returns (uint256 seed) {
-        bytes32[] memory keys = handler.knownHotkeys();
-        while (handler.sourceFor(seed) != keys[keys.length - 1]) {
+    function _seedSelecting(bytes32 hotkey) private view returns (uint256 seed) {
+        while (handler.sourceFor(seed) != hotkey) {
             ++seed;
         }
     }

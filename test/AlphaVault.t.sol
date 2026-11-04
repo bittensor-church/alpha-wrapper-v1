@@ -468,12 +468,12 @@ contract AlphaVaultTest is AlphaVaultTestBase {
 
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         assertEq(slots.length, 3, "zero entry is retained");
-        assertEq(slots[0].logical, bytes32(0));
-        assertEq(slots[0].active, bytes32(0));
+        assertEq(slots[0].attested, bytes32(0));
+        assertEq(slots[0].stakedUnder, bytes32(0));
         assertEq(slots[0].tracked, 0);
-        assertEq(slots[1].logical, hotkey1);
+        assertEq(slots[1].attested, hotkey1);
         assertEq(slots[1].tracked, 5 * ALPHA);
-        assertEq(slots[2].logical, hotkey2);
+        assertEq(slots[2].attested, hotkey2);
         assertEq(slots[2].tracked, 5 * ALPHA);
     }
 

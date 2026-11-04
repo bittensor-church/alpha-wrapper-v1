@@ -4,11 +4,11 @@ pragma solidity 0.8.36;
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import { StakeOps } from "./StakeOps.sol";
-import { VaultClones } from "./VaultClones.sol";
 import { VaultMath } from "./VaultMath.sol";
+import { VaultClones } from "./VaultClones.sol";
 import { VaultReads } from "./VaultReads.sol";
 import { IAlpha, ALPHA_PRECOMPILE } from "../interfaces/IAlpha.sol";
-import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
+import { IStaking, STAKING_LIST_PAGE, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { LockedDeposit, ZeroAmount } from "../VaultErrors.sol";
 import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
 import { CloneFactory } from "../CloneFactory.sol";
@@ -30,21 +30,87 @@ library VaultAllocation {
         bytes32 parking;
     }
 
-    function deployMissingClone(CloneFactory factory, mapping(uint256 => address) storage subnetClone, uint256 tokenId,
-        uint16 netuid, bytes32 uid) external returns (address) {
-        return VaultClones.deployMissingClone(factory, subnetClone, tokenId, netuid, uid);
+    function locateBacking(VaultReads.Slot[] memory slots, bytes32 coldkey, uint16 netuid, bytes32 parking)
+        external view returns (VaultReads.Backing memory backing) {
+        uint256 count = slots.length;
+        backing.hotkeys = VaultReads.stakedUnderOf(slots);
+        backing.balances = new uint256[](count); backing.short = new bool[](count);
+        bool anyShort;
+        for (uint256 i; i < count;) {
+            uint256 tracked = slots[i].tracked;
+            uint256 balance = IStaking(STAKING_PRECOMPILE).getStake(backing.hotkeys[i], coldkey, netuid);
+            if (!VaultReads.coversTracked(balance, tracked)) {
+                (bytes32 successor, uint256 held) = _coveringSuccessor(backing.hotkeys, i, tracked, coldkey, netuid);
+                if (successor != bytes32(0)) {
+                    backing.hotkeys[i] = successor; balance = held;
+                } else {
+                    backing.short[i] = true; anyShort = true;
+                }
+            }
+            backing.balances[i] = balance;
+            unchecked { ++i; }
+        }
+        if (anyShort) _locateShortSlotsOnStakingList(backing, slots, coldkey, netuid, parking);
+        backing.total = VaultMath.sumBalances(backing.balances);
     }
 
-    function deployMissingMailbox(CloneFactory factory, mapping(address => mapping(uint256 => address)) storage mailboxes,
-        uint16 netuid, bytes32 uid) external returns (address) {
-        return VaultClones.deployMissingMailbox(factory, mailboxes, netuid, uid);
+    function _coveringSuccessor(bytes32[] memory taken, uint256 index, uint256 tracked, bytes32 coldkey, uint16 netuid)
+        private view returns (bytes32 successor, uint256 held) {
+        successor = VaultReads.hotkeySuccessor(taken[index], netuid);
+        if (successor == bytes32(0) || VaultMath.contains(taken, successor)) return (bytes32(0), 0);
+        held = IStaking(STAKING_PRECOMPILE).getStake(successor, coldkey, netuid);
+        if (!VaultReads.coversTracked(held, tracked)) return (bytes32(0), 0);
     }
 
-    function isBelowFloor(uint256 alphaAmount, uint256 alphaPriceE18) external view returns (bool) {
-        return StakeOps.isBelowFloorAtReadPrice(alphaAmount, alphaPriceE18);
+    function _locateShortSlotsOnStakingList(VaultReads.Backing memory backing, VaultReads.Slot[] memory slots, bytes32 coldkey,
+        uint16 netuid, bytes32 parking) private view {
+        (bytes32[] memory candidates, uint256[] memory piles) = _pilesUnderListedHotkeys(coldkey, netuid, parking);
+        for (uint256 i; i < slots.length;) {
+            if (backing.short[i]) {
+                uint256 pick = _smallestUnclaimedPileCovering(backing.hotkeys, candidates, piles, slots[i].tracked);
+                if (pick != VaultMath.INDEX_NOT_FOUND) {
+                    backing.hotkeys[i] = candidates[pick]; backing.balances[i] = piles[pick]; backing.short[i] = false;
+                }
+            }
+            unchecked { ++i; }
+        }
     }
 
-    function admitDeposit(bytes32 mailboxColdkey, uint16 nid) external view
+    function _pilesUnderListedHotkeys(bytes32 coldkey, uint16 netuid, bytes32 parking)
+        private view returns (bytes32[] memory candidates, uint256[] memory piles) {
+        IStaking staking = IStaking(STAKING_PRECOMPILE);
+        (bytes32[] memory page, uint64 total) = staking.getStakingHotkeys(coldkey, 0, STAKING_LIST_PAGE);
+        candidates = new bytes32[](total); piles = new uint256[](total);
+        for (uint64 offset; offset < total; offset += STAKING_LIST_PAGE) {
+            if (offset != 0) (page,) = staking.getStakingHotkeys(coldkey, offset, STAKING_LIST_PAGE);
+            for (uint256 i; i < page.length;) {
+                bytes32 hotkey = page[i];
+                if (hotkey != bytes32(0) && hotkey != parking) {
+                    candidates[offset + i] = hotkey;
+                    piles[offset + i] = staking.getStake(hotkey, coldkey, netuid);
+                }
+                unchecked { ++i; }
+            }
+        }
+    }
+
+    function _smallestUnclaimedPileCovering(bytes32[] memory taken, bytes32[] memory candidates, uint256[] memory piles, uint256 tracked)
+        private pure returns (uint256 pick) {
+        pick = VaultMath.INDEX_NOT_FOUND;
+        for (uint256 i; i < piles.length;) {
+            bytes32 candidate = candidates[i];
+            if (
+                candidate != bytes32(0) && !VaultMath.contains(taken, candidate)
+                    && VaultReads.coversTracked(piles[i], tracked)
+                    && (pick == VaultMath.INDEX_NOT_FOUND || piles[i] < piles[pick])
+            ) {
+                pick = i;
+            }
+            unchecked { ++i; }
+        }
+    }
+
+    function readAdmittedDeposit(bytes32 mailboxColdkey, uint16 nid) external view
         returns (uint256 totalDeposit, uint256 alphaPriceE18) {
         totalDeposit = IStaking(STAKING_PRECOMPILE).getStake(mailboxColdkey, mailboxColdkey, nid);
         if (totalDeposit == 0) revert ZeroAmount();
@@ -54,7 +120,7 @@ library VaultAllocation {
     }
 
     /// @dev Moves the depositor's `amount` of stake from their mailbox into the clone, staked under `target`.
-    function collectDeposit(address mailbox, bytes32 mailboxColdkey, Context memory context, bytes32 target,
+    function pullDepositFromMailbox(address mailbox, bytes32 mailboxColdkey, Context memory context, bytes32 target,
         uint256 amount) external {
         IStaking staking = IStaking(STAKING_PRECOMPILE);
         address clone = context.clone; bytes32 cloneColdkey = context.coldkey; uint16 netuid = context.netuid;
@@ -75,7 +141,7 @@ library VaultAllocation {
         if (lifted) SubnetClone(clone).setRejectStakingHotkeyGrowth(true);
         if (landing != target) {
             uint256 landed = staking.getStake(landing, cloneColdkey, netuid) - before;
-            StakeOps.move(clone, cloneColdkey, landing, target, netuid, landed, context.parking);
+            StakeOps.moveWithinListCap(clone, cloneColdkey, landing, target, netuid, landed, context.parking);
         }
     }
 
@@ -155,15 +221,14 @@ library VaultAllocation {
         return chunk;
     }
 
-    /// @dev Keep funded slots on their resolved hotkeys; empty slots need a receiving hotkey with an owner
-    ///      record, which the chain requires for stake operations. Hotkeys remain exclusive even for empty
-    ///      slots. Flat arrays cross this boundary: each struct argument would add its own ABI encoder to
-    ///      the vault, which has no bytecode to spare. `slotAttested`, `slotHotkeys` and `balances` are one
-    ///      record per slot; `attestedHotkeys` is one entry per attested hotkey.
-    function assignActives(bytes32[] memory slotAttested, bytes32[] memory slotHotkeys, uint256[] memory balances,
+    /// @dev The chain refuses stake operations under a hotkey with no owner record, so an empty slot needs a
+    ///      receiving hotkey that has one.
+    function stakingHotkeysForAttestedSet(VaultReads.Slot[] memory slots, VaultReads.Backing memory backing,
         bytes32[] memory attestedHotkeys, uint16 netuid
-    ) external view returns (bytes32[] memory actives, bytes32 retired) {
-        actives = new bytes32[](attestedHotkeys.length);
+    ) external view returns (bytes32[] memory stakingHotkeys, bytes32 retiredAttested) {
+        bytes32[] memory slotAttested = VaultReads.attestedOf(slots);
+        bytes32[] memory slotHotkeys = backing.hotkeys; uint256[] memory balances = backing.balances;
+        stakingHotkeys = new bytes32[](attestedHotkeys.length);
         for (uint256 i; i < attestedHotkeys.length;) {
             bytes32 attested = attestedHotkeys[i];
             uint256 ownSlot = VaultMath.indexOf(slotAttested, attested);
@@ -171,20 +236,20 @@ library VaultAllocation {
             if (ownSlot != VaultMath.INDEX_NOT_FOUND && balances[ownSlot] != 0) {
                 hotkey = slotHotkeys[ownSlot]; usable = StakeOps.hasOwner(hotkey);
             } else {
-                (hotkey, usable) = _receivingHotkey(slotHotkeys, slotAttested, attestedHotkeys, attested, ownSlot, netuid);
-                if (hotkey != attested && VaultMath.contains(actives, hotkey)) { revert IAlphaVaultAbi.SwappedHotkeyStillAttested(); }
+                (hotkey, usable) = _receivingHotkeyForEmptySlot(slotHotkeys, slotAttested, attestedHotkeys, attested, ownSlot, netuid);
+                if (hotkey != attested && VaultMath.contains(stakingHotkeys, hotkey)) { revert IAlphaVaultAbi.SwappedHotkeyStillAttested(); }
             }
-            actives[i] = hotkey;
-            if (!usable && retired == bytes32(0)) retired = attested;
+            stakingHotkeys[i] = hotkey;
+            if (!usable && retiredAttested == bytes32(0)) retiredAttested = attested;
             unchecked { ++i; }
         }
     }
 
     /// @dev Start at the richest source or destination, letting a fresh deposit carry rotated-out dust.
-    function chooseRichestSlot(bytes32[] memory sourceHotkeys, bytes32[] memory attestedHotkeys, bytes32 coldkey, uint16 netuid)
+    function chooseConsolidationStart(bytes32[] memory sourceHotkeys, bytes32[] memory attestedHotkeys, bytes32 coldkey, uint16 netuid)
         public view returns (
             bytes32 richestHotkey, uint256 richestBalance,
-            uint256[] memory sourceBalances, bool hasRotatedOutBalance, bytes32 home) {
+            uint256[] memory sourceBalances, bool hasRotatedOutBalance, bytes32 destination) {
         sourceBalances = new uint256[](sourceHotkeys.length);
         bytes32 richestRotatedOut; uint256 richestRotatedOutBalance;
         for (uint256 i; i < sourceBalances.length;) {
@@ -205,7 +270,7 @@ library VaultAllocation {
             if (balance > richestBalance) { richestHotkey = attestedHotkeys[i]; richestBalance = balance; }
             unchecked { ++i; }
         }
-        home = richestHotkey;
+        destination = richestHotkey;
         if (richestRotatedOutBalance > richestBalance) {
             richestHotkey = richestRotatedOut; richestBalance = richestRotatedOutBalance;
         }
@@ -219,10 +284,10 @@ library VaultAllocation {
         return VaultMath.contains(attestedHotkeys, slotAttested[holder]);
     }
 
-    /// @dev The recorded active hotkey while it has an owner record and no outgoing swap edge, else the
+    /// @dev The recorded `stakedUnder` hotkey while it has an owner record and no outgoing swap edge, else the
     ///      attested hotkey while it has an owner record, else the record's one-hop successor. The record
     ///      comes first so an emptied slot follows the validator, whoever claims the vacated attested hotkey.
-    function _receivingHotkey(bytes32[] memory slotHotkeys, bytes32[] memory slotAttested, bytes32[] memory attestedHotkeys,
+    function _receivingHotkeyForEmptySlot(bytes32[] memory slotHotkeys, bytes32[] memory slotAttested, bytes32[] memory attestedHotkeys,
         bytes32 attested, uint256 ownSlot,
         uint16 netuid) private view returns (bytes32 hotkey, bool usable) {
         bool attestedHeldElsewhere = _hotkeyHeldByAnotherAttestedSlot(slotHotkeys, slotAttested, attestedHotkeys, attested, ownSlot);
@@ -263,12 +328,12 @@ library VaultAllocation {
         // Settlement rereads actual chain balances afterwards.
         uint256 minStakeTao = StakeOps.minStakeTao();
         for (uint256 round; round < lastIndex;) {
-            if (!_rebalanceStep(context, hotkeys, balances, targets, minStakeTao)) break;
+            if (!_moveLargestSurplusToLargestDeficit(context, hotkeys, balances, targets, minStakeTao)) break;
             unchecked { ++round; }
         }
     }
 
-    function _rebalanceStep(Context memory context, bytes32[] memory hotkeys, uint256[] memory balances,
+    function _moveLargestSurplusToLargestDeficit(Context memory context, bytes32[] memory hotkeys, uint256[] memory balances,
         uint256[] memory targets, uint256 minStakeTao) private returns (bool) {
         uint256 overIndex; uint256 maxOver;
         uint256 underIndex; uint256 maxUnder;
@@ -289,8 +354,8 @@ library VaultAllocation {
         // A rejected precompile call consumes forwarded gas. Skip unproven moves and tolerate weight drift.
         if (context.alphaPriceE18 == 0 || StakeOps.taoValue(moveAmount, context.alphaPriceE18) < minStakeTao) { return false; }
         // A full staking list is no reason to hold an exit; alignment waits for the clone's replacement.
-        if (!VaultReads.admitsMove(context.coldkey, hotkeys[underIndex], context.netuid, context.parking)) return false;
-        StakeOps.moveAdmitted(context.clone, hotkeys[overIndex], hotkeys[underIndex], context.netuid, moveAmount);
+        if (!VaultReads.stakingListAdmits(context.coldkey, hotkeys[underIndex], context.netuid, context.parking)) return false;
+        StakeOps.moveToListedHotkey(context.clone, hotkeys[overIndex], hotkeys[underIndex], context.netuid, moveAmount);
         emit IAlphaVaultAbi.Rebalanced(context.tokenId, hotkeys[overIndex], hotkeys[underIndex], moveAmount);
         balances[overIndex] -= moveAmount; balances[underIndex] += moveAmount;
         return true;
@@ -302,8 +367,8 @@ library VaultAllocation {
     function consolidateRotatedStake(Context memory context, bytes32[] memory sourceHotkeys, bytes32[] memory attestedHotkeys,
         CollectionPolicy policy) external returns (bool leftBelowFloor) {
         if (!_anyRotatedOut(sourceHotkeys, attestedHotkeys)) return false;
-        (bytes32 rollerHotkey, uint256 richestBalance, uint256[] memory sourceBalances, bool hasRotatedOutBalance, bytes32 home)
-            = chooseRichestSlot(sourceHotkeys, attestedHotkeys, context.coldkey, context.netuid);
+        (bytes32 rollerHotkey, uint256 richestBalance, uint256[] memory sourceBalances, bool hasRotatedOutBalance, bytes32 destination)
+            = chooseConsolidationStart(sourceHotkeys, attestedHotkeys, context.coldkey, context.netuid);
         if (!hasRotatedOutBalance) return false;
         // The pile starts at the largest balance and only grows, up to rounding on each move,
         // so its starting size bounds every hop to within that rounding.
@@ -311,12 +376,12 @@ library VaultAllocation {
             if (policy == CollectionPolicy.LeaveBelowFloor) return true;
             revert IAlphaVaultAbi.ConsolidationBelowFloor();
         }
-        _rollRotatedStake(context, sourceHotkeys, home, rollerHotkey, sourceBalances);
+        _rollPileThroughRotatedOutHotkeys(context, sourceHotkeys, destination, rollerHotkey, sourceBalances);
         return false;
     }
 
     /// @dev Never revisit the starting hotkey: its cached balance is stale once the pile leaves.
-    function _rollRotatedStake(Context memory context, bytes32[] memory sourceHotkeys, bytes32 home,
+    function _rollPileThroughRotatedOutHotkeys(Context memory context, bytes32[] memory sourceHotkeys, bytes32 destination,
         bytes32 rollerHotkey, uint256[] memory sourceBalances) private {
         bytes32 richestHotkey = rollerHotkey;
         bytes32 coldkey = context.coldkey; uint16 netuid = context.netuid;
@@ -325,14 +390,14 @@ library VaultAllocation {
             if (sourceHotkey != richestHotkey && sourceBalances[i] > 0) {
                 // Read the live pile; summing earlier credits would over-ask after chain rounding.
                 uint256 pile = IStaking(STAKING_PRECOMPILE).getStake(rollerHotkey, coldkey, netuid);
-                StakeOps.move(context.clone, coldkey, rollerHotkey, sourceHotkey, netuid, pile, context.parking);
+                StakeOps.moveWithinListCap(context.clone, coldkey, rollerHotkey, sourceHotkey, netuid, pile, context.parking);
                 rollerHotkey = sourceHotkey;
             }
             unchecked { ++i; }
         }
         uint256 finalPile = IStaking(STAKING_PRECOMPILE).getStake(rollerHotkey, coldkey, netuid);
-        if (richestHotkey == home) StakeOps.moveAdmitted(context.clone, rollerHotkey, home, netuid, finalPile);
-        else StakeOps.move(context.clone, coldkey, rollerHotkey, home, netuid, finalPile, context.parking);
+        if (richestHotkey == destination) StakeOps.moveToListedHotkey(context.clone, rollerHotkey, destination, netuid, finalPile);
+        else StakeOps.moveWithinListCap(context.clone, coldkey, rollerHotkey, destination, netuid, finalPile, context.parking);
     }
 
     function _anyRotatedOut(bytes32[] memory hotkeys, bytes32[] memory attestedHotkeys) private pure returns (bool) {
@@ -345,26 +410,20 @@ library VaultAllocation {
 
     /// @dev Runs inside the vault's reentrancy guard.
     function rebalance(Context memory context, bytes32[] memory hotkeys, uint16[] memory weights) external {
-        uint256[] memory balances = VaultReads.fetchBalances(hotkeys, context.coldkey, context.netuid);
+        uint256[] memory balances = VaultReads.stakesUnder(hotkeys, context.coldkey, context.netuid);
         _alignToWeights(context, hotkeys, weights, balances);
     }
 
     /// @dev The vault checks slippage and settles its record after this returns; failures revert all stake moves.
-    function deliver(Context memory context, bytes32[] memory hotkeys, uint256[] memory balances,
+    function payAlpha(Context memory context, bytes32[] memory hotkeys, uint256[] memory balances,
         bytes32 userColdkey, uint256 assets) external returns (uint256 alphaOut) {
-        return _gatherAndFlush(context, hotkeys, balances, userColdkey, assets);
+        (bytes32 payingHotkey, uint256 deliverable) = _gatherIntoLargestSlot(context, hotkeys, balances, assets);
+        uint256 requested = assets < deliverable ? assets : deliverable;
+        return _flushAndMeasureCredit(context.clone, payingHotkey, userColdkey, context.netuid, requested);
     }
 
-    function deliverAndAlign(Context memory context, bytes32[] memory hotkeys, uint16[] memory weights,
-        uint256[] memory balances, bytes32 userColdkey, uint256 assets) external returns (uint256 alphaOut) {
-        alphaOut = _gatherAndFlush(context, hotkeys, balances, userColdkey, assets);
-        // Chain rounding also changes the balances available to rebalance.
-        uint256[] memory postBalances = VaultReads.fetchBalances(hotkeys, context.coldkey, context.netuid);
-        _alignToWeights(context, hotkeys, weights, postBalances);
-    }
-
-    function _gatherAndFlush(Context memory context, bytes32[] memory hotkeys, uint256[] memory balances,
-        bytes32 userColdkey, uint256 assets) private returns (uint256 alphaOut) {
+    function _gatherIntoLargestSlot(Context memory context, bytes32[] memory hotkeys, uint256[] memory balances,
+        uint256 assets) private returns (bytes32 payingHotkey, uint256 deliverable) {
         bytes32 coldkey = context.coldkey; uint16 netuid = context.netuid;
         uint256 deliveryIndex;
         for (uint256 i = 1; i < balances.length;) {
@@ -372,7 +431,7 @@ library VaultAllocation {
             unchecked { ++i; }
         }
         // Gather hops can round down, so summed balances cannot determine the final deliverable amount.
-        uint256 deliverable = balances[deliveryIndex];
+        deliverable = balances[deliveryIndex];
         if (balances[deliveryIndex] < assets) {
             // Start with the largest slot; reject an unmovable pile before forwarding gas to the chain.
             if (StakeOps.isBelowFloorAtAnyPrice(balances[deliveryIndex], context.alphaPriceE18)) {
@@ -382,19 +441,19 @@ library VaultAllocation {
             for (uint256 i; i < balances.length && balances[deliveryIndex] < assets;) {
                 if (i != deliveryIndex && balances[i] != 0) {
                     uint256 pile = IStaking(STAKING_PRECOMPILE).getStake(hotkeys[deliveryIndex], coldkey, netuid);
-                    StakeOps.move(context.clone, coldkey, hotkeys[deliveryIndex], hotkeys[i], netuid, pile, context.parking);
+                    StakeOps.moveWithinListCap(context.clone, coldkey, hotkeys[deliveryIndex], hotkeys[i], netuid, pile, context.parking);
                     balances[i] += balances[deliveryIndex]; balances[deliveryIndex] = 0; deliveryIndex = i;
                 }
                 unchecked { ++i; }
             }
             deliverable = IStaking(STAKING_PRECOMPILE).getStake(hotkeys[deliveryIndex], coldkey, netuid);
         }
-        uint256 requested = assets < deliverable ? assets : deliverable;
-        alphaOut = _flushMeasured(context.clone, hotkeys[deliveryIndex], userColdkey, netuid, requested);
+        payingHotkey = hotkeys[deliveryIndex];
     }
 
     /// @dev Bound slippage against actual recipient credit, including chain-side stake-share rounding.
-    function _flushMeasured(address clone, bytes32 hotkey, bytes32 userColdkey, uint16 netuid, uint256 amount) private returns (uint256) {
+    function _flushAndMeasureCredit(address clone, bytes32 hotkey, bytes32 userColdkey, uint16 netuid, uint256 amount)
+        private returns (uint256) {
         uint256 recipientBefore = IStaking(STAKING_PRECOMPILE).getStake(hotkey, userColdkey, netuid);
         StakeOps.flush(clone, hotkey, userColdkey, netuid, amount);
         uint256 recipientAfter = IStaking(STAKING_PRECOMPILE).getStake(hotkey, userColdkey, netuid);

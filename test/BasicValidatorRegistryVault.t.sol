@@ -65,10 +65,11 @@ contract BasicValidatorRegistryVaultTest is AlphaVaultTestBase {
         assertEq(alice.balance, TAO / 2, "10 alpha sold at 0.05 TAO");
     }
 
-    function _parkAfterAnOffVaultSwap() private {
+    function _parkAfterASweptSlot() private {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, hotkey4, swept);
         vault.recoverStray(TOKEN1, hotkey4);
         vault.syncBacking(TOKEN1);
         assertTrue(vault.awaitingAttestation(TOKEN1));
@@ -76,7 +77,7 @@ contract BasicValidatorRegistryVaultTest is AlphaVaultTestBase {
     }
 
     function test_Rebalance_SameHotkeyResubmissionReleasesParking() public {
-        _parkAfterAnOffVaultSwap();
+        _parkAfterASweptSlot();
 
         basicRegistry.setValidator(NETUID1, hotkey1);
         assertFalse(vault.awaitingAttestation(TOKEN1), "the fresh nonce is the owner's decision");
@@ -88,7 +89,7 @@ contract BasicValidatorRegistryVaultTest is AlphaVaultTestBase {
     }
 
     function test_Rebalance_NewOwnerReleasesRecoveredParking() public {
-        _parkAfterAnOffVaultSwap();
+        _parkAfterASweptSlot();
         uint256 shares = vault.balanceOf(alice, TOKEN1);
 
         basicRegistry.transferOwnership(bob);

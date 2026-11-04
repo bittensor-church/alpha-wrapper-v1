@@ -2,7 +2,8 @@
 pragma solidity 0.8.36;
 
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
-import { MAX_STAKING_HOTKEYS } from "src/interfaces/IStaking.sol";
+import { MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { MockStaking } from "./mocks/MockStaking.sol";
 import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 
 // Mock-based measurements, not live-chain gas estimates; use e2e receipts for sizing.
@@ -240,19 +241,103 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
-        _buildSwapTrail(NETUID1, _attestedHotkeys(NETUID1)[0], 2);
+        _sweepDuringCrash(NETUID1, _attestedHotkeys(NETUID1)[0]);
 
         vault.syncBacking(TOKEN1);
         vm.snapshotGasLastCall("AlphaVault", "syncBacking: loss on file (10 validators)");
+    }
+
+    function _cutTheEdge(bytes32 fromHotkey, bytes32 toHotkey) private {
+        _simulateOffVaultSwap(NETUID1, fromHotkey, toHotkey);
+        MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(fromHotkey, true);
+    }
+
+    function test_gas_rebalance_cutEdge() public {
+        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+        _cutTheEdge(hotkey1, hotkey4);
+
+        vault.rebalance(NETUID1);
+        vm.snapshotGasLastCall("AlphaVault", "rebalance: resolve a cut edge");
+
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4);
+    }
+
+    function test_gas_wrap_subsequentWrap_cutEdge() public {
+        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+        _cutTheEdge(hotkey1, hotkey4);
+
+        _simulateAlphaDeposit(bob, NETUID1, 5 * ALPHA);
+        _wrap(bob, NETUID1);
+        vm.snapshotGasLastCall("AlphaVault", "wrap: subsequent, resolve a cut edge");
+
+        assertEq(_getVaultStake(hotkey1, NETUID1), 0);
+    }
+
+    function test_gas_unwrap_partial_cutEdge() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+        _cutTheEdge(hotkey1, hotkey4);
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares / 2, _toSubstrate(alice), 0);
+        vm.snapshotGasLastCall("AlphaVault", "unwrap: partial, resolve a cut edge");
+    }
+
+    function test_gas_syncBacking_recordCutEdge() public {
+        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+        _cutTheEdge(hotkey1, hotkey4);
+
+        vault.syncBacking(TOKEN1);
+        vm.snapshotGasLastCall("AlphaVault", "syncBacking: record a cut edge");
+
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4);
+    }
+
+    function test_gas_previewUnwrap_cutEdge() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+        _cutTheEdge(hotkey1, hotkey4);
+
+        lens.previewUnwrap(TOKEN1, shares / 2);
+        vm.snapshotGasLastCall("AlphaVaultLens", "previewUnwrap: resolve a cut edge");
+    }
+
+    function test_gas_rebalance_refusedSweptSlot_fullStakingList_10Validators() public {
+        bytes32[] memory hotkeys = _setValidatorCount(NETUID1, MAX_VALIDATORS);
+        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+        _fillListTo(_subnetColdkey(NETUID1), MAX_STAKING_HOTKEYS - 2);
+        _sweepDuringCrash(NETUID1, hotkeys[0]);
+
+        uint256 before = gasleft();
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.rebalance, (NETUID1)));
+        vm.snapshotValue(
+            "AlphaVault", "rebalance: refused on a swept slot, full staking list (10 validators)", before - gasleft()
+        );
+
+        assertFalse(ok, "the swept slot is short");
+    }
+
+    function test_gas_rebalance_cutEdge_fullStakingList_10Validators() public {
+        bytes32[] memory hotkeys = _setValidatorCount(NETUID1, MAX_VALIDATORS);
+        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+        _fillListTo(_subnetColdkey(NETUID1), MAX_STAKING_HOTKEYS - 2);
+        _simulateOffVaultSwap(NETUID1, hotkeys[0], keccak256("edgeless destination"));
+
+        vault.rebalance(NETUID1);
+        vm.snapshotGasLastCall(
+            "AlphaVault", "rebalance: resolve a cut edge through a full staking list (10 validators)"
+        );
+
+        assertEq(lens.totalStake(TOKEN1), 10 * ALPHA);
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, keccak256("edgeless destination"));
     }
 
     function test_gas_recoverStray_10Validators() public {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
-        bytes32 lost = _attestedHotkeys(NETUID1)[0];
-        bytes32 tip = _buildSwapTrail(NETUID1, lost, 2);
+        uint256 swept = _sweepDuringCrash(NETUID1, _attestedHotkeys(NETUID1)[0]);
         vault.syncBacking(TOKEN1);
+        bytes32 tip = keccak256("returned elsewhere");
+        _strangerReturns(NETUID1, tip, swept);
 
         vault.recoverStray(TOKEN1, tip);
         vm.snapshotGasLastCall("AlphaVault", "recoverStray: collect one source (10 validators)");
@@ -266,10 +351,12 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         bytes32[] memory hotkeys = _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
         bytes32 source = keccak256("merged-recovery");
+        uint256 swept;
         for (uint256 i; i < hotkeys.length; ++i) {
-            _simulateOffVaultSwap(NETUID1, hotkeys[i], source);
+            swept += _sweepDuringCrash(NETUID1, hotkeys[i]);
         }
         vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, source, swept);
 
         vault.recoverStray(TOKEN1, source);
         vm.snapshotGasLastCall("AlphaVault", "recoverStray: collect merged source (10 validators)");
@@ -284,8 +371,10 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         _setValidatorCount(NETUID1, MAX_VALIDATORS);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
-        bytes32 tip = _buildSwapTrail(NETUID1, _attestedHotkeys(NETUID1)[0], 2);
+        uint256 swept = _sweepDuringCrash(NETUID1, _attestedHotkeys(NETUID1)[0]);
         vault.syncBacking(TOKEN1);
+        bytes32 tip = keccak256("returned elsewhere");
+        _strangerReturns(NETUID1, tip, swept);
         vault.recoverStray(TOKEN1, tip);
         vault.syncBacking(TOKEN1);
         _reattestCurrentSet(NETUID1);

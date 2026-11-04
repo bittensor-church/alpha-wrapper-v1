@@ -3,7 +3,9 @@ pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { AlphaVaultTestBase } from "../AlphaVaultTestBase.sol";
-import { CHAIN_MIN_STAKE, MockStaking } from "../mocks/MockStaking.sol";
+import { CHAIN_MIN_STAKE, CHAIN_MIN_TRANSFER, MockStaking } from "../mocks/MockStaking.sol";
+import { MockAlpha } from "../mocks/MockAlpha.sol";
+import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
@@ -342,8 +344,6 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         _setAlphaPrice(NETUID1, _wholeRaoPrice(priceSeed));
     }
 
-    /// @dev Each slot where the record finds it: the recorded hotkey if that covers the slot within slack, else a
-    ///      successor that covers it and no other slot holds; a slot neither covers is short.
     function resolvedSlots()
         public
         view
@@ -354,7 +354,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         balances = new uint256[](slots.length);
         short = new bool[](slots.length);
         for (uint256 i; i < slots.length; ++i) {
-            hotkeys[i] = slots[i].active;
+            hotkeys[i] = slots[i].stakedUnder;
         }
         for (uint256 i; i < slots.length; ++i) {
             uint256 held = _getVaultStake(hotkeys[i], NETUID1);
@@ -373,6 +373,53 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
             }
             balances[i] = held;
         }
+        _assignShortSlotsFromList(slots, hotkeys, balances, short);
+    }
+
+    function _assignShortSlotsFromList(
+        VaultReads.Slot[] memory slots,
+        bytes32[] memory hotkeys,
+        uint256[] memory balances,
+        bool[] memory short
+    ) private view {
+        for (uint256 i; i < slots.length; ++i) {
+            if (!short[i]) continue;
+            (bytes32 holder, uint256 held) = _smallestCoveringListed(hotkeys, slots[i].tracked);
+            if (holder != bytes32(0)) {
+                hotkeys[i] = holder;
+                balances[i] = held;
+                short[i] = false;
+            }
+        }
+    }
+
+    function _smallestCoveringListed(bytes32[] memory taken, uint256 tracked)
+        private
+        view
+        returns (bytes32 holder, uint256 held)
+    {
+        bytes32[] memory listed = _listedHotkeys(_subnetColdkey(NETUID1));
+        for (uint256 i; i < listed.length; ++i) {
+            if (listed[i] == bytes32(0) || listed[i] == vault.parkingHotkey() || _contains(taken, listed[i])) continue;
+            uint256 balance = _getVaultStake(listed[i], NETUID1);
+            if (balance + BACKING_SLACK_RAO >= tracked && (holder == bytes32(0) || balance < held)) {
+                holder = listed[i];
+                held = balance;
+            }
+        }
+    }
+
+    /// @dev Both halves must clear the chain's transfer minimum for the returns to land.
+    function strandable(bytes32 hotkey) external view returns (bool) {
+        uint256 held = _getVaultStake(hotkey, NETUID1);
+        return held != 0
+            && (held / 2) * MockAlpha(ALPHA_PRECOMPILE).chainAlphaPrice(uint16(NETUID1)) / 1e18 >= CHAIN_MIN_TRANSFER;
+    }
+
+    function simulateSweepReturnedInTwoPiles(bytes32 from, bytes32 first, bytes32 second) external {
+        uint256 swept = _sweepDuringCrash(NETUID1, from);
+        _strangerReturns(NETUID1, first, swept / 2);
+        _strangerReturns(NETUID1, second, swept - swept / 2);
     }
 
     function zeroPaySlots() external view returns (uint256) {
@@ -391,7 +438,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
     function everySlotOnItsRecordedHotkey() external view returns (bool) {
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         for (uint256 i; i < slots.length; ++i) {
-            if (_getVaultStake(slots[i].active, NETUID1) + BACKING_SLACK_RAO < slots[i].tracked) return false;
+            if (_getVaultStake(slots[i].stakedUnder, NETUID1) + BACKING_SLACK_RAO < slots[i].tracked) return false;
         }
         return true;
     }
@@ -435,23 +482,23 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
     function attestedAssignment()
         public
         view
-        returns (bytes32[] memory attested, bytes32[] memory actives, bool[] memory usable, bool collides)
+        returns (bytes32[] memory attested, bytes32[] memory stakingHotkeys, bool[] memory usable, bool collides)
     {
         (attested,) = registry.getValidators(NETUID1);
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         (bytes32[] memory hotkeys, uint256[] memory balances,) = resolvedSlots();
-        actives = new bytes32[](attested.length);
+        stakingHotkeys = new bytes32[](attested.length);
         usable = new bool[](attested.length);
         for (uint256 i; i < attested.length; ++i) {
             bytes32 attestedHotkey = attested[i];
             uint256 slot = _slotOf(slots, attestedHotkey);
             if (slot != type(uint256).max && balances[slot] != 0) {
-                actives[i] = hotkeys[slot];
+                stakingHotkeys[i] = hotkeys[slot];
                 usable[i] = _hasOwner(hotkeys[slot]);
                 continue;
             }
             bool attestedHeld = _heldByAnotherAttestedSlot(hotkeys, slots, attested, attestedHotkey, slot);
-            if (attestedHeld && slot == type(uint256).max) return (attested, actives, usable, true);
+            if (attestedHeld && slot == type(uint256).max) return (attested, stakingHotkeys, usable, true);
             bytes32 hotkey = slot != type(uint256).max ? hotkeys[slot] : attestedHotkey;
             bytes32 successor = _successorOf(hotkey);
             usable[i] = hotkey != attestedHotkey && successor == bytes32(0) && _hasOwner(hotkey);
@@ -469,10 +516,12 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
                     && (_contains(attested, hotkey)
                         || _heldByAnotherAttestedSlot(hotkeys, slots, attested, hotkey, slot))
             ) {
-                return (attested, actives, usable, true);
+                return (attested, stakingHotkeys, usable, true);
             }
-            if (hotkey != attestedHotkey && _contains(actives, hotkey)) return (attested, actives, usable, true);
-            actives[i] = hotkey;
+            if (hotkey != attestedHotkey && _contains(stakingHotkeys, hotkey)) {
+                return (attested, stakingHotkeys, usable, true);
+            }
+            stakingHotkeys[i] = hotkey;
         }
     }
 
@@ -490,17 +539,17 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
     ///      pile among those hotkeys, the assigned hotkeys and `deposit`, which lands on an assigned hotkey first, is below the
     ///      floor at any price.
     function consolidationBelowFloor(uint256 deposit) external view returns (bool) {
-        (, bytes32[] memory actives,,) = attestedAssignment();
+        (, bytes32[] memory stakingHotkeys,,) = attestedAssignment();
         (bytes32[] memory hotkeys, uint256[] memory balances,) = resolvedSlots();
         uint256 richest = deposit;
         bool rotatedOut;
         for (uint256 i; i < hotkeys.length; ++i) {
-            if (_contains(actives, hotkeys[i])) continue;
+            if (_contains(stakingHotkeys, hotkeys[i])) continue;
             if (balances[i] != 0) rotatedOut = true;
             if (balances[i] > richest) richest = balances[i];
         }
-        for (uint256 i; i < actives.length; ++i) {
-            uint256 held = _getVaultStake(actives[i], NETUID1);
+        for (uint256 i; i < stakingHotkeys.length; ++i) {
+            uint256 held = _getVaultStake(stakingHotkeys[i], NETUID1);
             if (held > richest) richest = held;
         }
         return rotatedOut && _belowFloorAtAnyPrice(richest);
@@ -532,15 +581,15 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
     function _pilesAfterConsolidation() private view returns (uint256[] memory piles) {
         (bytes32[] memory hotkeys, uint256[] memory balances,) = resolvedSlots();
         if (parked()) return balances;
-        (, bytes32[] memory actives,,) = attestedAssignment();
-        piles = new uint256[](actives.length);
-        for (uint256 i; i < actives.length; ++i) {
-            piles[i] = _getVaultStake(actives[i], NETUID1);
+        (, bytes32[] memory stakingHotkeys,,) = attestedAssignment();
+        piles = new uint256[](stakingHotkeys.length);
+        for (uint256 i; i < stakingHotkeys.length; ++i) {
+            piles[i] = _getVaultStake(stakingHotkeys[i], NETUID1);
         }
         uint256 droppedTotal;
         uint256 richestDropped;
         for (uint256 i; i < hotkeys.length; ++i) {
-            if (_contains(actives, hotkeys[i])) continue;
+            if (_contains(stakingHotkeys, hotkeys[i])) continue;
             droppedTotal += balances[i];
             if (balances[i] > richestDropped) richestDropped = balances[i];
         }
@@ -566,8 +615,8 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         uint256 richest = parkedStake;
         bool exposed;
         for (uint256 i; i < slots.length; ++i) {
-            if (slots[i].active == vault.parkingHotkey()) continue;
-            uint256 held = _getVaultStake(slots[i].active, NETUID1);
+            if (slots[i].stakedUnder == vault.parkingHotkey()) continue;
+            uint256 held = _getVaultStake(slots[i].stakedUnder, NETUID1);
             if (held > richest) richest = held;
             if (held != 0) exposed = true;
         }
@@ -594,7 +643,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
 
     function _slotOf(VaultReads.Slot[] memory slots, bytes32 attestedHotkey) private pure returns (uint256) {
         for (uint256 i; i < slots.length; ++i) {
-            if (slots[i].logical == attestedHotkey) return i;
+            if (slots[i].attested == attestedHotkey) return i;
         }
         return type(uint256).max;
     }
@@ -609,7 +658,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
     ) private pure returns (bool) {
         uint256 holder = _indexOf(hotkeys, hotkey);
         if (holder == type(uint256).max || holder == ownSlot) return false;
-        return _contains(attested, slots[holder].logical);
+        return _contains(attested, slots[holder].attested);
     }
 
     function _hasOwner(bytes32 hotkey) private view returns (bool exists) {
@@ -667,13 +716,13 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         bytes32 coldkey = _subnetColdkey(NETUID1);
         uint256 funded;
         for (uint256 i; i < slots.length; ++i) {
-            if (_getStakeForColdkey(slots[i].active, coldkey, NETUID1) != 0) ++funded;
+            if (_getStakeForColdkey(slots[i].stakedUnder, coldkey, NETUID1) != 0) ++funded;
         }
         if (funded == 0) return;
         for (uint256 i; i < slots.length; ++i) {
-            uint256 held = _getStakeForColdkey(slots[i].active, coldkey, NETUID1);
+            uint256 held = _getStakeForColdkey(slots[i].stakedUnder, coldkey, NETUID1);
             if (held != 0) {
-                MockStaking(STAKING_PRECOMPILE).setStake(slots[i].active, coldkey, NETUID1, held + amount / funded);
+                MockStaking(STAKING_PRECOMPILE).setStake(slots[i].stakedUnder, coldkey, NETUID1, held + amount / funded);
             }
         }
     }
@@ -682,7 +731,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         for (uint256 i; i < slots.length; ++i) {
             for (uint256 j = i + 1; j < slots.length; ++j) {
-                assertTrue(slots[i].active != slots[j].active, "two slots answer for one hotkey");
+                assertTrue(slots[i].stakedUnder != slots[j].stakedUnder, "two slots answer for one hotkey");
             }
         }
     }

@@ -45,16 +45,22 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     uint256 private constant SETUP_NONCE = 1;
     uint256 private constant GIFT = 3_000_000;
 
-    /// @dev Swaps hotkey1's slot away along an unfollowed trail and declares the loss.
     function _declaredShortfall() private returns (uint256 shares) {
         shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _buildSwapTrail(NETUID1, hotkey1, 2);
+        _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
+    }
+
+    function _declaredShortfallReturnedUnder(bytes32 stray) private returns (uint256 shares) {
+        shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
+        vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, stray, swept);
     }
 
     function test_SyncBacking_DeclaresTheShortfall() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _buildSwapTrail(NETUID1, hotkey1, 2);
+        _sweepDuringCrash(NETUID1, hotkey1);
 
         assertEq(
             lens.writeOffDeadline(TOKEN1),
@@ -86,7 +92,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
         vault.syncBacking(TOKEN1);
 
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey4, "the record kept the key the swap reached");
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4, "the record kept the key the swap reached");
         assertEq(lens.writeOffDeadline(TOKEN1), 0, "which is not a loss and needs no clock");
         _simulateFollowedSwap(NETUID1, hotkey4, hotkey5);
         assertTrue(lens.isBackingIntact(TOKEN1), "so the next hop resolves from there");
@@ -116,7 +122,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
     function test_RevertWhen_SyncingWhileTheSubnetIsDissolving() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _buildSwapTrail(NETUID1, hotkey1, 2);
+        _sweepDuringCrash(NETUID1, hotkey1);
         _setDissolving(NETUID1, true);
 
         vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
@@ -142,10 +148,10 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     /// @dev Alpha that comes back on its own does not reopen the vault; only a sync takes the loss off file.
     function test_DeclaredShortfall_HoldsTheTokenShutUntilSynced() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        bytes32 tip = _buildSwapTrail(NETUID1, hotkey1, 2);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
 
-        _simulateOffVaultSwap(NETUID1, tip, hotkey1);
+        _strangerReturns(NETUID1, hotkey1, swept);
 
         assertFalse(lens.isBackingIntact(TOKEN1), "the loss is still on file");
         vm.expectRevert(ShortfallOnFile.selector);
@@ -167,15 +173,15 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     /// @dev A cleared loss must not lend its expired clock to a later shortfall.
     function test_ClearedShortfall_StartsAFreshClockOnTheNextLoss() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        bytes32 tip = _buildSwapTrail(NETUID1, hotkey1, 2);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
-        _simulateOffVaultSwap(NETUID1, tip, hotkey1);
+        _strangerReturns(NETUID1, hotkey1, swept);
         vault.syncBacking(TOKEN1);
 
         _reattestCurrentSet(NETUID1);
         vault.rebalance(NETUID1);
         vm.warp(block.timestamp + 2 * RECOVERY_WINDOW);
-        _buildSwapTrail(NETUID1, hotkey1, 2);
+        _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
 
         assertEq(lens.writeOffDeadline(TOKEN1), block.timestamp + RECOVERY_WINDOW, "the new loss gets a full window");
@@ -184,9 +190,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_RecoverStray_ParksTheWholePosition() public {
-        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
-        vault.syncBacking(TOKEN1);
+        _declaredShortfallReturnedUnder(hotkey4);
         assertFalse(lens.isBackingIntact(TOKEN1), "the loss is visible first");
         bytes32 parking = vault.parkingHotkey();
 
@@ -200,8 +204,8 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         assertEq(slots.length, 1, "the record collapses to one slot");
-        assertEq(slots[0].active, parking, "on the parking hotkey");
-        assertEq(slots[0].logical, parking, "named by the parking hotkey");
+        assertEq(slots[0].stakedUnder, parking, "on the parking hotkey");
+        assertEq(slots[0].attested, parking, "named by the parking hotkey");
         assertEq(slots[0].tracked, 30 * ALPHA, "expecting the whole position");
         assertEq(_parkedStake(NETUID1), 30 * ALPHA, "which is where the alpha is");
         assertEq(_totalVaultStakeAcrossHotkeys(NETUID1) + _getVaultStake(hotkey4, NETUID1), 0, "nothing stays behind");
@@ -213,36 +217,37 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
     function test_RecoverStray_RequiresSyncToDeclareTheLoss() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         vm.expectPartialRevert(BackingShortfall.selector);
         vm.prank(bob);
         vault.recoverStray(TOKEN1, hotkey4);
 
         vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, hotkey4, swept);
         vault.recoverStray(TOKEN1, hotkey4);
         vault.syncBacking(TOKEN1);
         assertTrue(vault.awaitingAttestation(TOKEN1));
         assertEq(lens.totalStake(TOKEN1), 30 * ALPHA);
     }
 
-    function test_RecoverStray_ResolvesATwoHopTrail() public {
+    function test_RevertWhen_RecoveringTheTipOfATrailTheSearchLocated() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 tip = _buildSwapTrail(NETUID1, hotkey1, 2);
         vault.syncBacking(TOKEN1);
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, tip, "the sync records the hotkey found on the list");
 
+        vm.expectRevert(NothingToRecover.selector);
         vm.prank(bob);
         vault.recoverStray(TOKEN1, tip);
-        vault.syncBacking(TOKEN1);
-
-        assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "the watcher-supplied source accounts for the loss");
-        assertEq(_getVaultStake(tip, NETUID1), 0, "and the trail's tip is empty");
     }
 
     function test_RecoverStray_CoversTwoLossesInSeparateCalls() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
-        _simulateOffVaultSwap(NETUID1, hotkey2, hotkey5);
+        uint256 firstSwept = _sweepDuringCrash(NETUID1, hotkey1);
+        uint256 secondSwept = _sweepDuringCrash(NETUID1, hotkey2);
         vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, hotkey4, firstSwept);
+        _strangerReturns(NETUID1, hotkey5, secondSwept);
 
         vm.prank(bob);
         vault.recoverStray(TOKEN1, hotkey4);
@@ -269,9 +274,9 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
     function test_RecoverStray_BringsAnEmissionGrownLumpHome() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey4, _subnetColdkey(NETUID1), NETUID1, FIRST_SLOT + 2 * ALPHA);
+        _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, hotkey4, FIRST_SLOT + 2 * ALPHA);
 
         vm.prank(bob);
         vault.recoverStray(TOKEN1, hotkey4);
@@ -282,10 +287,8 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
     /// @dev The chain refuses to move stake from a hotkey nobody owns; the vault claims it and moves on.
     function test_RecoverStray_ClaimsAnOwnerlessSourceForTheVault() public {
-        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
+        _declaredShortfallReturnedUnder(hotkey4);
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey4, true);
-        vault.syncBacking(TOKEN1);
 
         vm.prank(bob);
         vault.recoverStray(TOKEN1, hotkey4);
@@ -301,13 +304,11 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     function test_RecoverStray_ParksPartialCoverageWithoutChangingTheDeadline() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 coldkey = _subnetColdkey(NETUID1);
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, coldkey, NETUID1, 0);
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey4, coldkey, NETUID1, FIRST_SLOT / 3);
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey5, coldkey, NETUID1, FIRST_SLOT);
-        _simulateSameOwner(hotkey1, hotkey4);
-        _simulateSameOwner(hotkey1, hotkey5);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
         uint256 deadline = lens.writeOffDeadline(TOKEN1);
+        _strangerReturns(NETUID1, hotkey4, swept / 3);
+        _strangerReturns(NETUID1, hotkey5, swept);
 
         vm.prank(bob);
         vault.recoverStray(TOKEN1, hotkey4);
@@ -396,14 +397,14 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey5, _subnetColdkey(NETUID1), NETUID1, 3 * ALPHA);
         _simulateHotkeyOwnerPresent(hotkey5);
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey1, "the record still names the swapped key");
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey1, "the record still names the swapped key");
 
         vm.expectEmit(true, true, false, true, address(vault));
         emit BackingRecovered(TOKEN1, hotkey4, 3 * ALPHA);
         vault.recoverStray(TOKEN1, hotkey5);
 
         VaultReads.Slot memory slot = vault.recordedSlots(TOKEN1)[0];
-        assertEq(slot.active, hotkey4, "the slot now points at the successor holding its stake");
+        assertEq(slot.stakedUnder, hotkey4, "the slot now points at the successor holding its stake");
         assertEq(slot.tracked, FIRST_SLOT + 3 * ALPHA, "and expects exactly what sits there");
         assertEq(_getVaultStake(hotkey5, NETUID1), 0, "the stray came home");
         assertEq(lens.totalStake(TOKEN1), 33 * ALPHA, "as new backing");
@@ -425,8 +426,9 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
     function _parkedPosition(uint256 amount) private returns (uint256 shares) {
         shares = _depositAndWrap(alice, NETUID1, amount);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, hotkey4, swept);
         vault.recoverStray(TOKEN1, hotkey4);
         vault.syncBacking(TOKEN1);
     }
@@ -618,7 +620,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
         assertEq(lens.totalStake(TOKEN1), 80_000_000, "the vault records stake nobody holds shares for");
 
-        _buildSwapTrail(NETUID1, hotkey3, 2);
+        _sweepDuringCrash(NETUID1, hotkey3);
         vm.expectEmit(true, false, false, true, address(vault));
         emit BackingShortfallDeclared(TOKEN1, 80_000_000, 50_000_000);
         vault.syncBacking(TOKEN1);
@@ -734,11 +736,12 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
     function test_LateFoundAlpha_JoinsTheParkedPosition() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         _runOutRecoveryWindow(TOKEN1);
         assertTrue(vault.awaitingAttestation(TOKEN1), "the write-off parks what is left");
         assertEq(_parkedStake(NETUID1), OTHER_TWO_SLOTS);
 
+        _strangerReturns(NETUID1, hotkey4, swept);
         vault.recoverStray(TOKEN1, hotkey4);
 
         assertEq(_parkedStake(NETUID1), 30 * ALPHA, "the find joins the parked alpha");
@@ -794,7 +797,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32[] memory recordedHotkeys = _hotkeys(hotkey1, hotkey2, hotkey3);
         for (uint256 i; i < recordedHotkeys.length; ++i) {
-            _simulateOffVaultSwap(NETUID1, recordedHotkeys[i], keccak256(abi.encode("gone", i)));
+            _sweepDuringCrash(NETUID1, recordedHotkeys[i]);
         }
         _runOutRecoveryWindow(TOKEN1);
     }
@@ -826,7 +829,8 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         vm.expectRevert(NothingToUnwrap.selector);
         vault.unwrapForTao(TOKEN1, shares, 0);
 
-        vault.recoverStray(TOKEN1, keccak256(abi.encode("gone", uint256(0))));
+        _strangerReturns(NETUID1, hotkey4, FIRST_SLOT);
+        vault.recoverStray(TOKEN1, hotkey4);
         assertEq(_parkedStake(NETUID1), 10_002_000_000, "the watcher parks the first slot's alpha");
 
         vm.prank(alice);
@@ -886,9 +890,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         vm.prank(alice);
         hourVault.wrap(NETUID1, hotkey1, 0);
 
-        bytes32 coldkey = _toSubstrate(hourVault.subnetClone(tokenId));
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, coldkey, NETUID1, 0);
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey4, coldkey, NETUID1, 3_334_000_000);
+        MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, _toSubstrate(hourVault.subnetClone(tokenId)), NETUID1, 0);
         hourVault.syncBacking(tokenId);
 
         assertEq(
@@ -901,7 +903,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
     function test_LateFoundAlpha_IsAWindfallForTheCurrentCohort() public {
         uint256 aliceShares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _simulateOffVaultSwap(NETUID1, hotkey1, hotkey4);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         _runOutRecoveryWindow(TOKEN1);
         _reattestCurrentSet(NETUID1);
         vault.rebalance(NETUID1);
@@ -910,6 +912,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, aliceShares, _toSubstrate(alice), 0);
         uint256 bobShares = _depositAndWrap(bob, NETUID1, 10 * ALPHA);
 
+        _strangerReturns(NETUID1, hotkey4, swept);
         vm.prank(alice);
         vault.recoverStray(TOKEN1, hotkey4);
 
@@ -937,10 +940,11 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         LateCohorts memory cohorts = _openIncumbentCohort(incumbentDeposit);
 
         bytes32[] memory recordedHotkeys = _hotkeys(hotkey1, hotkey2, hotkey3);
+        uint256[] memory piles = new uint256[](hiddenSlotCount);
         uint256 hidden;
         for (uint256 i; i < hiddenSlotCount; ++i) {
-            hidden += _getVaultStake(recordedHotkeys[i], NETUID1);
-            _simulateOffVaultSwap(NETUID1, recordedHotkeys[i], keccak256(abi.encode("stray", i)));
+            piles[i] = _sweepDuringCrash(NETUID1, recordedHotkeys[i]);
+            hidden += piles[i];
         }
 
         _runOutRecoveryWindow(TOKEN1);
@@ -954,8 +958,10 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
             : bound(recapitalizationSeed, cohorts.backingAfterWriteOff / 4, cohorts.backingAfterWriteOff * 4);
         _addRecapitalizer(cohorts);
         for (uint256 i; i < hiddenSlotCount; ++i) {
+            bytes32 stray = keccak256(abi.encode("stray", i));
+            _strangerReturns(NETUID1, stray, piles[i]);
             vm.prank(bob);
-            vault.recoverStray(TOKEN1, keccak256(abi.encode("stray", i)));
+            vault.recoverStray(TOKEN1, stray);
         }
 
         assertEq(
@@ -978,11 +984,12 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         LateCohorts memory cohorts = _openIncumbentCohort(30 * ALPHA);
 
         bytes32 successor = keccak256(abi.encode("attested-successor"));
-        _simulateOffVaultSwap(NETUID1, hotkey1, successor);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         _runOutRecoveryWindow(TOKEN1);
         cohorts.backingAfterWriteOff = lens.totalStake(TOKEN1);
         cohorts.finalizedWriteOff = cohorts.backingBefore - cohorts.backingAfterWriteOff;
-        assertEq(cohorts.finalizedWriteOff, FIRST_SLOT, "the successor holds exactly the written-off principal");
+        assertEq(cohorts.finalizedWriteOff, FIRST_SLOT, "the written-off principal is the first slot");
+        _strangerReturns(NETUID1, successor, swept);
 
         _reattestCurrentSet(NETUID1);
         cohorts.recapitalizationDeposit = OTHER_TWO_SLOTS;
@@ -1089,7 +1096,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
             (lens.totalStake(TOKEN1) * NETUID1_BPS_HK1) / BPS_BASE,
             "the slot's weight stays with the successor"
         );
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey5, "the slot keeps answering under the successor");
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey5, "the slot keeps answering under the successor");
     }
 
     function testFuzz_SquattedHotkeyBehindAFollowedSwap_DepositsAfterAFullExitLandOnTheSuccessor(uint256 amount)
@@ -1109,7 +1116,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
             (amount * NETUID1_BPS_HK1) / BPS_BASE,
             "the deposit's share lands on the successor"
         );
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey5, "the slot keeps answering under the successor");
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey5, "the slot keeps answering under the successor");
     }
 
     function test_ValidatorSwappingBackToItsAttestedHotkey_EmptiedSlotReturnsToIt() public {
@@ -1127,7 +1134,9 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
             (lens.totalStake(TOKEN1) * NETUID1_BPS_HK1) / BPS_BASE,
             "the slot's weight returns to the attested hotkey"
         );
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey1, "the slot answers under its attested hotkey again");
+        assertEq(
+            vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey1, "the slot answers under its attested hotkey again"
+        );
     }
 
     function test_SquattedHotkeyBehindAFollowedSwap_AllRailsKeepWorking() public {
@@ -1173,7 +1182,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         assertEq(
             _getVaultStake(hotkey5, NETUID1), 4_999_999_950, "the exit realigned the slot's weight onto the successor"
         );
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey5, "the slot keeps answering under the successor");
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey5, "the slot keeps answering under the successor");
 
         uint256 taoBefore = alice.balance;
         vm.prank(alice);
@@ -1203,7 +1212,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
             (lens.totalStake(TOKEN1) * NETUID1_BPS_HK1) / BPS_BASE,
             "the slot's weight follows to the validator's new key"
         );
-        assertEq(vault.recordedSlots(TOKEN1)[0].active, hotkey4, "the slot answers under the new hotkey");
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4, "the slot answers under the new hotkey");
     }
 
     function test_RevertWhen_FollowedHotkeySwappedOnAndNoHotkeyIsOwned() public {
@@ -1260,21 +1269,18 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1));
     }
 
-    /// @dev hotkey1's slot returns on hotkey4 short by `missing` RAO and is collected into parking.
-    function _firstSlotReturnedShortBy(uint256 missing) private {
+    function _parkFirstSlotReturnedShortBy(uint256 missing) private {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        bytes32 coldkey = _subnetColdkey(NETUID1);
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, coldkey, NETUID1, 0);
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey4, coldkey, NETUID1, FIRST_SLOT - missing);
-        _simulateSameOwner(hotkey1, hotkey4);
+        _sweepDuringCrash(NETUID1, hotkey1);
 
         vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, hotkey4, FIRST_SLOT - missing);
         vault.recoverStray(TOKEN1, hotkey4);
         assertEq(_getVaultStake(hotkey4, NETUID1), 0, "partial finds are secured too");
     }
 
     function testFuzz_RecoverStray_CompletesWithinTheSlack(uint256 missing) public {
-        _firstSlotReturnedShortBy(bound(missing, 0, BACKING_SLACK_RAO));
+        _parkFirstSlotReturnedShortBy(bound(missing, 0, BACKING_SLACK_RAO));
 
         vault.syncBacking(TOKEN1);
 
@@ -1283,7 +1289,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
     function testFuzz_RecoverStray_PreservesTheUnrecoveredDeficit(uint256 missing) public {
         missing = bound(missing, BACKING_SLACK_RAO + 1, 2 * BACKING_SLACK_RAO);
-        _firstSlotReturnedShortBy(missing);
+        _parkFirstSlotReturnedShortBy(missing);
 
         assertFalse(vault.awaitingAttestation(TOKEN1), "completion requires pooled coverage");
         assertEq(lens.missingStake(TOKEN1), missing);

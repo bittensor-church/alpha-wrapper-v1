@@ -41,7 +41,7 @@ contract HotkeySwapHandler is BackingCampaignHandler {
         VaultReads.Slot[] memory slots = vault.recordedSlots(tokenId);
         if (balance == 0 || slots.length == 0) return;
         uint256 slot = bound(slotSeed, 0, slots.length - 1);
-        uint256 held = _swaps().vaultStakeAt(slots[slot].active);
+        uint256 held = _swaps().vaultStakeAt(slots[slot].stakedUnder);
         uint256 located = _swaps().locatedStake();
         // The pool refuses a sale that would pay nothing.
         if (located == 0 || MockStaking(STAKING_PRECOMPILE).quoteTaoOut(uint16(netuid), held) == 0) return;
@@ -50,7 +50,7 @@ contract HotkeySwapHandler is BackingCampaignHandler {
         uint256 keepOthers = ((1 << slots.length) - 1) ^ (1 << slot);
         vm.prank(actor);
         try vault.unwrapForTao(tokenId, shares, 0, keepOthers) {
-            if (_swaps().vaultStakeAt(slots[slot].active) == 0) ++drains;
+            if (_swaps().vaultStakeAt(slots[slot].stakedUnder) == 0) ++drains;
         } catch (bytes memory reason) {
             _requireJustifiedRevert(reason, unwrapForTaoErrors(), Attempt(0, shares, keepOthers, bytes32(0), true));
         }
@@ -168,8 +168,8 @@ abstract contract HotkeySwapCampaignSetup is BackingCampaignHarness {
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
         for (uint256 j; j < names.length; ++j) {
             for (uint256 i; i < slots.length; ++i) {
-                if (slots[i].logical != names[j] || slots[i].tracked == 0) continue;
-                (bool exists,) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(slots[i].active);
+                if (slots[i].attested != names[j] || slots[i].tracked == 0) continue;
+                (bool exists,) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(slots[i].stakedUnder);
                 assertTrue(exists, "attested stake rests on an ownerless key");
             }
         }
@@ -213,7 +213,9 @@ contract HotkeySwapCampaignPathsTest is HotkeySwapCampaignSetup {
 
         assertEq(handler.rebalances(), 2, "the rebalance succeeds without a new attestation");
         assertEq(
-            vault.recordedSlots(TOKEN1)[0].active, handler.liveHotkeys(0), "the emptied slot follows to the live key"
+            vault.recordedSlots(TOKEN1)[0].stakedUnder,
+            handler.liveHotkeys(0),
+            "the emptied slot follows to the live key"
         );
         _assertSharedInvariants();
     }
@@ -223,12 +225,13 @@ contract HotkeySwapCampaignPathsTest is HotkeySwapCampaignSetup {
         _assertSharedInvariants();
         handler.swapToFreshHotkey(0, 2, true);
         _assertSharedInvariants();
+        assertTrue(lens.isBackingIntact(TOKEN1), "two unobserved swaps resolve on the staking list");
+        _sweepDuringCrash(NETUID1, handler.liveHotkeys(0));
         handler.syncBacking();
-        _assertSharedInvariants();
         vm.warp(lens.writeOffDeadline(TOKEN1));
         handler.syncBacking();
         _assertSharedInvariants();
-        assertTrue(vault.awaitingAttestation(TOKEN1), "two unobserved renames park the position");
+        assertTrue(vault.awaitingAttestation(TOKEN1), "a swept slot's write-off parks the position");
         assertGt(_parkedStake(NETUID1), 0, "with the located backing on the parking hotkey");
         bytes32 recipient = keccak256(abi.encode(alice));
         uint256 before = _getStakeForColdkey(vault.parkingHotkey(), recipient, NETUID1);

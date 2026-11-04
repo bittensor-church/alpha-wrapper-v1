@@ -6,8 +6,8 @@ A hotkey swap keeps the clone's alpha under a hotkey the clone stakes under, eve
 when the chain leaves no edge for the vault to follow. This prints one CSV row per
 such hotkey with a pile above the vault's rounding slack on the token's subnet,
 largest pile first, with the `recoverStray` dry-run verdict at the block read. A
-successor the vault already follows shows `NothingToRecover` until `syncBacking`
-records it. `--recover` signs with `RECOVER_PRIVATE_KEY` from the environment and
+hotkey the vault already locates, a followed successor or a listed hotkey holding a
+slot's alpha, shows `NothingToRecover` until `syncBacking` records it. `--recover` signs with `RECOVER_PRIVATE_KEY` from the environment and
 sends each call the dry run accepts at the head just before sending, so a pile parked
 by one call carries the smaller ones; it exits non-zero while any pile stays out.
 Call `syncBacking` first while a shortfall stands, and again once everything is home.
@@ -119,7 +119,7 @@ def main() -> None:
 
     strays = find_strays(
         listed_hotkeys(staking, coldkey, block),
-        (active for _logical, active, _tracked in slots),
+        (staked_under for _attested, staked_under, _tracked in slots),
         lambda hotkey: staking.functions.getStake(hotkey, coldkey, netuid).call(block_identifier=block),
     )
     print(

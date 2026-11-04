@@ -28,13 +28,13 @@ library StakeOps {
         if (!hasOwner(hotkey)) INeuron(NEURON_PRECOMPILE).tryAssociateHotkey(hotkey);
     }
 
-    function move(address clone, bytes32 coldkey, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount,
+    function moveWithinListCap(address clone, bytes32 coldkey, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount,
         bytes32 parking) internal {
-        if (!VaultReads.admitsMove(coldkey, toHotkey, netuid, parking)) revert IAlphaVaultAbi.StakingListFull();
-        moveAdmitted(clone, fromHotkey, toHotkey, netuid, amount);
+        if (!VaultReads.stakingListAdmits(coldkey, toHotkey, netuid, parking)) revert IAlphaVaultAbi.StakingListFull();
+        moveToListedHotkey(clone, fromHotkey, toHotkey, netuid, amount);
     }
 
-    function moveAdmitted(address clone, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount) internal {
+    function moveToListedHotkey(address clone, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount) internal {
         ensureHotkeyHasOwner(fromHotkey);
         ensureHotkeyHasOwner(toHotkey);
         SubnetClone(clone).moveStake(fromHotkey, toHotkey, netuid, amount);
