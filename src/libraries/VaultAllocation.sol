@@ -234,7 +234,7 @@ library VaultAllocation {
             uint256 ownSlot = VaultMath.indexOf(slotAttested, attested);
             bytes32 hotkey; bool usable;
             if (ownSlot != VaultMath.INDEX_NOT_FOUND && balances[ownSlot] != 0) {
-                hotkey = slotHotkeys[ownSlot]; usable = StakeOps.hasOwner(hotkey);
+                hotkey = slotHotkeys[ownSlot]; usable = VaultReads.hasOwner(hotkey);
             } else {
                 (hotkey, usable) = _receivingHotkeyForEmptySlot(slotHotkeys, slotAttested, attestedHotkeys, attested, ownSlot, netuid);
                 if (hotkey != attested && VaultMath.contains(stakingHotkeys, hotkey)) { revert IAlphaVaultAbi.SwappedHotkeyStillAttested(); }
@@ -246,8 +246,8 @@ library VaultAllocation {
     }
 
     /// @dev Start at the richest source or destination, letting a fresh deposit carry rotated-out dust.
-    function chooseConsolidationStart(bytes32[] memory sourceHotkeys, bytes32[] memory attestedHotkeys, bytes32 coldkey, uint16 netuid)
-        public view returns (
+    function _chooseConsolidationStart(bytes32[] memory sourceHotkeys, bytes32[] memory attestedHotkeys, bytes32 coldkey, uint16 netuid)
+        private view returns (
             bytes32 richestHotkey, uint256 richestBalance,
             uint256[] memory sourceBalances, bool hasRotatedOutBalance, bytes32 destination) {
         sourceBalances = new uint256[](sourceHotkeys.length);
@@ -295,10 +295,10 @@ library VaultAllocation {
 
         hotkey = ownSlot == VaultMath.INDEX_NOT_FOUND ? attested : slotHotkeys[ownSlot];
         bytes32 successor = VaultReads.hotkeySuccessor(hotkey, netuid);
-        usable = hotkey != attested && successor == bytes32(0) && StakeOps.hasOwner(hotkey);
+        usable = hotkey != attested && successor == bytes32(0) && VaultReads.hasOwner(hotkey);
         if (!usable) {
-            if (!attestedHeldElsewhere && StakeOps.hasOwner(attested)) return (attested, true);
-            if (successor != bytes32(0) && successor != attested && StakeOps.hasOwner(successor)) { hotkey = successor; usable = true; }
+            if (!attestedHeldElsewhere && VaultReads.hasOwner(attested)) return (attested, true);
+            if (successor != bytes32(0) && successor != attested && VaultReads.hasOwner(successor)) { hotkey = successor; usable = true; }
         }
         if (
             hotkey != attested
@@ -368,7 +368,7 @@ library VaultAllocation {
         CollectionPolicy policy) external returns (bool leftBelowFloor) {
         if (!_anyRotatedOut(sourceHotkeys, attestedHotkeys)) return false;
         (bytes32 rollerHotkey, uint256 richestBalance, uint256[] memory sourceBalances, bool hasRotatedOutBalance, bytes32 destination)
-            = chooseConsolidationStart(sourceHotkeys, attestedHotkeys, context.coldkey, context.netuid);
+            = _chooseConsolidationStart(sourceHotkeys, attestedHotkeys, context.coldkey, context.netuid);
         if (!hasRotatedOutBalance) return false;
         // The pile starts at the largest balance and only grows, up to rounding on each move,
         // so its starting size bounds every hop to within that rounding.

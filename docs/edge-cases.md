@@ -84,8 +84,9 @@ the TAO route too. See [exit options](user-guide.md#native-tao-market-sale).
 After a partial unstake, the chain may sell a below-threshold remainder, or
 delete it unpaid if the sale fails.
 The vault avoids sales that would sweep other holders' backing into the caller's
-payout. Unsold alpha is refunded as shares, except a full-supply exit discards a
-sub-floor remainder.
+payout. If a sweep still happens, the caller keeps its TAO and the remaining
+holders bear the swept alpha. Unsold alpha is refunded as shares, except a
+full-supply exit discards a sub-floor remainder.
 
 A dropped validator's dust can block consolidation if no balance is large enough
 to carry it. A later deposit can supply that balance because it lands before

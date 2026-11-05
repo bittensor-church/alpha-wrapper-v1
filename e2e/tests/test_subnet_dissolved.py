@@ -100,7 +100,7 @@ def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subne
           f"{parked_mailbox_tao} wei; alpha zeroed, sharePrice reverts")
 
     env.assert_vault_reverts_with(
-        "NothingToUnwrap()", 2_000_000, "unwrapForTao did NOT revert as NothingToUnwrap on the dissolved subnet",
+        "SubnetDissolved()", 2_000_000, "unwrapForTao did NOT revert as SubnetDissolved on the dissolved subnet",
         "unwrapForTao(uint256,uint256,uint256)", dissolved_token_id, first_user_shares, 0,
     )
     env.assert_vault_reverts_with(

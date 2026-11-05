@@ -27,6 +27,8 @@ error SupplyCapExceeded();
 error NetuidOutOfRange();
 error ChosenHotkeyNotInSet();
 error SlippageExceeded(uint256 amountOut);
+/// @dev The recovery window must be positive and at most 365 days.
+error RecoveryWindowOutOfRange();
 /// @dev Located backing falls short of the recorded expectation, allowing for accounting dust.
 error BackingShortfall(uint16 netuid, bytes32 hotkey, uint256 tracked);
 /// @dev A declared shortfall holds priced operations shut until recovery completes or sync writes it off.

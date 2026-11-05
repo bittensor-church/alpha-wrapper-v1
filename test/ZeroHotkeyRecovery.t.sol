@@ -31,8 +31,8 @@ contract ZeroHotkeyRecoveryTest is AlphaVaultTestBase {
         vault.syncBacking(TOKEN1);
         assertEq(_parkedStake(NETUID1), 0, "nothing is located at declaration");
 
-        vm.expectEmit(true, true, false, true, address(vault));
-        emit BackingRecovered(TOKEN1, vault.parkingHotkey(), backing);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit BackingRecovered(TOKEN1, ZERO, vault.parkingHotkey(), backing);
         vault.recoverStray(TOKEN1, ZERO);
 
         assertEq(_parkedStake(NETUID1), backing, "the watcher parks the whole backing from hotkey 0");

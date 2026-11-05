@@ -67,13 +67,12 @@ contract RecoveryDustTest is AlphaVaultTestBase {
 
     function test_ParkedPile_CollectsDustWithoutExtendingTheWindow() public {
         (uint256[] memory swept, uint256 deadline) = _emptyRecovery();
-        bytes32 parking = vault.parkingHotkey();
         _strangerReturns(NETUID1, hotkey4, swept[2]);
         vault.recoverStray(TOKEN1, hotkey4);
         _plant(hotkey1, DUST);
 
-        vm.expectEmit(true, true, false, true, address(vault));
-        emit BackingRecovered(TOKEN1, parking, DUST);
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit BackingCollected(TOKEN1, DUST);
         vault.syncBacking(TOKEN1);
 
         assertEq(_parkedStake(NETUID1), THIRD_SLOT + DUST);

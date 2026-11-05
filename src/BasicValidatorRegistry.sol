@@ -2,8 +2,8 @@
 pragma solidity 0.8.36;
 
 import { IValidatorRegistry } from "./interfaces/IValidatorRegistry.sol";
-import { StakeOps } from "./libraries/StakeOps.sol";
 import { VaultMath } from "./libraries/VaultMath.sol";
+import { VaultReads } from "./libraries/VaultReads.sol";
 import { NetuidOutOfRange, ZeroHotkey } from "./VaultErrors.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { Ownable2Step } from "@openzeppelin/contracts/access/Ownable2Step.sol";
@@ -14,7 +14,7 @@ contract BasicValidatorRegistry is IValidatorRegistry, Ownable2Step {
     mapping(uint256 => bytes32) private _hotkeys;
     mapping(uint256 => uint256) public override nonces;
 
-    event ValidatorUpdated(uint256 indexed netuid, uint256 nonce, bytes32 hotkey);
+    event ValidatorUpdated(uint256 indexed netuid, uint256 nonce, bytes32 indexed hotkey);
 
     error OwnerlessHotkey(bytes32 hotkey);
     error RenunciationDisabled();
@@ -30,7 +30,7 @@ contract BasicValidatorRegistry is IValidatorRegistry, Ownable2Step {
     function setValidator(uint256 netuid, bytes32 hotkey) external onlyOwner {
         if (netuid > type(uint16).max) revert NetuidOutOfRange();
         if (hotkey == bytes32(0)) revert ZeroHotkey();
-        if (!StakeOps.hasOwner(hotkey)) revert OwnerlessHotkey(hotkey);
+        if (!VaultReads.hasOwner(hotkey)) revert OwnerlessHotkey(hotkey);
 
         _hotkeys[netuid] = hotkey; uint256 nonce = ++nonces[netuid];
         emit ValidatorUpdated(netuid, nonce, hotkey);

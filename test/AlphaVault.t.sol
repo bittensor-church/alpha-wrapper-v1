@@ -11,9 +11,10 @@ import {
     InsufficientShares,
     NetuidOutOfRange,
     NoSharesOutstanding,
-    NothingToUnwrap,
     NoValidatorFound,
     ParkingHotkeyUnavailable,
+    RecoveryWindowOutOfRange,
+    SubnetCloneNotPrepared,
     SubnetDissolved,
     SlippageExceeded,
     SubnetInDissolutionBlackoutPeriod,
@@ -51,8 +52,27 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     }
 
     function test_RevertWhen_ConstructorZeroRecoveryWindow() public {
-        vm.expectRevert(ZeroAmount.selector);
+        vm.expectRevert(RecoveryWindowOutOfRange.selector);
         new AlphaVault(VAULT_URI, address(mailboxLogic), address(subnetLogic), address(registry), 0, PARKING_HOTKEY);
+    }
+
+    function testFuzz_RevertWhen_ConstructorRecoveryWindowExceedsAYear(uint256 recoveryWindow) public {
+        recoveryWindow = bound(recoveryWindow, 365 days + 1, type(uint256).max);
+        vm.expectRevert(RecoveryWindowOutOfRange.selector);
+        new AlphaVault(
+            VAULT_URI, address(mailboxLogic), address(subnetLogic), address(registry), recoveryWindow, PARKING_HOTKEY
+        );
+    }
+
+    function testFuzz_Constructor_AcceptsRecoveryWindowsUpToAYear(uint256 recoveryWindow) public {
+        recoveryWindow = bound(recoveryWindow, 1, 365 days);
+        (AlphaVault windowVault,) = _deployVaultAndLens(address(registry), recoveryWindow);
+        assertEq(windowVault.recoveryWindow(), recoveryWindow);
+    }
+
+    function test_Constructor_AcceptsAYearLongRecoveryWindow() public {
+        (AlphaVault yearVault,) = _deployVaultAndLens(address(registry), 365 days);
+        assertEq(yearVault.recoveryWindow(), 365 days);
     }
 
     function test_RevertWhen_ConstructorZeroParkingHotkey() public {
@@ -115,8 +135,8 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     function test_Wrap() public {
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
 
-        vm.expectEmit(true, true, false, true, address(vault));
-        emit Deposited(alice, TOKEN1, 10 * ALPHA, 1e19);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit Deposited(alice, TOKEN1, hotkey1, 10 * ALPHA, 1e19);
         _wrapHotkey(alice, NETUID1, hotkey1);
 
         assertEq(vault.balanceOf(alice, TOKEN1), 1e19, "a first deposit mints 1e9 shares per RAO");
@@ -144,8 +164,8 @@ contract AlphaVaultTest is AlphaVaultTestBase {
 
         _simulateAlphaDeposit(alice, NETUID1, 5 * ALPHA);
         // 5e9 * (5e18 + 1e9) / (5e9 + 1) = 5e18 exactly.
-        vm.expectEmit(true, true, false, true, address(vault));
-        emit Deposited(alice, TOKEN1, 5 * ALPHA, 5e18);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit Deposited(alice, TOKEN1, hotkey1, 5 * ALPHA, 5e18);
         _wrapHotkey(alice, NETUID1, hotkey1);
 
         assertEq(vault.balanceOf(alice, TOKEN1), 1e19);
@@ -215,7 +235,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
 
         MockStaking(STAKING_PRECOMPILE).setTransferStakeRoundingLoss(1);
         vm.expectEmit(true, true, false, true, address(vault));
-        emit Unwrapped(alice, TOKEN1, shares, creditedAlpha);
+        emit Unwrapped(alice, TOKEN1, _toSubstrate(alice), shares, creditedAlpha);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), creditedAlpha);
 
@@ -382,19 +402,14 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.recordLogs();
         vault.rebalance(NETUID1);
 
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 0);
+        assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 0);
         assertEq(_getVaultStake(hotkey1, NETUID1), 50 * ALPHA);
         assertEq(_getVaultStake(hotkey2, NETUID1), 50 * ALPHA);
     }
 
-    function test_RebalanceNoOpWhenCloneNotDeployed() public {
-        vm.recordLogs();
+    function test_RevertWhen_RebalanceBeforeTheCloneExists() public {
+        vm.expectRevert(SubnetCloneNotPrepared.selector);
         vault.rebalance(NETUID1);
-
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 0);
-        assertEq(vault.subnetClone(TOKEN1), address(0));
-        assertEq(lens.totalStake(TOKEN1), 0);
-        assertEq(_lastSeen(TOKEN1).length, 0);
     }
 
     function test_RebalanceEmitsEvent() public {
@@ -432,7 +447,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.recordLogs();
         vm.prank(alice);
         vault.unwrap(tokenId, shares, _toSubstrate(alice), 0);
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 0);
+        assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 0);
     }
 
     function test_RevertWhen_RegistryWhenNoValidatorsSet() public {
@@ -505,6 +520,8 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.deal(mailbox, 2 * TAO);
 
         uint256 aliceBefore = alice.balance;
+        vm.expectEmit(true, true, false, true, address(vault));
+        emit MailboxTaoReclaimed(alice, NETUID1, 2 * TAO);
         vm.prank(alice);
         vault.reclaimTaoFromMailbox(NETUID1);
 
@@ -851,7 +868,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         _simulateDissolutionStarted(NETUID1);
 
         vm.prank(alice);
-        vm.expectRevert(NothingToUnwrap.selector);
+        vm.expectRevert(SubnetDissolved.selector);
         vault.unwrapForTao(TOKEN1, shares, 0);
     }
 
@@ -1208,21 +1225,14 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(alpha, 10 * ALPHA);
     }
 
-    function test_RebalanceRecycledSubnetSilentNoop() public {
+    function test_RevertWhen_RebalanceRecycledSubnetBeforeItsClone() public {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-
         address oldClone = vault.subnetClone(TOKEN1);
-
         _reregisterSubnet(NETUID1);
-        uint256 newTokenId = vault.currentTokenId(NETUID1);
 
-        vm.recordLogs();
+        vm.expectRevert(SubnetCloneNotPrepared.selector);
         vault.rebalance(NETUID1);
 
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 0);
-        assertEq(vault.subnetClone(newTokenId), address(0));
-        assertEq(lens.totalStake(newTokenId), 0);
-        assertEq(_lastSeen(newTokenId).length, 0);
         assertEq(_userStakeAcrossHotkeys(oldClone, NETUID1), 10 * ALPHA, "the old generation's alpha stays put");
     }
 
@@ -1378,7 +1388,9 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(_getVaultStake(hotkey3, NETUID1), 0, "rotated-out slot must be drained");
-        assertEq(_countRebalancedLogs(logs), 1, "silent consolidation; only the post-consolidation alignment logs");
+        assertEq(
+            _countLogs(logs, Rebalanced.selector), 1, "silent consolidation; only the post-consolidation alignment logs"
+        );
         assertEq(_getVaultStake(hotkey4, NETUID1), 9_999_000_000, "the new key takes the dropped key's weight");
 
         bytes32[] memory lastSeen = _lastSeen(TOKEN1);
@@ -1433,7 +1445,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        assertEq(_countRebalancedLogs(logs), 0, "no-op rebalance emits nothing");
+        assertEq(_countLogs(logs, Rebalanced.selector), 0, "no-op rebalance emits nothing");
         assertEq(_getVaultStake(hotkey3, NETUID1), 9_999_000_000);
     }
 
@@ -1557,7 +1569,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(hotkey1, NETUID1), b1After, "hotkey1 unchanged on second rebalance");
         assertEq(_getVaultStake(hotkey2, NETUID1), b2After, "hotkey2 unchanged on second rebalance");
         assertEq(_getVaultStake(hotkey3, NETUID1), b3After, "hotkey3 unchanged on second rebalance");
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 0, "no Rebalanced events on second call");
+        assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 0, "no Rebalanced events on second call");
     }
 
     /// @dev The planted layout keeps the deposit's total, so supply stays d * 1e9 on stake d and a burn of
@@ -1660,7 +1672,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
 
         assertEq(balances[0] + balances[1] + balances[2], preTotal, "rebalance conserves total alpha");
         assertEq(lens.totalStake(TOKEN1), preTotal, "totalStake synced to on-chain total");
-        assertLe(_countRebalancedLogs(logs), 2, "rebalance loop bounded by N-1 iterations");
+        assertLe(_countLogs(logs, Rebalanced.selector), 2, "rebalance loop bounded by N-1 iterations");
 
         uint256 maxOver;
         uint256 maxUnder;

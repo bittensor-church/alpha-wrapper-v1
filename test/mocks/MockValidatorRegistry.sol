@@ -2,8 +2,8 @@
 pragma solidity 0.8.36;
 
 import { IValidatorRegistry, MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
-import { StakeOps } from "src/libraries/StakeOps.sol";
 import { VaultMath } from "src/libraries/VaultMath.sol";
+import { VaultReads } from "src/libraries/VaultReads.sol";
 import { NetuidOutOfRange, ValidatorSetMalformed } from "src/VaultErrors.sol";
 
 contract MockValidatorRegistry is IValidatorRegistry {
@@ -27,7 +27,7 @@ contract MockValidatorRegistry is IValidatorRegistry {
             for (uint256 j; j < i; ++j) {
                 if (hotkeys[j] == hotkeys[i]) revert ValidatorSetMalformed();
             }
-            if (!StakeOps.hasOwner(hotkeys[i])) revert OwnerlessHotkey(hotkeys[i]);
+            if (!VaultReads.hasOwner(hotkeys[i])) revert OwnerlessHotkey(hotkeys[i]);
             sum += weights[i];
         }
         if (sum != VaultMath.BPS_BASE) revert ValidatorSetMalformed();

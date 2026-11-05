@@ -33,6 +33,8 @@ contract MailboxReclaimTest is AlphaVaultTestBase {
         bytes32 destination = _toSubstrate(alice);
         mock.setAcceptsLockedAlpha(destination, true);
 
+        vm.expectEmit(true, true, false, true, address(vault));
+        emit MailboxAlphaReclaimed(alice, NETUID1, destination, 100 * ALPHA);
         vm.prank(alice);
         vault.reclaimAlphaFromMailbox(NETUID1, destination);
 

@@ -18,14 +18,10 @@ library StakeOps {
     /// @dev The only exposed minimum is for unstakes; using it for transfers/moves is conservative.
     function minStakeTao() internal view returns (uint256) { return IStaking(STAKING_PRECOMPILE).getDefaultMinStake(); }
 
-    function hasOwner(bytes32 hotkey) internal view returns (bool exists) {
-        (exists,) = IStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey);
-    }
-
     /// @notice Claims an ownerless hotkey for the caller's own coldkey; an existing owner stays untouched.
     /// @dev The chain refuses to move stake through a hotkey with no owner record.
     function ensureHotkeyHasOwner(bytes32 hotkey) internal {
-        if (!hasOwner(hotkey)) INeuron(NEURON_PRECOMPILE).tryAssociateHotkey(hotkey);
+        if (!VaultReads.hasOwner(hotkey)) INeuron(NEURON_PRECOMPILE).tryAssociateHotkey(hotkey);
     }
 
     function moveWithinListCap(address clone, bytes32 coldkey, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount,

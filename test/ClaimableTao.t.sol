@@ -97,7 +97,7 @@ contract ClaimableTaoTest is AlphaVaultTestBase {
         _touch(alice, TOKEN1);
         assertEq(vault.claimableTao(TOKEN1, alice), 5 * TAO, "the touch settles the gift");
 
-        vm.expectEmit(true, true, false, true, address(vault));
+        vm.expectEmit(true, true, true, true, address(vault));
         emit TaoClaimed(alice, TOKEN1, alice, 5 * TAO);
         _claimAs(alice);
 
@@ -322,7 +322,7 @@ contract ClaimableTaoTest is AlphaVaultTestBase {
         assertEq(previewAlpha, 0);
         assertEq(previewTao, 0);
         vm.expectEmit(true, true, false, true, address(vault));
-        emit Unwrapped(alice, TOKEN1, shares, 0);
+        emit Unwrapped(alice, TOKEN1, _toSubstrate(alice), shares, 0);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
 

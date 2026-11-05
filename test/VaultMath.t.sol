@@ -5,7 +5,7 @@ import { Test } from "forge-std/Test.sol";
 import { VaultMath } from "src/libraries/VaultMath.sol";
 
 contract VaultMathTest is Test {
-    function test_NovelSources_KeepsUnrecordedKeysOnceInOrder() public pure {
+    function test_UnrecordedSources_KeepsUnrecordedHotkeysOnceInOrder() public pure {
         bytes32[] memory recorded = new bytes32[](1);
         recorded[0] = bytes32(uint256(1));
         bytes32[] memory sources = new bytes32[](5);

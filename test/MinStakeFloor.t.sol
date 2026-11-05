@@ -66,7 +66,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
 
         vm.recordLogs();
         vault.rebalance(NETUID1);
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 0, "sub-floor move skipped pre-call");
+        assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 0, "sub-floor move skipped pre-call");
         assertEq(_getVaultStake(hotkey1, NETUID1), 600_000_000);
         assertEq(_getVaultStake(hotkey2, NETUID1), 400_000_000);
     }
@@ -95,7 +95,7 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
         vm.prank(alice);
         vault.wrap{ gas: 1_500_000 }(NETUID1, hotkey1, 0);
 
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 0, "doomed move never attempted");
+        assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 0, "doomed move never attempted");
         assertEq(vault.balanceOf(alice, TOKEN1), 5e17, "wrap completed within the fixed gas budget");
     }
 
@@ -180,7 +180,9 @@ contract MinStakeFloorTest is AlphaVaultTestBase {
         vm.recordLogs();
         vault.rebalance(NETUID1);
 
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 0, "a raised minimum stops every corrective move");
+        assertEq(
+            _countLogs(vm.getRecordedLogs(), Rebalanced.selector), 0, "a raised minimum stops every corrective move"
+        );
         assertEq(_getVaultStake(hotkey1, NETUID1), 500_000_000, "the split is left drifted");
     }
 

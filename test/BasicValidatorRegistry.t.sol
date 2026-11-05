@@ -60,7 +60,7 @@ contract BasicValidatorRegistryTest is Test {
     }
 
     function test_SetValidator_ImmediatelyRecordsHotkeyAndNonce() public {
-        vm.expectEmit(true, false, false, true, address(registry));
+        vm.expectEmit(true, true, false, true, address(registry));
         emit BasicValidatorRegistry.ValidatorUpdated(NETUID, 1, HOTKEY);
         _setValidatorAsOwner(NETUID, HOTKEY);
         _assertValidator(NETUID, HOTKEY, 1);
@@ -70,7 +70,7 @@ contract BasicValidatorRegistryTest is Test {
         _setValidatorAsOwner(NETUID, HOTKEY);
         bytes32 nextHotkey = keccak256("next");
         _mockHotkeyOwner(nextHotkey, true, keccak256("nextOwner"));
-        vm.expectEmit(true, false, false, true, address(registry));
+        vm.expectEmit(true, true, false, true, address(registry));
         emit BasicValidatorRegistry.ValidatorUpdated(NETUID, 2, nextHotkey);
         _setValidatorAsOwner(NETUID, nextHotkey);
         _assertValidator(NETUID, nextHotkey, 2);
