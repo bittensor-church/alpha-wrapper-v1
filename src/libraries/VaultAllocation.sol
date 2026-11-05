@@ -423,7 +423,6 @@ library VaultAllocation {
             if (sourceHotkey != richestHotkey && sourceBalances[i] > 0) {
                 // Read the live pile; summing earlier credits would over-ask after chain rounding.
                 uint256 pile = IStaking(STAKING_PRECOMPILE).getStake(rollerHotkey, coldkey, netuid);
-                // The hop target holds stake, so it is listed already.
                 StakeOps.moveToListedHotkey(context.clone, rollerHotkey, sourceHotkey, netuid, pile);
                 rollerHotkey = sourceHotkey;
             }
@@ -474,7 +473,6 @@ library VaultAllocation {
             for (uint256 i; i < balances.length && balances[deliveryIndex] < assets;) {
                 if (i != deliveryIndex && balances[i] != 0) {
                     uint256 pile = IStaking(STAKING_PRECOMPILE).getStake(hotkeys[deliveryIndex], coldkey, netuid);
-                    // The hop target holds stake, so it is listed already.
                     StakeOps.moveToListedHotkey(context.clone, hotkeys[deliveryIndex], hotkeys[i], netuid, pile);
                     balances[i] += balances[deliveryIndex]; balances[deliveryIndex] = 0; deliveryIndex = i;
                 }
