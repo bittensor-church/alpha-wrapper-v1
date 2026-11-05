@@ -40,8 +40,8 @@ The deployment script reads four environment variables:
 | `PARKING_HOTKEY` | An unused 32-byte account id the vault claims for its own coldkey. | required |
 
 Deployment reverts `ParkingHotkeyUnavailable` when another coldkey already owns
-`PARKING_HOTKEY`, `NotAContract` when a logic or registry address holds no code,
-and `RecoveryWindowOutOfRange` when the window is zero or over 365 days.
+`PARKING_HOTKEY` and `RecoveryWindowOutOfRange` when the window is zero or over
+365 days.
 
 ```sh
 forge script script/DeployAlpha.s.sol --rpc-url <url> --private-key <key> --broadcast

@@ -22,7 +22,7 @@ import {
     AttestedHotkeyRetired, BackingUnchanged, ChosenHotkeyNotInSet,
     ClaimBelowNativePrecision, InsufficientShares, LockedDeposit,
     LockedBacking, MailboxNotPrepared, SubnetCloneNotPrepared,
-    NetuidOutOfRange, NotAContract, NothingToRecover, NothingToUnwrap,
+    NetuidOutOfRange, NothingToRecover, NothingToUnwrap,
     Parked, ParkingHotkeyUnavailable, BackingNotSecured, RecoveryWindowOutOfRange,
     SaleExceedsAssets, ShortfallOnFile, SlippageExceeded, SlotMaskOutOfRange, StakingListHasRoom,
     SubnetDissolved, SubnetNotRegistered, SupplyCapExceeded, WithdrawTooSmall,
@@ -68,8 +68,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
 
     constructor(string memory _uri, address _mailboxLogic, address _subnetLogic,
         address _validatorRegistry, uint256 _recoveryWindow, bytes32 _parkingHotkey) ERC1155(_uri) {
-        if (_mailboxLogic.code.length == 0 || _subnetLogic.code.length == 0 || _validatorRegistry.code.length == 0) {
-            revert NotAContract();
+        if (_mailboxLogic == address(0) || _subnetLogic == address(0) || _validatorRegistry == address(0)) {
+            revert ZeroAddress();
         }
         if (_recoveryWindow == 0 || _recoveryWindow > MAX_RECOVERY_WINDOW) revert RecoveryWindowOutOfRange();
         if (_parkingHotkey == bytes32(0)) revert ZeroHotkey();

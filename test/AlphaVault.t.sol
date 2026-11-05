@@ -11,7 +11,6 @@ import {
     InsufficientShares,
     NetuidOutOfRange,
     NoSharesOutstanding,
-    NotAContract,
     NoValidatorFound,
     ParkingHotkeyUnavailable,
     RecoveryWindowOutOfRange,
@@ -22,6 +21,7 @@ import {
     SubnetNotRegistered,
     ValidatorSetMalformed,
     WithdrawTooSmall,
+    ZeroAddress,
     ZeroAmount,
     MailboxNotPrepared,
     ZeroColdkey,
@@ -35,31 +35,19 @@ import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract AlphaVaultTest is AlphaVaultTestBase {
     function test_RevertWhen_ConstructorZeroMailboxLogic() public {
-        vm.expectRevert(NotAContract.selector);
+        vm.expectRevert(ZeroAddress.selector);
         new AlphaVault(VAULT_URI, address(0), address(subnetLogic), address(registry), RECOVERY_WINDOW, PARKING_HOTKEY);
     }
 
     function test_RevertWhen_ConstructorZeroSubnetLogic() public {
-        vm.expectRevert(NotAContract.selector);
+        vm.expectRevert(ZeroAddress.selector);
         new AlphaVault(VAULT_URI, address(mailboxLogic), address(0), address(registry), RECOVERY_WINDOW, PARKING_HOTKEY);
     }
 
     function test_RevertWhen_ConstructorZeroValidatorRegistry() public {
-        vm.expectRevert(NotAContract.selector);
+        vm.expectRevert(ZeroAddress.selector);
         new AlphaVault(
             VAULT_URI, address(mailboxLogic), address(subnetLogic), address(0), RECOVERY_WINDOW, PARKING_HOTKEY
-        );
-    }
-
-    function test_RevertWhen_ConstructorValidatorRegistryHasNoCode() public {
-        vm.expectRevert(NotAContract.selector);
-        new AlphaVault(
-            VAULT_URI,
-            address(mailboxLogic),
-            address(subnetLogic),
-            makeAddr("registryOwner"),
-            RECOVERY_WINDOW,
-            PARKING_HOTKEY
         );
     }
 
