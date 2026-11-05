@@ -310,8 +310,8 @@ library VaultAllocation {
         }
     }
 
-    /// @dev A single slot already holds every unit there is to align.
-    function _alignToWeights(Context memory context, bytes32[] memory hotkeys, uint16[] memory weights) private {
+    /// @dev Runs inside the vault's reentrancy guard. A single slot already holds every unit there is to align.
+    function rebalance(Context memory context, bytes32[] memory hotkeys, uint16[] memory weights) external {
         if (weights.length == 1) return;
         uint256[] memory balances = VaultReads.stakesUnder(hotkeys, context.coldkey, context.netuid);
         uint256 total = VaultMath.sumBalances(balances);
@@ -373,32 +373,6 @@ library VaultAllocation {
     /// @return leftBelowFloor True only when the richest source/destination is below the floor.
     function consolidateRotatedStake(Context memory context, bytes32[] memory sourceHotkeys, bytes32[] memory attestedHotkeys,
         CollectionPolicy policy) external returns (bool leftBelowFloor) {
-        return _consolidateRotatedStake(context, sourceHotkeys, attestedHotkeys, policy);
-    }
-
-    /// @dev Runs inside the vault's reentrancy guard.
-    function consolidateAndAlign(Context memory context, bytes32[] memory sourceHotkeys, bytes32[] memory stakingHotkeys,
-        uint16[] memory weights) external {
-        _consolidateRotatedStake(context, sourceHotkeys, stakingHotkeys, CollectionPolicy.RevertBelowFloor);
-        _alignToWeights(context, stakingHotkeys, weights);
-    }
-
-    /// @dev Identical hotkey arrays mean nothing rotated out and nothing has moved since the caller read `balances`.
-    function consolidateForPayout(Context memory context, bytes32[] memory sourceHotkeys, uint256[] memory balances,
-        bytes32[] memory stakingHotkeys) external returns (uint256[] memory) {
-        if (_sameHotkeys(sourceHotkeys, stakingHotkeys)) return balances;
-        _consolidateRotatedStake(context, sourceHotkeys, stakingHotkeys, CollectionPolicy.RevertBelowFloor);
-        return VaultReads.stakesUnder(stakingHotkeys, context.coldkey, context.netuid);
-    }
-
-    function _sameHotkeys(bytes32[] memory a, bytes32[] memory b) private pure returns (bool) {
-        if (a.length != b.length) return false;
-        for (uint256 i; i < a.length;) { if (a[i] != b[i]) return false; unchecked { ++i; } }
-        return true;
-    }
-
-    function _consolidateRotatedStake(Context memory context, bytes32[] memory sourceHotkeys, bytes32[] memory attestedHotkeys,
-        CollectionPolicy policy) private returns (bool leftBelowFloor) {
         if (!_anyRotatedOut(sourceHotkeys, attestedHotkeys)) return false;
         (bytes32 rollerHotkey, uint256 richestBalance, uint256[] memory sourceBalances, bool hasRotatedOutBalance, bytes32 destination)
             = _chooseConsolidationStart(sourceHotkeys, attestedHotkeys, context.coldkey, context.netuid);
@@ -439,11 +413,6 @@ library VaultAllocation {
             unchecked { ++i; }
         }
         return false;
-    }
-
-    /// @dev Runs inside the vault's reentrancy guard.
-    function rebalance(Context memory context, bytes32[] memory hotkeys, uint16[] memory weights) external {
-        _alignToWeights(context, hotkeys, weights);
     }
 
     /// @dev The vault checks slippage and settles its record after this returns; failures revert all stake moves.

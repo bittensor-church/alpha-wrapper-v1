@@ -145,7 +145,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaV
 
         // A fresh deposit can carry rotated-out dust through above-floor consolidation hops.
         VaultAllocation.pullDepositFromMailbox(mailbox, mailboxColdkey, context, stakingHotkeys[chosenIndex], totalDeposit);
-        VaultAllocation.consolidateAndAlign(context, backing.hotkeys, stakingHotkeys, set.weights);
+        VaultAllocation.consolidateRotatedStake(
+            context, backing.hotkeys, stakingHotkeys, VaultAllocation.CollectionPolicy.RevertBelowFloor);
+        VaultAllocation.rebalance(context, stakingHotkeys, set.weights);
         uint256 totalAlpha = _settle(tokenId, destColdkey, set.hotkeys, stakingHotkeys);
 
         uint256 preStake = totalAlpha > totalDeposit ? totalAlpha - totalDeposit : 0;
@@ -287,8 +289,15 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaV
         // No pool trades on this path, so one price read covers all moves.
         uint256 alphaPriceE18 = IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid);
         VaultAllocation.Context memory context = _context(tokenId, clone, coldkey, alphaPriceE18);
-        uint256[] memory balances =
-            VaultAllocation.consolidateForPayout(context, backing.hotkeys, backing.balances, stakingHotkeys);
+        // Identical hotkeys leave consolidation nothing to move, so the balances already resolved still hold.
+        uint256[] memory balances;
+        if (VaultMath.equal(backing.hotkeys, stakingHotkeys)) {
+            balances = backing.balances;
+        } else {
+            VaultAllocation.consolidateRotatedStake(
+                context, backing.hotkeys, stakingHotkeys, VaultAllocation.CollectionPolicy.RevertBelowFloor);
+            balances = VaultReads.stakesUnder(stakingHotkeys, coldkey, netuid);
+        }
         uint256 totalAlpha = VaultMath.sumBalances(balances);
         // Zero floor explicitly forfeits these shares' claim on late recovery; accrued TAO survives.
         if (totalAlpha == 0) {
@@ -346,7 +355,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaV
         bytes32[] memory stakingHotkeys = _fundableStakingHotkeys(slots, backing, set, nid);
         VaultAllocation.Context memory context =
             _context(tokenId, clone, coldkey, IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(nid));
-        VaultAllocation.consolidateAndAlign(context, backing.hotkeys, stakingHotkeys, set.weights);
+        VaultAllocation.consolidateRotatedStake(
+            context, backing.hotkeys, stakingHotkeys, VaultAllocation.CollectionPolicy.RevertBelowFloor);
+        VaultAllocation.rebalance(context, stakingHotkeys, set.weights);
         _settle(tokenId, coldkey, set.hotkeys, stakingHotkeys);
     }
 
@@ -510,6 +521,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaV
         _writeSlot(tokenId, slots, 0, parkingHotkey, parkingHotkey, parked);
         _truncateSlots(tokenId, slots, 1);
         uint256 nonce = totalSupply(tokenId) == 0 ? 0 : validatorRegistry.nonces(VaultMath.netuidOf(tokenId));
+        // The registry steps its nonce by one (docs/deployment.md), so the narrower field cannot truncate it.
         // forge-lint: disable-next-line(unsafe-typecast)
         recovery[tokenId] = Recovery({ shortSince: 0, parkedAtNonce: uint192(nonce) });
         emit BackingParked(tokenId, parked, nonce);

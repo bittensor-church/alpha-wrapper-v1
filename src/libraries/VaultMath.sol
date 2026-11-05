@@ -51,6 +51,12 @@ library VaultMath {
         for (uint256 i; i < tail.length;) { joined[head.length + i] = tail[i]; unchecked { ++i; } }
     }
 
+    function equal(bytes32[] memory a, bytes32[] memory b) internal pure returns (bool) {
+        if (a.length != b.length) return false;
+        for (uint256 i; i < a.length;) { if (a[i] != b[i]) return false; unchecked { ++i; } }
+        return true;
+    }
+
     function indexOf(bytes32[] memory set, bytes32 hotkey) internal pure returns (uint256) {
         for (uint256 i; i < set.length;) { if (set[i] == hotkey) return i; unchecked { ++i; } }
         return INDEX_NOT_FOUND;

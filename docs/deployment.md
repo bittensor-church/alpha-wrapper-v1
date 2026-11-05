@@ -26,7 +26,8 @@ cast send <registry> 'setValidator(uint256,bytes32)' <netuid> <hotkey> \
 
 The hotkey must have an owner record. Downstream `IValidatorRegistry`
 implementations must publish only nonzero, distinct hotkeys and weights that sum
-to 10000, and keep the nonce nonzero once a set is published.
+to 10000, keep the nonce nonzero once a set is published, and step it by one on
+every update.
 
 ## Vault set
 
