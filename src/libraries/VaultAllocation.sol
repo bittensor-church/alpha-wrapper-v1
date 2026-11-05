@@ -310,7 +310,6 @@ library VaultAllocation {
         }
     }
 
-    /// @dev Runs inside the vault's reentrancy guard. A single slot already holds every unit there is to align.
     function rebalance(Context memory context, bytes32[] memory hotkeys, uint16[] memory weights) external {
         if (weights.length == 1) return;
         uint256[] memory balances = VaultReads.stakesUnder(hotkeys, context.coldkey, context.netuid);
