@@ -24,7 +24,7 @@ import {
     LockedBacking, MailboxNotPrepared, SubnetCloneNotPrepared,
     NetuidOutOfRange, NothingToRecover, NothingToUnwrap,
     Parked, ParkingHotkeyUnavailable, BackingNotSecured, RecoveryWindowOutOfRange,
-    SaleExceedsAssets, ShortfallOnFile, SlippageExceeded, SlotMaskOutOfRange, StakingListHasRoom,
+    ShortfallOnFile, SlippageExceeded, SlotMaskOutOfRange, StakingListHasRoom,
     SubnetDissolved, SubnetNotRegistered, SupplyCapExceeded, WithdrawTooSmall,
     ZeroAddress, ZeroAmount, ZeroColdkey,
     ZeroHotkey
@@ -229,9 +229,10 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
 
         uint256[] memory postBalances = VaultReads.stakesUnder(hotkeys, cloneColdkey, netuid);
         uint256 sold = total - VaultMath.sumBalances(postBalances);
-        if (sold > assets) revert SaleExceedsAssets(sold, assets);
         _reanchor(tokenId, hotkeys, postBalances);
-        uint256 unsold = assets - sold;
+        // Share-pool rounding can read a partial sale one RAO high, and the chain sweeps a slot left under the
+        // nominator minimum into the sale; either excess falls on the remaining holders.
+        uint256 unsold = sold < assets ? assets - sold : 0;
         // Do not refund a full exit as fresh sub-floor dust; partial refunds merge with remaining shares.
         if (unsold != 0 && shares == supply) {
             uint256 alphaPriceE18 = IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid);

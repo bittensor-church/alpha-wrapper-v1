@@ -27,6 +27,8 @@ contract MockStaking {
     mapping(bytes32 => address) public evmAccountOf;
     mapping(bytes32 => mapping(bytes32 => mapping(uint256 => uint256))) private _stakes;
     uint256 public moveStakeRoundingLoss;
+    /// @dev Extra RAO a sale debits beyond what the pool bought, as share-pool rounding can on a fresh position.
+    uint256 public removeStakeRoundingLoss;
     uint256 public moveStakeResidual;
     uint256 public transferStakeRoundingLoss;
     bool public transferStakeReverts;
@@ -383,6 +385,10 @@ contract MockStaking {
         transferStakeRoundingLoss = loss;
     }
 
+    function setRemoveStakeRoundingLoss(uint256 loss) external {
+        removeStakeRoundingLoss = loss;
+    }
+
     function setMoveStakeRoundingLoss(uint256 loss) external {
         moveStakeRoundingLoss = loss;
     }
@@ -652,7 +658,8 @@ contract MockStaking {
         if (alphaAmount != staked && simulated < _chainMinStakeTao) _fail();
         uint256 consumed = removeStakeCap != 0 && alphaAmount > removeStakeCap ? removeStakeCap : alphaAmount;
         uint256 taoOut = quoteTaoOut(uint16(netuid), consumed);
-        _writeStake(hotkey, coldkey, netuid, staked - consumed);
+        uint256 debited = consumed + removeStakeRoundingLoss < staked ? consumed + removeStakeRoundingLoss : staked;
+        _writeStake(hotkey, coldkey, netuid, staked - debited);
         if (postSalePrice[netuid] != 0) {
             MockAlpha(ALPHA_PRECOMPILE).setAlphaPrice(uint16(netuid), postSalePrice[netuid]);
             delete postSalePrice[netuid];

@@ -4,7 +4,6 @@ pragma solidity 0.8.36;
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import {
     InsufficientShares,
-    SaleExceedsAssets,
     SlippageExceeded,
     SlotMaskOutOfRange,
     SubnetDissolved,
@@ -135,15 +134,38 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         assertEq(_positionValue(bob), 40 * ALPHA, "the co-holder keeps every alpha of their share");
     }
 
-    function test_RevertWhen_ASaleSweepsTheRemainderIntoThePayout() public {
+    function testFuzz_UnwrapForTao_PartialExitAbsorbsAOneRaoOverDebit(uint256 aliceAlpha) public {
+        aliceAlpha = bound(aliceAlpha, 1, 1000);
+        uint256 aliceShares = _depositForAlice(aliceAlpha * ALPHA);
+        _depositAndWrap(bob, NETUID1, 50 * ALPHA);
+        _plantVaultStakes(NETUID1, (aliceAlpha + 50) * ALPHA, 0, 0);
+        MockStaking(STAKING_PRECOMPILE).setRemoveStakeRoundingLoss(1);
+
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        vault.unwrapForTao(TOKEN1, aliceShares, 0);
+
+        assertEq(alice.balance - before, aliceAlpha * 0.05e18, "every alpha sold pays 0.05 TAO");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 50 * ALPHA - 1, "the chain debited one RAO more than it sold");
+        assertEq(vault.balanceOf(alice, TOKEN1), 0, "nothing is left unsold to refund");
+    }
+
+    /// @dev The sale drops the price to 0.0001 TAO, so the 50-alpha remainder is worth 0.005 TAO, under the
+    ///      0.02 TAO nominator minimum, and the chain sweeps it into the seller's payout.
+    function test_UnwrapForTao_ASweptSlotRemainderGoesToTheSeller() public {
         uint256 aliceShares = _depositForAlice(50 * ALPHA);
         _depositAndWrap(bob, NETUID1, 50 * ALPHA);
         _plantVaultStakes(NETUID1, 100 * ALPHA, 0, 0);
         MockStaking(STAKING_PRECOMPILE).setPostSalePrice(NETUID1, 1e14);
 
+        uint256 before = alice.balance;
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(SaleExceedsAssets.selector, 100 * ALPHA, 50 * ALPHA));
         vault.unwrapForTao(TOKEN1, aliceShares, 0);
+
+        assertEq(alice.balance - before, 2.505e18, "50 alpha at 0.05 TAO plus the 0.005 TAO sweep");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 0, "the sweep empties the slot");
+        assertEq(vault.balanceOf(alice, TOKEN1), 0, "nothing is left unsold to refund");
+        assertEq(_positionValue(bob), 0, "the co-holder loses the swept dust");
     }
 
     function test_UnwrapForTao_FullExitRefundsAnExcludedSlotAsShares() public {
