@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-/// @notice The vault's events, and the errors its linked libraries and clone factory raise on its behalf,
-///         so callers decode them from the vault ABI.
 interface IAlphaVaultAbi {
     /// @dev `attestedHotkey` is the registry entry the caller chose; the alpha lands on its resolved hotkey.
     event Deposited(
