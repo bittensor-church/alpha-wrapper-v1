@@ -35,6 +35,10 @@ contract MockValidatorRegistry is IValidatorRegistry {
         ++nonces[netuid];
     }
 
+    function setNonce(uint256 netuid, uint256 nonce) external {
+        nonces[netuid] = nonce;
+    }
+
     /// @dev Allows malformed sets that the real registry rejects.
     function setRaw(uint256 netuid, bytes32[] memory hotkeys, uint16[] memory weights) external {
         _slots[netuid] = Slot(hotkeys, weights);

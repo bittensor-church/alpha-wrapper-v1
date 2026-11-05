@@ -22,6 +22,7 @@ import {
 } from "src/VaultErrors.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
+import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 /// Tests how the vault handles alpha that goes missing: declaring the loss, parking what it can find
@@ -189,6 +190,16 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
         assertEq(lens.writeOffDeadline(TOKEN1), block.timestamp + RECOVERY_WINDOW, "the new loss gets a full window");
         vm.expectRevert(BackingUnchanged.selector);
+        vault.syncBacking(TOKEN1);
+    }
+
+    /// @dev The parked nonce is stored in 192 bits; a registry reporting a wider nonce cannot park a position.
+    function test_RevertWhen_ParkingNonceExceedsPackedWidth() public {
+        _declaredShortfallReturnedUnder(hotkey4);
+        vault.recoverStray(TOKEN1, hotkey4);
+        registry.setNonce(NETUID1, 2 ** 192);
+
+        vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, 192, 2 ** 192));
         vault.syncBacking(TOKEN1);
     }
 

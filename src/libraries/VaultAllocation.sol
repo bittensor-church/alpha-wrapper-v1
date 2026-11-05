@@ -119,23 +119,25 @@ library VaultAllocation {
         if (VaultReads.lockedAlphaOf(mailboxColdkey, nid) != 0) revert LockedDeposit();
     }
 
-    /// @dev Moves the depositor's `amount` of stake from their mailbox into the clone, staked under `target`.
+    /// @dev Moves the depositor's `amount` of stake from their mailbox into the clone, staked under `target`,
+    ///      a hotkey the caller has already found an owner record for.
     function pullDepositFromMailbox(address mailbox, bytes32 mailboxColdkey, Context memory context, bytes32 target,
         uint256 amount) external {
         IStaking staking = IStaking(STAKING_PRECOMPILE);
         address clone = context.clone; bytes32 cloneColdkey = context.coldkey; uint16 netuid = context.netuid;
         bytes32 landing = target;
         bool lifted;
-        if (staking.getStake(target, cloneColdkey, netuid) == 0) {
+        uint256 before = staking.getStake(target, cloneColdkey, netuid);
+        if (before == 0) {
             (bytes32[] memory listed, uint64 total) = staking.getStakingHotkeys(cloneColdkey, 0, 1);
             if (total != 0) {
-                landing = listed[0];
+                landing = listed[0]; before = staking.getStake(landing, cloneColdkey, netuid);
             } else {
                 SubnetClone(clone).setRejectStakingHotkeyGrowth(false); lifted = true;
             }
         }
-        uint256 before = staking.getStake(landing, cloneColdkey, netuid);
-        StakeOps.ensureHotkeyHasOwner(landing);
+        // Only a detour lands on a hotkey nobody has checked.
+        if (landing != target) StakeOps.ensureHotkeyHasOwner(landing);
         DepositMailbox(mailbox)
             .transferStakeAndHotkey(cloneColdkey, mailboxColdkey, landing, netuid, SafeCast.toUint64(amount));
         if (lifted) SubnetClone(clone).setRejectStakingHotkeyGrowth(true);
@@ -166,9 +168,10 @@ library VaultAllocation {
     ///      by the first round.
     function sellForTao(address clone, uint16 netuid, bytes32[] memory hotkeys,
         uint256[] memory balances, uint256 excludedSlots, uint256 assets) external {
-        uint256 dustThresholdTao = IStaking(STAKING_PRECOMPILE).getNominatorMinRequiredStake();
         // Full drains precede partials so a shrunken partial cannot consume a later floor-exempt drain.
-        uint256 remaining = _sellRound(clone, netuid, hotkeys, balances, excludedSlots, assets, dustThresholdTao, false);
+        uint256 remaining = _sellRound(clone, netuid, hotkeys, balances, excludedSlots, assets, 0, false);
+        if (remaining == 0) return;
+        uint256 dustThresholdTao = IStaking(STAKING_PRECOMPILE).getNominatorMinRequiredStake();
         _sellRound(clone, netuid, hotkeys, balances, excludedSlots, remaining, dustThresholdTao, true);
     }
 
@@ -207,10 +210,11 @@ library VaultAllocation {
 
         uint256 maxChunk = balance - minLeftover; uint256 chunk = maxChunk < remaining ? maxChunk : remaining;
         // Keep gas-consuming simulation failures away from provably sub-floor inputs.
-        if (StakeOps.isBelowFloorAtReadPrice(chunk, alphaPriceE18)) return 0;
+        uint256 minStakeTao = StakeOps.minStakeTao();
+        if (StakeOps.taoValue(chunk, alphaPriceE18) < minStakeTao) return 0;
 
         uint256 chunkQuote = IAlpha(ALPHA_PRECOMPILE).simSwapAlphaForTao(netuid, SafeCast.toUint64(chunk));
-        if (chunkQuote < StakeOps.minStakeTao()) return 0;
+        if (chunkQuote < minStakeTao) return 0;
 
         // The marginal quote bounds leftover value at the post-sale price.
         if (dustThresholdTao != 0) {
@@ -308,11 +312,12 @@ library VaultAllocation {
         }
     }
 
-    function _alignToWeights(Context memory context, bytes32[] memory hotkeys, uint16[] memory weights, uint256[] memory balances) private {
+    /// @dev A single slot already holds every unit there is to align, so it skips the balance reads too.
+    function _alignToWeights(Context memory context, bytes32[] memory hotkeys, uint16[] memory weights) private {
+        if (weights.length == 1) return;
+        uint256[] memory balances = VaultReads.stakesUnder(hotkeys, context.coldkey, context.netuid);
         uint256 total = VaultMath.sumBalances(balances);
-
-        // A single slot already holds every unit there is to align.
-        if (weights.length == 1 || total == 0) return;
+        if (total == 0) return;
 
         uint256 lastIndex = weights.length - 1; uint256[] memory targets = new uint256[](weights.length);
         {
@@ -354,7 +359,11 @@ library VaultAllocation {
         // A rejected precompile call consumes forwarded gas. Skip unproven moves and tolerate weight drift.
         if (context.alphaPriceE18 == 0 || StakeOps.taoValue(moveAmount, context.alphaPriceE18) < minStakeTao) { return false; }
         // A full staking list is no reason to hold an exit; alignment waits for the clone's replacement.
-        if (!VaultReads.stakingListAdmits(context.coldkey, hotkeys[underIndex], context.netuid, context.parking)) return false;
+        // A hotkey holding stake is listed already.
+        if (
+            balances[underIndex] == 0
+                && !VaultReads.stakingListAdmits(context.coldkey, hotkeys[underIndex], context.netuid, context.parking)
+        ) return false;
         StakeOps.moveToListedHotkey(context.clone, hotkeys[overIndex], hotkeys[underIndex], context.netuid, moveAmount);
         emit IAlphaVaultAbi.Rebalanced(context.tokenId, hotkeys[overIndex], hotkeys[underIndex], moveAmount);
         balances[overIndex] -= moveAmount; balances[underIndex] += moveAmount;
@@ -366,6 +375,33 @@ library VaultAllocation {
     /// @return leftBelowFloor True only when the richest source/destination is below the floor.
     function consolidateRotatedStake(Context memory context, bytes32[] memory sourceHotkeys, bytes32[] memory attestedHotkeys,
         CollectionPolicy policy) external returns (bool leftBelowFloor) {
+        return _consolidateRotatedStake(context, sourceHotkeys, attestedHotkeys, policy);
+    }
+
+    /// @dev Consolidation then weight alignment in one call. Runs inside the vault's reentrancy guard.
+    function consolidateAndAlign(Context memory context, bytes32[] memory sourceHotkeys, bytes32[] memory stakingHotkeys,
+        uint16[] memory weights) external {
+        _consolidateRotatedStake(context, sourceHotkeys, stakingHotkeys, CollectionPolicy.RevertBelowFloor);
+        _alignToWeights(context, stakingHotkeys, weights);
+    }
+
+    /// @dev Consolidation followed by the balances a payout prices against. Identical hotkey arrays mean nothing
+    ///      rotated out and nothing moved since the caller read `balances`, so those reads are still current.
+    function consolidateForPayout(Context memory context, bytes32[] memory sourceHotkeys, uint256[] memory balances,
+        bytes32[] memory stakingHotkeys) external returns (uint256[] memory) {
+        if (_sameHotkeys(sourceHotkeys, stakingHotkeys)) return balances;
+        _consolidateRotatedStake(context, sourceHotkeys, stakingHotkeys, CollectionPolicy.RevertBelowFloor);
+        return VaultReads.stakesUnder(stakingHotkeys, context.coldkey, context.netuid);
+    }
+
+    function _sameHotkeys(bytes32[] memory a, bytes32[] memory b) private pure returns (bool) {
+        if (a.length != b.length) return false;
+        for (uint256 i; i < a.length;) { if (a[i] != b[i]) return false; unchecked { ++i; } }
+        return true;
+    }
+
+    function _consolidateRotatedStake(Context memory context, bytes32[] memory sourceHotkeys, bytes32[] memory attestedHotkeys,
+        CollectionPolicy policy) private returns (bool leftBelowFloor) {
         if (!_anyRotatedOut(sourceHotkeys, attestedHotkeys)) return false;
         (bytes32 rollerHotkey, uint256 richestBalance, uint256[] memory sourceBalances, bool hasRotatedOutBalance, bytes32 destination)
             = _chooseConsolidationStart(sourceHotkeys, attestedHotkeys, context.coldkey, context.netuid);
@@ -390,7 +426,8 @@ library VaultAllocation {
             if (sourceHotkey != richestHotkey && sourceBalances[i] > 0) {
                 // Read the live pile; summing earlier credits would over-ask after chain rounding.
                 uint256 pile = IStaking(STAKING_PRECOMPILE).getStake(rollerHotkey, coldkey, netuid);
-                StakeOps.moveWithinListCap(context.clone, coldkey, rollerHotkey, sourceHotkey, netuid, pile, context.parking);
+                // The hop target holds stake, so it is listed already.
+                StakeOps.moveToListedHotkey(context.clone, rollerHotkey, sourceHotkey, netuid, pile);
                 rollerHotkey = sourceHotkey;
             }
             unchecked { ++i; }
@@ -410,8 +447,7 @@ library VaultAllocation {
 
     /// @dev Runs inside the vault's reentrancy guard.
     function rebalance(Context memory context, bytes32[] memory hotkeys, uint16[] memory weights) external {
-        uint256[] memory balances = VaultReads.stakesUnder(hotkeys, context.coldkey, context.netuid);
-        _alignToWeights(context, hotkeys, weights, balances);
+        _alignToWeights(context, hotkeys, weights);
     }
 
     /// @dev The vault checks slippage and settles its record after this returns; failures revert all stake moves.
@@ -441,7 +477,8 @@ library VaultAllocation {
             for (uint256 i; i < balances.length && balances[deliveryIndex] < assets;) {
                 if (i != deliveryIndex && balances[i] != 0) {
                     uint256 pile = IStaking(STAKING_PRECOMPILE).getStake(hotkeys[deliveryIndex], coldkey, netuid);
-                    StakeOps.moveWithinListCap(context.clone, coldkey, hotkeys[deliveryIndex], hotkeys[i], netuid, pile, context.parking);
+                    // The hop target holds stake, so it is listed already.
+                    StakeOps.moveToListedHotkey(context.clone, hotkeys[deliveryIndex], hotkeys[i], netuid, pile);
                     balances[i] += balances[deliveryIndex]; balances[deliveryIndex] = 0; deliveryIndex = i;
                 }
                 unchecked { ++i; }
