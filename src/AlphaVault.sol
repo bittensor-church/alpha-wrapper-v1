@@ -36,7 +36,6 @@ import {
 contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaVaultAbi {
     /// @dev One shortfall clock per token. A parked position rests on `parkingHotkey` until the
     ///      registry nonce moves past `parkedAtNonce`; zero means the position is not parked.
-    ///      One slot: every entry reads both fields.
     struct Recovery { uint64 shortSince; uint192 parkedAtNonce; }
 
     CloneFactory public immutable cloneFactory;
@@ -511,7 +510,6 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaV
         _writeSlot(tokenId, slots, 0, parkingHotkey, parkingHotkey, parked);
         _truncateSlots(tokenId, slots, 1);
         uint256 nonce = totalSupply(tokenId) == 0 ? 0 : validatorRegistry.nonces(VaultMath.netuidOf(tokenId));
-        // The registry steps its nonce by one, so the narrower field cannot truncate it.
         // forge-lint: disable-next-line(unsafe-typecast)
         recovery[tokenId] = Recovery({ shortSince: 0, parkedAtNonce: uint192(nonce) });
         emit BackingParked(tokenId, parked, nonce);
@@ -641,7 +639,6 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaV
     function _writeSlot(uint256 tokenId, VaultReads.Slot[] storage tokenSlots, uint256 index,
         bytes32 attested, bytes32 stakedUnder, uint256 tracked) private {
         if (index == tokenSlots.length) tokenSlots.push();
-        // A same-value write costs what the comparison's read would, so a branch could only add gas.
         VaultReads.Slot storage slot = tokenSlots[index];
         slot.attested = attested;
         _moveSlot(tokenId, slot, index, stakedUnder);

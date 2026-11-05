@@ -310,7 +310,7 @@ library VaultAllocation {
         }
     }
 
-    /// @dev A single slot already holds every unit there is to align, so it skips the balance reads too.
+    /// @dev A single slot already holds every unit there is to align.
     function _alignToWeights(Context memory context, bytes32[] memory hotkeys, uint16[] memory weights) private {
         if (weights.length == 1) return;
         uint256[] memory balances = VaultReads.stakesUnder(hotkeys, context.coldkey, context.netuid);
@@ -376,15 +376,14 @@ library VaultAllocation {
         return _consolidateRotatedStake(context, sourceHotkeys, attestedHotkeys, policy);
     }
 
-    /// @dev Consolidation then weight alignment in one call. Runs inside the vault's reentrancy guard.
+    /// @dev Runs inside the vault's reentrancy guard.
     function consolidateAndAlign(Context memory context, bytes32[] memory sourceHotkeys, bytes32[] memory stakingHotkeys,
         uint16[] memory weights) external {
         _consolidateRotatedStake(context, sourceHotkeys, stakingHotkeys, CollectionPolicy.RevertBelowFloor);
         _alignToWeights(context, stakingHotkeys, weights);
     }
 
-    /// @dev Consolidation followed by the balances a payout prices against. Identical hotkey arrays mean nothing
-    ///      rotated out and nothing moved since the caller read `balances`, so those reads are still current.
+    /// @dev Identical hotkey arrays mean nothing rotated out and nothing has moved since the caller read `balances`.
     function consolidateForPayout(Context memory context, bytes32[] memory sourceHotkeys, uint256[] memory balances,
         bytes32[] memory stakingHotkeys) external returns (uint256[] memory) {
         if (_sameHotkeys(sourceHotkeys, stakingHotkeys)) return balances;

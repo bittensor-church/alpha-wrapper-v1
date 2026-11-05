@@ -52,7 +52,6 @@ library StakeOps {
         return isBelowFloorAtReadPrice(alphaAmount, alphaPriceE18, minStakeTao());
     }
 
-    /// @dev For callers that read the floor once and test several amounts against it.
     function isBelowFloorAtReadPrice(uint256 alphaAmount, uint256 alphaPriceE18, uint256 floorTao) internal pure returns (bool) {
         return alphaPriceE18 != 0 && taoValue(alphaAmount, alphaPriceE18) < floorTao;
     }
