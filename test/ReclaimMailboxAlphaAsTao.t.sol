@@ -6,7 +6,7 @@ import { LockedDeposit, MailboxNotPrepared, NetuidOutOfRange, SlippageExceeded, 
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { ReentrantReceiver, RevertingReceiver } from "./helpers/TaoRailReceivers.sol";
-import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
     function _seedMailboxAlpha(address user, uint256 netuid, uint256 amount) internal {
@@ -130,7 +130,10 @@ contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
         vm.prank(address(receiver));
         vault.reclaimMailboxAlphaAsTao(NETUID1, 0);
 
-        assertEq(receiver.reentryError(), abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector));
+        assertEq(
+            receiver.reentryError(),
+            abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector)
+        );
         assertFalse(receiver.reentrySucceeded());
         assertEq(_mailboxStake(address(receiver)), 0);
     }

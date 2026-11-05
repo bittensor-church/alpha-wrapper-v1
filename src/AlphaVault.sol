@@ -3,7 +3,7 @@ pragma solidity 0.8.36;
 
 import { ERC1155 } from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import { ERC1155Supply } from "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
-import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import { CloneFactory } from "./CloneFactory.sol";
 import { SubnetClone } from "./SubnetClone.sol";
 import { DepositMailbox } from "./DepositMailbox.sol";
@@ -33,7 +33,7 @@ import {
 /// @notice ERC-1155 shares of staked alpha, isolated by subnet registration in vault-controlled clones.
 /// @dev Registry signers choose weights; watchers handle unresolved swaps. Missing backing parks a position with
 ///      shares outstanding on the vault's own hotkey until the registry publishes a newer set; see docs/hotkey-swaps.md.
-contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
+contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaVaultAbi {
     /// @dev One shortfall clock per token. A parked position rests on `parkingHotkey` until the
     ///      registry nonce moves past `parkedAtNonce`; zero means the position is not parked.
     struct Recovery { uint256 shortSince; uint256 parkedAtNonce; }
@@ -151,11 +151,12 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         uint256 totalAlpha = _settle(tokenId, destColdkey, set.hotkeys, stakingHotkeys);
 
         uint256 preStake = totalAlpha > totalDeposit ? totalAlpha - totalDeposit : 0;
-        uint256 shares = VaultMath.sharesFor(preStake, totalSupply(tokenId), totalDeposit);
+        uint256 supply = totalSupply(tokenId);
+        uint256 shares = VaultMath.sharesFor(preStake, supply, totalDeposit);
         if (shares == 0) revert ZeroAmount();
         if (shares < minSharesOut) revert SlippageExceeded(shares);
         // Repeated recapitalization of written-off shares can approach the index precision bound.
-        if (totalSupply(tokenId) + shares > SUPPLY_CAP) revert SupplyCapExceeded();
+        if (supply + shares > SUPPLY_CAP) revert SupplyCapExceeded();
 
         _mint(msg.sender, tokenId, shares, "");
 
@@ -288,10 +289,15 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         // No pool trades on this path, so one price read covers all moves.
         uint256 alphaPriceE18 = IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid);
         VaultAllocation.Context memory context = _context(tokenId, clone, coldkey, alphaPriceE18);
-        VaultAllocation.consolidateRotatedStake(
-            context, backing.hotkeys, stakingHotkeys, VaultAllocation.CollectionPolicy.RevertBelowFloor);
-
-        uint256[] memory balances = VaultReads.stakesUnder(stakingHotkeys, coldkey, netuid);
+        // Identical hotkeys leave consolidation nothing to move, so the balances already resolved still hold.
+        uint256[] memory balances;
+        if (VaultMath.equal(backing.hotkeys, stakingHotkeys)) {
+            balances = backing.balances;
+        } else {
+            VaultAllocation.consolidateRotatedStake(
+                context, backing.hotkeys, stakingHotkeys, VaultAllocation.CollectionPolicy.RevertBelowFloor);
+            balances = VaultReads.stakesUnder(stakingHotkeys, coldkey, netuid);
+        }
         uint256 totalAlpha = VaultMath.sumBalances(balances);
         // Zero floor explicitly forfeits these shares' claim on late recovery; accrued TAO survives.
         if (totalAlpha == 0) {
@@ -434,7 +440,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (recovery[tokenId].shortSince == 0) {
             (, VaultReads.Backing memory backing) = _openBacking(tokenId, coldkey, netuid);
             if (VaultMath.contains(backing.hotkeys, source)) revert NothingToRecover();
-            (bytes32 home, uint256 annexed) = _annex(tokenId, clone, coldkey, backing.hotkeys, sources);
+            (bytes32 home, uint256 annexed) = _annex(tokenId, clone, coldkey, backing, sources);
             emit BackingRecovered(tokenId, source, home, annexed);
             return;
         }
@@ -519,14 +525,13 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     }
 
     /// @dev With no shortfall, add strays to live backing. A movable pile also collects dust.
-    function _annex(uint256 tokenId, address clone, bytes32 coldkey, bytes32[] memory hotkeys, bytes32[] memory strays)
+    function _annex(uint256 tokenId, address clone, bytes32 coldkey, VaultReads.Backing memory backing, bytes32[] memory strays)
         private returns (bytes32 home, uint256 annexed) {
-        uint16 netuid = VaultMath.netuidOf(tokenId);
-        home = hotkeys[0];
-        uint256 before = IStaking(STAKING_PRECOMPILE).getStake(home, coldkey, netuid);
+        bytes32[] memory hotkeys = backing.hotkeys;
+        home = hotkeys[0]; uint256 before = backing.balances[0];
         (uint256 balance,) = _gather(tokenId, clone, coldkey, strays, home, VaultAllocation.CollectionPolicy.RevertBelowFloor);
         if (balance <= before) revert NothingToRecover();
-        _reanchor(tokenId, hotkeys, VaultReads.stakesUnder(hotkeys, coldkey, netuid));
+        _reanchor(tokenId, hotkeys, VaultReads.stakesUnder(hotkeys, coldkey, VaultMath.netuidOf(tokenId)));
         annexed = balance - before;
     }
 
@@ -644,9 +649,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         bytes32 attested, bytes32 stakedUnder, uint256 tracked) private {
         if (index == tokenSlots.length) tokenSlots.push();
         VaultReads.Slot storage slot = tokenSlots[index];
-        if (slot.attested != attested) slot.attested = attested;
+        slot.attested = attested;
         _moveSlot(tokenId, slot, index, stakedUnder);
-        if (slot.tracked != tracked) slot.tracked = tracked;
+        slot.tracked = tracked;
     }
 
     function _moveSlot(uint256 tokenId, VaultReads.Slot storage slot, uint256 index, bytes32 stakedUnder) private {
@@ -671,7 +676,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         for (uint256 i; i < tokenSlots.length;) {
             VaultReads.Slot storage slot = tokenSlots[i];
             _moveSlot(tokenId, slot, i, hotkeys[i]);
-            if (slot.tracked != balances[i]) slot.tracked = balances[i];
+            slot.tracked = balances[i];
             unchecked { ++i; }
         }
     }
