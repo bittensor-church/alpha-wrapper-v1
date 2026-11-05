@@ -190,13 +190,9 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         return _stakeAcross(hks, _subnetColdkey(netuid), netuid);
     }
 
-    function _countRebalancedLogs(Vm.Log[] memory logs) internal pure returns (uint256 count) {
-        bytes32 sig = keccak256("Rebalanced(uint256,bytes32,bytes32,uint256)");
-        for (uint256 i; i < logs.length;) {
-            if (logs[i].topics.length > 0 && logs[i].topics[0] == sig) count++;
-            unchecked {
-                ++i;
-            }
+    function _countLogs(Vm.Log[] memory logs, bytes32 selector) internal view returns (uint256 count) {
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter == address(vault) && logs[i].topics[0] == selector) ++count;
         }
     }
 
@@ -611,6 +607,17 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         MockStaking(STAKING_PRECOMPILE)
             .sweepSmallNomination(hotkey, vault.subnetClone(vault.currentTokenId(netuid)), netuid);
         _setAlphaPrice(netuid, price);
+    }
+
+    /// @dev Alice's position, swept, recovered from a stranger and parked.
+    function _parkedPosition(uint256 amount) internal returns (uint256 shares, uint256 parkedAtNonce) {
+        shares = _depositAndWrap(alice, NETUID1, amount);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
+        vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, hotkey4, swept);
+        vault.recoverStray(TOKEN1, hotkey4);
+        vault.syncBacking(TOKEN1);
+        (, parkedAtNonce) = vault.recovery(TOKEN1);
     }
 
     /// @dev A crumb on the other subnet keeps the hotkey listed, so the transfer lands under the reject-growth flag.

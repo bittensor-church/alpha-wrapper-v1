@@ -46,6 +46,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     /// @dev The registry nonce setUp's attestation leaves on NETUID1.
     uint256 private constant SETUP_NONCE = 1;
     uint256 private constant GIFT = 3_000_000;
+    uint256 private constant PARKED_DEPOSIT = 30 * ALPHA;
 
     function _declaredShortfall() private returns (uint256 shares) {
         shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
@@ -429,21 +430,8 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         vault.recoverStray(TOKEN1, hotkey4);
     }
 
-    function _parkedPosition() private returns (uint256 shares) {
-        return _parkedPosition(30 * ALPHA);
-    }
-
-    function _parkedPosition(uint256 amount) private returns (uint256 shares) {
-        shares = _depositAndWrap(alice, NETUID1, amount);
-        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
-        vault.syncBacking(TOKEN1);
-        _strangerReturns(NETUID1, hotkey4, swept);
-        vault.recoverStray(TOKEN1, hotkey4);
-        vault.syncBacking(TOKEN1);
-    }
-
     function test_ParkedPosition_RefusesDepositsAndAlignmentUntilANewAttestation() public {
-        _parkedPosition();
+        _parkedPosition(PARKED_DEPOSIT);
 
         _simulateAlphaDeposit(bob, NETUID1, ALPHA);
         vm.expectRevert(Parked.selector);
@@ -456,7 +444,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_ParkedPosition_PaysAlphaExitsFromTheParkingHotkey() public {
-        uint256 shares = _parkedPosition();
+        (uint256 shares,) = _parkedPosition(PARKED_DEPOSIT);
         bytes32 parking = vault.parkingHotkey();
 
         vm.prank(alice);
@@ -469,7 +457,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_ParkedPosition_PaysTaoExitsFromTheParkingHotkey() public {
-        uint256 shares = _parkedPosition();
+        (uint256 shares,) = _parkedPosition(PARKED_DEPOSIT);
 
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares / 2, 0);
@@ -480,7 +468,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_RevertWhen_AParkedTaoExitExcludesItsOnlySlot() public {
-        uint256 shares = _parkedPosition();
+        (uint256 shares,) = _parkedPosition(PARKED_DEPOSIT);
 
         vm.prank(alice);
         vm.expectRevert(WithdrawTooSmall.selector);
@@ -488,7 +476,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_RevertWhen_AParkedTaoExitExcludesASlotPastTheParkingSlot() public {
-        uint256 shares = _parkedPosition();
+        (uint256 shares,) = _parkedPosition(PARKED_DEPOSIT);
 
         vm.prank(alice);
         vm.expectRevert(SlotMaskOutOfRange.selector);
@@ -496,7 +484,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_ParkedPosition_FullTaoExitReleasesIt() public {
-        uint256 shares = _parkedPosition();
+        (uint256 shares,) = _parkedPosition(PARKED_DEPOSIT);
 
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares, 0);
@@ -509,7 +497,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
     /// @dev Stake is keyed by hotkey, coldkey and netuid, so one parking hotkey serves every subnet.
     function test_ParkedPosition_LeavesOtherSubnetsUntouched() public {
-        _parkedPosition();
+        _parkedPosition(PARKED_DEPOSIT);
 
         uint256 shares = _depositAndWrap(bob, NETUID2, 10 * ALPHA);
         vault.rebalance(NETUID2);
@@ -523,7 +511,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_ParkedPosition_KeepsTransfersAndClaimsLive() public {
-        uint256 shares = _parkedPosition();
+        (uint256 shares,) = _parkedPosition(PARKED_DEPOSIT);
         _donateToClone(vault.subnetClone(TOKEN1), 4 * TAO);
 
         vm.prank(alice);
@@ -538,7 +526,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_ParkedPosition_FullExitRetiresEveryShare() public {
-        uint256 shares = _parkedPosition();
+        (uint256 shares,) = _parkedPosition(PARKED_DEPOSIT);
 
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
@@ -678,7 +666,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     /// @dev 0.3 alpha is below the 0.4 alpha nominator minimum at 0.05 TAO/alpha; its sweep pays 0.015 TAO.
     function test_SweptParkedPosition_IsWrittenOffAndItsSaleStaysClaimable() public {
         uint256 parked = 3 * ALPHA / 10;
-        uint256 shares = _parkedPosition(parked);
+        (uint256 shares,) = _parkedPosition(parked);
         address clone = vault.subnetClone(TOKEN1);
         MockStaking(STAKING_PRECOMPILE).setStake(vault.parkingHotkey(), _toSubstrate(clone), NETUID1, 0);
         _donateToClone(clone, 0.015e18);
@@ -703,7 +691,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_NewAttestation_ReleasesTheParkedPosition() public {
-        _parkedPosition();
+        _parkedPosition(PARKED_DEPOSIT);
 
         _reattestCurrentSet(NETUID1);
         assertFalse(vault.awaitingAttestation(TOKEN1), "the newer nonce lifts the hold");
@@ -719,7 +707,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_Wrap_ReleasesAParkedPositionAfterANewAttestation() public {
-        _parkedPosition();
+        _parkedPosition(PARKED_DEPOSIT);
         _reattestCurrentSet(NETUID1);
 
         _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
@@ -731,7 +719,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_ReplacingTheLostAttestedHotkey_RoutesParkedAlphaToTheSuccessor() public {
-        _parkedPosition();
+        _parkedPosition(PARKED_DEPOSIT);
 
         _setValidators(
             NETUID1, _hotkeys(hotkey4, hotkey2, hotkey3), _weights(NETUID1_BPS_HK1, NETUID1_BPS_HK2, NETUID1_BPS_HK3)
@@ -764,7 +752,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_DissolvedSubnet_PaysAParkedPositionInTao() public {
-        uint256 shares = _parkedPosition();
+        (uint256 shares,) = _parkedPosition(PARKED_DEPOSIT);
         _dissolveWithPot(1.5e18);
 
         vm.expectEmit(true, true, false, true, address(vault));

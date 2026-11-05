@@ -434,8 +434,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (recovery[tokenId].shortSince == 0) {
             (, VaultReads.Backing memory backing) = _openBacking(tokenId, coldkey, netuid);
             if (VaultMath.contains(backing.hotkeys, source)) revert NothingToRecover();
-            uint256 annexed = _annex(tokenId, clone, coldkey, backing.hotkeys, sources);
-            emit BackingRecovered(tokenId, source, backing.hotkeys[0], annexed);
+            (bytes32 home, uint256 annexed) = _annex(tokenId, clone, coldkey, backing.hotkeys, sources);
+            emit BackingRecovered(tokenId, source, home, annexed);
             return;
         }
         if (source == parkingHotkey) revert NothingToRecover();
@@ -493,6 +493,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
 
     /// @dev Only parking carries the pooled obligation; other entries are collection locations.
     function _startRecovery(uint256 tokenId, bytes32[] memory hotkeys, uint256 expected, uint256 parked) private {
+        _releaseParking(tokenId);
         VaultReads.Slot[] storage slots = _slots[tokenId];
         _writeSlot(tokenId, slots, 0, parkingHotkey, parkingHotkey, expected);
         uint256 count = 1;
@@ -508,6 +509,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     }
 
     function _finishRecovery(uint256 tokenId, uint256 parked) private {
+        _releaseParking(tokenId);
         VaultReads.Slot[] storage slots = _slots[tokenId];
         _writeSlot(tokenId, slots, 0, parkingHotkey, parkingHotkey, parked);
         _truncateSlots(tokenId, slots, 1);
@@ -518,14 +520,14 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
 
     /// @dev With no shortfall, add strays to live backing. A movable pile also collects dust.
     function _annex(uint256 tokenId, address clone, bytes32 coldkey, bytes32[] memory hotkeys, bytes32[] memory strays)
-        private returns (uint256 annexed) {
+        private returns (bytes32 home, uint256 annexed) {
         uint16 netuid = VaultMath.netuidOf(tokenId);
-        bytes32 home = hotkeys[0];
+        home = hotkeys[0];
         uint256 before = IStaking(STAKING_PRECOMPILE).getStake(home, coldkey, netuid);
         (uint256 balance,) = _gather(tokenId, clone, coldkey, strays, home, VaultAllocation.CollectionPolicy.RevertBelowFloor);
         if (balance <= before) revert NothingToRecover();
         _reanchor(tokenId, hotkeys, VaultReads.stakesUnder(hotkeys, coldkey, netuid));
-        return balance - before;
+        annexed = balance - before;
     }
 
     function _gather(uint256 tokenId, address clone, bytes32 coldkey,

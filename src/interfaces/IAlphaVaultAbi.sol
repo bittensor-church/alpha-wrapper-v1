@@ -36,14 +36,15 @@ interface IAlphaVaultAbi {
     /// @dev The position rests on the parking hotkey until an attestation newer than `registryNonce` lands.
     ///      A zero `registryNonce` means no shares remained, so deposits stay open.
     event BackingParked(uint256 indexed tokenId, uint256 backing, uint256 registryNonce);
-    /// @dev Ends the parking announced at `registryNonce`: a newer attestation landed, or no shares remain.
+    /// @dev Ends the parking announced at `registryNonce`: a newer attestation landed, no shares remain, or a
+    ///      new shortfall or parking replaces it.
     event ParkingReleased(uint256 indexed tokenId, uint256 registryNonce);
     /// @dev `recoverStray` moved the vault's alpha from `source` onto `destination`.
     event BackingRecovered(uint256 indexed tokenId, bytes32 indexed source, bytes32 indexed destination, uint256 amount);
     /// @dev A sync during recovery moved returns from recorded hotkeys onto the parking hotkey.
     event BackingCollected(uint256 indexed tokenId, uint256 amount);
     /// @dev The record moved slot `slot` from `fromHotkey` to `toHotkey`. A zero `fromHotkey` opens the slot; a zero
-    ///      `toHotkey` closes it.
+    ///      `toHotkey` closes it. It tracks the record, not alpha: a renumbered slot moves no stake.
     event SlotRelocated(uint256 indexed tokenId, uint256 slot, bytes32 indexed fromHotkey, bytes32 indexed toHotkey);
 
     error SafeCastOverflowedUintDowncast(uint8 bits, uint256 value);

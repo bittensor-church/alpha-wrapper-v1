@@ -67,7 +67,7 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
         vm.recordLogs();
         vault.rebalance(NETUID1);
 
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 0, "pure consolidation emits nothing");
+        assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 0, "pure consolidation emits nothing");
         assertEq(_getVaultStake(hotkey1, NETUID1), 0, "earlier rotated-out slot consolidated");
         assertEq(_getVaultStake(hotkey2, NETUID1), 0, "richest rotated-out slot consolidated");
         assertEq(_getVaultStake(hotkey4, NETUID1), 100 * ALPHA, "whole pile landed on the current set");
@@ -81,7 +81,9 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
         vm.recordLogs();
         vault.rebalance(NETUID1);
 
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 1, "roll hops are silent; only the alignment logs");
+        assertEq(
+            _countLogs(vm.getRecordedLogs(), Rebalanced.selector), 1, "roll hops are silent; only the alignment logs"
+        );
 
         assertEq(_getVaultStake(hotkey3, NETUID1), 0, "rotated-out slot consolidated by the roll");
         assertEq(_getVaultStake(hotkey1, NETUID1), 150 * ALPHA);

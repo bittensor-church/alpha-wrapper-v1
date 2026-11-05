@@ -1,27 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Vm } from "forge-std/Test.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
+import { MockStaking } from "./mocks/MockStaking.sol";
+import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract VaultEventsTest is AlphaVaultTestBase {
     uint256 private constant DEPOSIT = 30 * ALPHA;
-
-    function _parkedPosition() private returns (uint256 shares, uint256 parkedAtNonce) {
-        shares = _depositAndWrap(alice, NETUID1, DEPOSIT);
-        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
-        vault.syncBacking(TOKEN1);
-        _strangerReturns(NETUID1, hotkey4, swept);
-        vault.recoverStray(TOKEN1, hotkey4);
-        vault.syncBacking(TOKEN1);
-        (, parkedAtNonce) = vault.recovery(TOKEN1);
-    }
-
-    function _countLogs(Vm.Log[] memory logs, bytes32 selector) private view returns (uint256 count) {
-        for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].emitter == address(vault) && logs[i].topics[0] == selector) ++count;
-        }
-    }
 
     function test_Wrap_RecordsEachOpenedSlotAndTheChosenHotkey() public {
         _simulateAlphaDeposit(alice, NETUID1, DEPOSIT);
@@ -105,8 +90,21 @@ contract VaultEventsTest is AlphaVaultTestBase {
         assertEq(vault.recordedSlots(TOKEN1).length, 1);
     }
 
+    function test_SyncBacking_ReleasesParkingBeforeDeclaringANewShortfall() public {
+        (, uint256 parkedAtNonce) = _parkedPosition(DEPOSIT);
+        MockStaking(STAKING_PRECOMPILE).setStake(vault.parkingHotkey(), _subnetColdkey(NETUID1), NETUID1, 10 * ALPHA);
+
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit ParkingReleased(TOKEN1, parkedAtNonce);
+        vault.syncBacking(TOKEN1);
+
+        (uint256 shortSince, uint256 nonceAfter) = vault.recovery(TOKEN1);
+        assertEq(shortSince, block.timestamp, "a new recovery window is open");
+        assertEq(nonceAfter, 0);
+    }
+
     function test_Rebalance_ReleasesParkingAfterANewerAttestation() public {
-        (, uint256 parkedAtNonce) = _parkedPosition();
+        (, uint256 parkedAtNonce) = _parkedPosition(DEPOSIT);
         _reattestCurrentSet(NETUID1);
 
         vm.expectEmit(true, false, false, true, address(vault));
@@ -117,7 +115,7 @@ contract VaultEventsTest is AlphaVaultTestBase {
     }
 
     function test_Unwrap_PartialExitKeepsParking() public {
-        (uint256 shares,) = _parkedPosition();
+        (uint256 shares,) = _parkedPosition(DEPOSIT);
 
         vm.recordLogs();
         vm.prank(alice);
@@ -128,7 +126,7 @@ contract VaultEventsTest is AlphaVaultTestBase {
     }
 
     function test_Unwrap_ReleasesParkingWhenNoSharesRemain() public {
-        (uint256 shares, uint256 parkedAtNonce) = _parkedPosition();
+        (uint256 shares, uint256 parkedAtNonce) = _parkedPosition(DEPOSIT);
 
         vm.expectEmit(true, false, false, true, address(vault));
         emit ParkingReleased(TOKEN1, parkedAtNonce);
@@ -140,7 +138,7 @@ contract VaultEventsTest is AlphaVaultTestBase {
     }
 
     function test_UnwrapForTao_ReleasesParkingWhenNoSharesRemain() public {
-        (uint256 shares, uint256 parkedAtNonce) = _parkedPosition();
+        (uint256 shares, uint256 parkedAtNonce) = _parkedPosition(DEPOSIT);
 
         vm.expectEmit(true, false, false, true, address(vault));
         emit ParkingReleased(TOKEN1, parkedAtNonce);

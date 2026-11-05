@@ -396,7 +396,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.recordLogs();
         vault.rebalance(NETUID1);
 
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 0);
+        assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 0);
         assertEq(_getVaultStake(hotkey1, NETUID1), 50 * ALPHA);
         assertEq(_getVaultStake(hotkey2, NETUID1), 50 * ALPHA);
     }
@@ -441,7 +441,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vm.recordLogs();
         vm.prank(alice);
         vault.unwrap(tokenId, shares, _toSubstrate(alice), 0);
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 0);
+        assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 0);
     }
 
     function test_RevertWhen_RegistryWhenNoValidatorsSet() public {
@@ -1382,7 +1382,9 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(_getVaultStake(hotkey3, NETUID1), 0, "rotated-out slot must be drained");
-        assertEq(_countRebalancedLogs(logs), 1, "silent consolidation; only the post-consolidation alignment logs");
+        assertEq(
+            _countLogs(logs, Rebalanced.selector), 1, "silent consolidation; only the post-consolidation alignment logs"
+        );
         assertEq(_getVaultStake(hotkey4, NETUID1), 9_999_000_000, "the new key takes the dropped key's weight");
 
         bytes32[] memory lastSeen = _lastSeen(TOKEN1);
@@ -1437,7 +1439,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        assertEq(_countRebalancedLogs(logs), 0, "no-op rebalance emits nothing");
+        assertEq(_countLogs(logs, Rebalanced.selector), 0, "no-op rebalance emits nothing");
         assertEq(_getVaultStake(hotkey3, NETUID1), 9_999_000_000);
     }
 
@@ -1561,7 +1563,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(hotkey1, NETUID1), b1After, "hotkey1 unchanged on second rebalance");
         assertEq(_getVaultStake(hotkey2, NETUID1), b2After, "hotkey2 unchanged on second rebalance");
         assertEq(_getVaultStake(hotkey3, NETUID1), b3After, "hotkey3 unchanged on second rebalance");
-        assertEq(_countRebalancedLogs(vm.getRecordedLogs()), 0, "no Rebalanced events on second call");
+        assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 0, "no Rebalanced events on second call");
     }
 
     /// @dev The planted layout keeps the deposit's total, so supply stays d * 1e9 on stake d and a burn of
@@ -1664,7 +1666,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
 
         assertEq(balances[0] + balances[1] + balances[2], preTotal, "rebalance conserves total alpha");
         assertEq(lens.totalStake(TOKEN1), preTotal, "totalStake synced to on-chain total");
-        assertLe(_countRebalancedLogs(logs), 2, "rebalance loop bounded by N-1 iterations");
+        assertLe(_countLogs(logs, Rebalanced.selector), 2, "rebalance loop bounded by N-1 iterations");
 
         uint256 maxOver;
         uint256 maxUnder;

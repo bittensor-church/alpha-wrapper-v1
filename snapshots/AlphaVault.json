@@ -11,7 +11,7 @@
   "recoverStray: collect merged source (10 validators)": "334485",
   "recoverStray: collect one source (10 validators)": "221390",
   "replaceClone: 3 validators": "4835200",
-  "syncBacking: loss on file (10 validators)": "1188454",
+  "syncBacking: loss on file (10 validators)": "1188551",
   "syncBacking: record a cut edge": "140466",
   "unwrap: full": "590940",
   "unwrap: full (10 validators)": "1282292",
