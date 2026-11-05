@@ -119,8 +119,7 @@ library VaultAllocation {
         if (VaultReads.lockedAlphaOf(mailboxColdkey, nid) != 0) revert LockedDeposit();
     }
 
-    /// @dev Moves the depositor's `amount` of stake from their mailbox into the clone, staked under `target`,
-    ///      a hotkey the caller has already found an owner record for.
+    /// @dev Moves the depositor's `amount` of stake from their mailbox into the clone, staked under `target`.
     function pullDepositFromMailbox(address mailbox, bytes32 mailboxColdkey, Context memory context, bytes32 target,
         uint256 amount) external {
         IStaking staking = IStaking(STAKING_PRECOMPILE);
@@ -136,8 +135,7 @@ library VaultAllocation {
                 SubnetClone(clone).setRejectStakingHotkeyGrowth(false); lifted = true;
             }
         }
-        // Only a detour lands on a hotkey nobody has checked.
-        if (landing != target) StakeOps.ensureHotkeyHasOwner(landing);
+        StakeOps.ensureHotkeyHasOwner(landing);
         DepositMailbox(mailbox)
             .transferStakeAndHotkey(cloneColdkey, mailboxColdkey, landing, netuid, SafeCast.toUint64(amount));
         if (lifted) SubnetClone(clone).setRejectStakingHotkeyGrowth(true);
@@ -211,7 +209,7 @@ library VaultAllocation {
         uint256 maxChunk = balance - minLeftover; uint256 chunk = maxChunk < remaining ? maxChunk : remaining;
         // Keep gas-consuming simulation failures away from provably sub-floor inputs.
         uint256 minStakeTao = StakeOps.minStakeTao();
-        if (StakeOps.taoValue(chunk, alphaPriceE18) < minStakeTao) return 0;
+        if (StakeOps.isBelowFloorAtReadPrice(chunk, alphaPriceE18, minStakeTao)) return 0;
 
         uint256 chunkQuote = IAlpha(ALPHA_PRECOMPILE).simSwapAlphaForTao(netuid, SafeCast.toUint64(chunk));
         if (chunkQuote < minStakeTao) return 0;

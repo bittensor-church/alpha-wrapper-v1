@@ -4,7 +4,6 @@ pragma solidity 0.8.36;
 import { ERC1155 } from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import { ERC1155Supply } from "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
-import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import { CloneFactory } from "./CloneFactory.sol";
 import { SubnetClone } from "./SubnetClone.sol";
 import { DepositMailbox } from "./DepositMailbox.sol";
@@ -501,7 +500,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaV
             }
             unchecked { ++i; }
         }
-        recovery[tokenId] = Recovery({ shortSince: SafeCast.toUint64(block.timestamp), parkedAtNonce: 0 });
+        // forge-lint: disable-next-line(unsafe-typecast)
+        recovery[tokenId] = Recovery({ shortSince: uint64(block.timestamp), parkedAtNonce: 0 });
         emit BackingShortfallDeclared(tokenId, expected, parked);
     }
 
@@ -511,7 +511,9 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaV
         _writeSlot(tokenId, slots, 0, parkingHotkey, parkingHotkey, parked);
         _truncateSlots(tokenId, slots, 1);
         uint256 nonce = totalSupply(tokenId) == 0 ? 0 : validatorRegistry.nonces(VaultMath.netuidOf(tokenId));
-        recovery[tokenId] = Recovery({ shortSince: 0, parkedAtNonce: SafeCast.toUint192(nonce) });
+        // The registry steps its nonce by one, so the narrower field cannot truncate it.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        recovery[tokenId] = Recovery({ shortSince: 0, parkedAtNonce: uint192(nonce) });
         emit BackingParked(tokenId, parked, nonce);
     }
 
@@ -639,7 +641,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaV
     function _writeSlot(uint256 tokenId, VaultReads.Slot[] storage tokenSlots, uint256 index,
         bytes32 attested, bytes32 stakedUnder, uint256 tracked) private {
         if (index == tokenSlots.length) tokenSlots.push();
-        // Callers loaded the record already, so a same-value write costs what the comparison would.
+        // A same-value write costs what the comparison's read would, so a branch could only add gas.
         VaultReads.Slot storage slot = tokenSlots[index];
         slot.attested = attested;
         _moveSlot(tokenId, slot, index, stakedUnder);
