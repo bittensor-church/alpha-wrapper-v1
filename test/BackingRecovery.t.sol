@@ -707,10 +707,12 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
     }
 
     function test_Wrap_ReleasesAParkedPositionAfterANewAttestation() public {
-        _parkedPosition(PARKED_DEPOSIT);
+        (, uint256 parkedAtNonce) = _parkedPosition(PARKED_DEPOSIT);
         _reattestCurrentSet(NETUID1);
 
         _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit ParkingReleased(TOKEN1, parkedAtNonce);
         _wrapHotkey(bob, NETUID1, hotkey2);
 
         assertEq(vault.balanceOf(bob, TOKEN1), 6e18, "6 alpha against 30 alpha on 3e19 shares");

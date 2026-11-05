@@ -64,6 +64,12 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         );
     }
 
+    function testFuzz_Constructor_AcceptsRecoveryWindowsUpToAYear(uint256 recoveryWindow) public {
+        recoveryWindow = bound(recoveryWindow, 1, 365 days);
+        (AlphaVault windowVault,) = _deployVaultAndLens(address(registry), recoveryWindow);
+        assertEq(windowVault.recoveryWindow(), recoveryWindow);
+    }
+
     function test_Constructor_AcceptsAYearLongRecoveryWindow() public {
         (AlphaVault yearVault,) = _deployVaultAndLens(address(registry), 365 days);
         assertEq(yearVault.recoveryWindow(), 365 days);

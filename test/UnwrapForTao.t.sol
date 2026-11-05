@@ -134,38 +134,89 @@ contract UnwrapForTaoTest is AlphaVaultTestBase {
         assertEq(_positionValue(bob), 40 * ALPHA, "the co-holder keeps every alpha of their share");
     }
 
-    function testFuzz_UnwrapForTao_PartialExitAbsorbsAOneRaoOverDebit(uint256 aliceAlpha) public {
-        aliceAlpha = bound(aliceAlpha, 1, 1000);
-        uint256 aliceShares = _depositForAlice(aliceAlpha * ALPHA);
+    function testFuzz_UnwrapForTao_PartialExitAbsorbsAOneRaoOverDebit(uint256 aliceRao) public {
+        aliceRao = bound(aliceRao, ALPHA, 1000 * ALPHA);
+        uint256 aliceShares = _depositForAlice(aliceRao);
         _depositAndWrap(bob, NETUID1, 50 * ALPHA);
-        _plantVaultStakes(NETUID1, (aliceAlpha + 50) * ALPHA, 0, 0);
+        _plantVaultStakes(NETUID1, aliceRao + 50 * ALPHA, 0, 0);
         MockStaking(STAKING_PRECOMPILE).setRemoveStakeRoundingLoss(1);
 
         uint256 before = alice.balance;
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, aliceShares, 0);
 
-        assertEq(alice.balance - before, aliceAlpha * 0.05e18, "every alpha sold pays 0.05 TAO");
+        // At 0.05 TAO per alpha every 20 RAO of alpha pays 1 RAO of TAO (1e9 wei).
+        assertEq(alice.balance - before, aliceRao / 20 * 1e9, "0.05 TAO per alpha, floored to whole RAO");
         assertEq(_getVaultStake(hotkey1, NETUID1), 50 * ALPHA - 1, "the chain debited one RAO more than it sold");
         assertEq(vault.balanceOf(alice, TOKEN1), 0, "nothing is left unsold to refund");
     }
 
-    /// @dev The sale drops the price to 0.0001 TAO, so the 50-alpha remainder is worth 0.005 TAO, under the
-    ///      0.02 TAO nominator minimum, and the chain sweeps it into the seller's payout.
-    function test_UnwrapForTao_ASweptSlotRemainderGoesToTheSeller() public {
-        uint256 aliceShares = _depositForAlice(50 * ALPHA);
-        _depositAndWrap(bob, NETUID1, 50 * ALPHA);
-        _plantVaultStakes(NETUID1, 100 * ALPHA, 0, 0);
-        MockStaking(STAKING_PRECOMPILE).setPostSalePrice(NETUID1, 1e14);
+    /// @dev Each 0.5-alpha slot must keep 0.4 alpha, the 0.02 TAO nominator minimum at 0.05, so the 0.25-alpha exit
+    ///      sells part of every slot and each sale debits one extra RAO.
+    function test_UnwrapForTao_PartialSalesOnEverySlotAbsorbTheirOverDebits() public {
+        uint256 aliceShares = _depositForAlice(ALPHA / 4);
+        _depositAndWrap(bob, NETUID1, 5 * ALPHA / 4);
+        _plantVaultStakes(NETUID1, ALPHA / 2, ALPHA / 2, ALPHA / 2);
+        MockStaking(STAKING_PRECOMPILE).setRemoveStakeRoundingLoss(1);
 
         uint256 before = alice.balance;
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, aliceShares, 0);
 
-        assertEq(alice.balance - before, 2.505e18, "50 alpha at 0.05 TAO plus the 0.005 TAO sweep");
+        assertEq(alice.balance - before, 0.0125e18, "0.25 alpha at 0.05 TAO");
+        assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 5 * ALPHA / 4 - 3, "three sales, one extra RAO each");
+        assertEq(vault.balanceOf(alice, TOKEN1), 0, "nothing is left unsold to refund");
+    }
+
+    function test_UnwrapForTao_ShortFilledSaleRefundsLessTheOverDebitedRao() public {
+        _depositForAlice(100 * ALPHA);
+        _plantVaultStakes(NETUID1, 100 * ALPHA, 0, 0);
+        _setRemoveStakeCap(50 * ALPHA - 10);
+        MockStaking(STAKING_PRECOMPILE).setRemoveStakeRoundingLoss(1);
+
+        vm.prank(alice);
+        vault.unwrapForTao(TOKEN1, 50e18, 0);
+
+        // The pool left 10 RAO unsold and the chain kept one of them; the other 9 return at 1e9 shares per RAO.
+        assertEq(vault.balanceOf(alice, TOKEN1), 50e18 + 9e9, "the seller bears the over-debit on a short fill");
+    }
+
+    /// @dev Bob holds 400_000_020 RAO, the least a partial sale may leave at 0.05 TAO: (0.02 TAO + 1 RAO) / 0.05,
+    ///      rounded up. A 2% price impact puts it under the 0.02 TAO minimum and the chain sweeps it into the sale.
+    function test_UnwrapForTao_ASweptSlotRemainderGoesToTheSeller() public {
+        uint256 aliceShares = _depositForAlice(10 * ALPHA);
+        _depositAndWrap(bob, NETUID1, 400_000_020);
+        _plantVaultStakes(NETUID1, 10 * ALPHA + 400_000_020, 0, 0);
+        MockStaking(STAKING_PRECOMPILE).setPostSalePrice(NETUID1, 0.049e18);
+
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        vault.unwrapForTao(TOKEN1, aliceShares, 0);
+
+        // 400_000_020 * 0.049 = 19_600_000.98, floored to RAO.
+        assertEq(alice.balance - before, 0.5196e18, "10 alpha at 0.05 TAO plus the 0.0196 TAO sweep");
         assertEq(_getVaultStake(hotkey1, NETUID1), 0, "the sweep empties the slot");
         assertEq(vault.balanceOf(alice, TOKEN1), 0, "nothing is left unsold to refund");
-        assertEq(_positionValue(bob), 0, "the co-holder loses the swept dust");
+        assertEq(_positionValue(bob), 0, "the co-holder loses the swept remainder");
+    }
+
+    /// @dev A 0.2% to 20% price impact sweeps the least leftover a partial sale may leave.
+    function testFuzz_UnwrapForTao_APriceImpactSweepsTheLeastLeftover(uint256 postSalePrice) public {
+        postSalePrice = bound(postSalePrice, 0.04e18, 0.0499e18);
+        uint256 aliceShares = _depositForAlice(10 * ALPHA);
+        _depositAndWrap(bob, NETUID1, 400_000_020);
+        _plantVaultStakes(NETUID1, 10 * ALPHA + 400_000_020, 0, 0);
+        MockStaking(STAKING_PRECOMPILE).setPostSalePrice(NETUID1, postSalePrice);
+
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        vault.unwrapForTao(TOKEN1, aliceShares, 0);
+
+        uint256 sweep = alice.balance - before - 0.5e18;
+        assertGe(sweep, 0.016e18, "0.4 alpha at no less than 0.04 TAO");
+        assertLt(sweep, 0.02e18, "a swept remainder is worth less than the nominator minimum");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 0, "the sweep empties the slot");
+        assertEq(_positionValue(bob), 0, "the co-holder loses the swept remainder");
     }
 
     function test_UnwrapForTao_FullExitRefundsAnExcludedSlotAsShares() public {
