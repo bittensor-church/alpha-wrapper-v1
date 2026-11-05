@@ -74,8 +74,7 @@ immutable.
 
 The vault reads and writes chain state through precompiles. It requires a
 chain that honors the rules below, as the Subtensor runtime of the localnet
-image pinned in `.github/workflows/e2e.yml` does. Its reentrancy guard lives in
-transient storage, so the EVM must run at Cancun or later (EIP-1153).
+image pinned in `.github/workflows/e2e.yml` does.
 
 | Precompile | Function | Rule relied on |
 | --- | --- | --- |
