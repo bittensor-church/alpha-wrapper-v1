@@ -36,7 +36,7 @@ import {
 contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaVaultAbi {
     /// @dev One shortfall clock per token. A parked position rests on `parkingHotkey` until the
     ///      registry nonce moves past `parkedAtNonce`; zero means the position is not parked.
-    struct Recovery { uint64 shortSince; uint192 parkedAtNonce; }
+    struct Recovery { uint256 shortSince; uint256 parkedAtNonce; }
 
     CloneFactory public immutable cloneFactory;
     IValidatorRegistry public immutable validatorRegistry;
@@ -510,8 +510,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaV
             }
             unchecked { ++i; }
         }
-        // forge-lint: disable-next-line(unsafe-typecast)
-        recovery[tokenId] = Recovery({ shortSince: uint64(block.timestamp), parkedAtNonce: 0 });
+        recovery[tokenId] = Recovery({ shortSince: block.timestamp, parkedAtNonce: 0 });
         emit BackingShortfallDeclared(tokenId, expected, parked);
     }
 
@@ -521,9 +520,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaV
         _writeSlot(tokenId, slots, 0, parkingHotkey, parkingHotkey, parked);
         _truncateSlots(tokenId, slots, 1);
         uint256 nonce = totalSupply(tokenId) == 0 ? 0 : validatorRegistry.nonces(VaultMath.netuidOf(tokenId));
-        // The registry steps its nonce by one (docs/deployment.md), so the narrower field cannot truncate it.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        recovery[tokenId] = Recovery({ shortSince: 0, parkedAtNonce: uint192(nonce) });
+        recovery[tokenId] = Recovery({ shortSince: 0, parkedAtNonce: nonce });
         emit BackingParked(tokenId, parked, nonce);
     }
 

@@ -49,11 +49,7 @@ library StakeOps {
     /// @dev Use where the amount must clear the floor at the price just read, such as sizing a payout.
     ///      A rounded-down price can reject a valid amount; zero proves nothing and full unstakes bypass this.
     function isBelowFloorAtReadPrice(uint256 alphaAmount, uint256 alphaPriceE18) internal view returns (bool) {
-        return isBelowFloorAtReadPrice(alphaAmount, alphaPriceE18, minStakeTao());
-    }
-
-    function isBelowFloorAtReadPrice(uint256 alphaAmount, uint256 alphaPriceE18, uint256 floorTao) internal pure returns (bool) {
-        return alphaPriceE18 != 0 && taoValue(alphaAmount, alphaPriceE18) < floorTao;
+        return alphaPriceE18 != 0 && taoValue(alphaAmount, alphaPriceE18) < minStakeTao();
     }
 
     /// @dev Use where refusing a movable amount would be worse than attempting it: rejects only an amount

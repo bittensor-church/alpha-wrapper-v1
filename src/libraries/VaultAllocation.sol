@@ -208,11 +208,10 @@ library VaultAllocation {
 
         uint256 maxChunk = balance - minLeftover; uint256 chunk = maxChunk < remaining ? maxChunk : remaining;
         // Keep gas-consuming simulation failures away from provably sub-floor inputs.
-        uint256 minStakeTao = StakeOps.minStakeTao();
-        if (StakeOps.isBelowFloorAtReadPrice(chunk, alphaPriceE18, minStakeTao)) return 0;
+        if (StakeOps.isBelowFloorAtReadPrice(chunk, alphaPriceE18)) return 0;
 
         uint256 chunkQuote = IAlpha(ALPHA_PRECOMPILE).simSwapAlphaForTao(netuid, SafeCast.toUint64(chunk));
-        if (chunkQuote < minStakeTao) return 0;
+        if (chunkQuote < StakeOps.minStakeTao()) return 0;
 
         // The marginal quote bounds leftover value at the post-sale price.
         if (dustThresholdTao != 0) {
