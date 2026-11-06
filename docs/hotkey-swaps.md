@@ -14,7 +14,11 @@ stake operations. It is separate from ownership of delegated alpha: the vault's
 alpha stays under the vault clone's coldkey.
 
 An all-subnet swap that carries the stake removes the old hotkey's owner record;
-a per-subnet swap, or one that leaves the stake under the old hotkey, retains it.
+a per-subnet swap, or one that keeps the validator's own stake under the old
+hotkey, retains it. An all-subnet swap leaves another account's position behind
+when that account refuses staking-list growth, does not list the successor and
+holds a position under the old hotkey on another subnet, which a stranger's
+transfer can give it; the owner record still goes.
 In these docs, “ownerless” means only that the record is absent.
 
 ## An emptied slot after a swap
@@ -67,13 +71,16 @@ hotkey again; a swap from the followed hotkey onto it, or publishing the
 followed hotkey, moves the slot.
 
 The chain refuses to move stake through a hotkey with no owner record. When the
-vault has to move stake off such a hotkey, it claims the hotkey for its own coldkey
-first, then moves. The claim is permanent, and while the hotkey stays attested
+vault has to move stake off such a hotkey, the clone holding the stake claims the
+hotkey for its own coldkey first, then moves; a hotkey the clone lists costs it no
+list entry. The claim is permanent, and while the hotkey stays attested
 the claimed hotkey counts as a receiving hotkey for an emptied slot, which stays
 idle there until the registry owner publishes the successor. Anyone paying the
 chain's hotkey-swap fee can block the claim by reserving the ownerless hotkey as a
 coldkey-swap destination; the stake under it cannot move while the
-reservation lasts.
+reservation lasts. A hotkey under the chain's hashed or post-quantum account
+schemes refuses every EVM claimant; stake under it moves again once an account
+of that scheme, such as its validator, claims it.
 
 ## The parking hotkey
 

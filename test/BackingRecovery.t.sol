@@ -288,8 +288,8 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 32 * ALPHA, "the emissions came home with the lump");
     }
 
-    /// @dev The chain refuses to move stake from a hotkey nobody owns; the vault claims it and moves on.
-    function test_RecoverStray_ClaimsAnOwnerlessSourceForTheVault() public {
+    /// @dev The chain refuses to move stake from a hotkey nobody owns; the clone holding it claims it and moves on.
+    function test_RecoverStray_ClaimsAnOwnerlessSourceForTheClone() public {
         _declaredShortfallReturnedUnder(hotkey4);
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey4, true);
 
@@ -299,7 +299,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
 
         (bool exists, bytes32 owner) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey4);
         assertTrue(exists, "the source has an owner again");
-        assertEq(owner, _toSubstrate(address(vault)), "the vault, not the caller");
+        assertEq(owner, _subnetColdkey(NETUID1), "the clone holding the stake, not the caller");
         assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "and the alpha is parked");
     }
 
@@ -1242,7 +1242,7 @@ contract BackingRecoveryTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
 
         (, bytes32 owner) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey1);
-        assertEq(owner, _toSubstrate(address(vault)), "the vault claimed the ownerless hotkey to roll it");
+        assertEq(owner, _subnetColdkey(NETUID1), "the clone claimed the ownerless hotkey to roll it");
         assertEq(_getVaultStake(hotkey1, NETUID1), 0, "and rolled its alpha onto the set");
         assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "losing nothing");
     }

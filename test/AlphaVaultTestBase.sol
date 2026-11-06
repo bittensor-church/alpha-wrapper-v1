@@ -568,6 +568,15 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(fromHotkey, true);
     }
 
+    /// @dev A stranger's crumb under the hotkey on the other subnet keeps the clone's stake from following the swap.
+    function _simulateSwapStrandingVaultStake(uint256 netuid, bytes32 fromHotkey, bytes32 toHotkey) internal {
+        MockStaking mock = MockStaking(STAKING_PRECOMPILE);
+        mock.setStake(fromHotkey, _subnetColdkey(netuid), netuid == NETUID1 ? NETUID2 : NETUID1, CRUMB);
+        _simulateSameOwner(fromHotkey, toHotkey);
+        mock.setHotkeySuccessor(fromHotkey, netuid, toHotkey);
+        mock.setHotkeyDeleted(fromHotkey, true);
+    }
+
     function _buildSwapTrail(uint256 netuid, bytes32 fromHotkey, uint256 hops) internal returns (bytes32 tip) {
         bytes32 previous = fromHotkey;
         for (uint256 i; i < hops; ++i) {

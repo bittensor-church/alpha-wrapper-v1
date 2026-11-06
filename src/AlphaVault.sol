@@ -76,7 +76,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaV
         INeuron(NEURON_PRECOMPILE).tryAssociateHotkey(_parkingHotkey);
         bytes32 coldkey = VaultReads.coldkeyOf(address(this));
         if (!VaultReads.ownedBy(_parkingHotkey, coldkey)) revert ParkingHotkeyUnavailable();
-        // Only the parking hotkey and the hotkeys the vault restores an owner to belong on its own list.
+        // Only the parking hotkey belongs on the vault's own list.
         IStaking(STAKING_PRECOMPILE).setRejectStakingHotkeyGrowth(true);
         cloneFactory = new CloneFactory(_mailboxLogic, _subnetLogic);
         validatorRegistry = IValidatorRegistry(_validatorRegistry);

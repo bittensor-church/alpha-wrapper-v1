@@ -495,9 +495,16 @@ contract MockStaking {
         return owner == bytes32(0) ? keccak256(abi.encodePacked("owner:", hotkey)) : owner;
     }
 
+    mapping(bytes32 => bool) public hashedSchemeHotkey;
+
+    function setHashedSchemeHotkey(bytes32 hotkey, bool hashed) external {
+        hashedSchemeHotkey[hotkey] = hashed;
+    }
+
     /// @dev The neuron mock's association: an ownerless hotkey goes to `coldkey`, which also lists it as a
     ///      staking hotkey the way the chain's account creation does; an owned one stays put.
     function associate(bytes32 hotkey, bytes32 coldkey) external {
+        if (hashedSchemeHotkey[hotkey]) _fail();
         if (_hasOwnerRecord(hotkey)) return;
         _requireListRoom(coldkey, coldkey, hotkey);
         hotkeyDeleted[hotkey] = false;

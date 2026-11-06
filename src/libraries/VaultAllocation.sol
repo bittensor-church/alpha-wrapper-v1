@@ -135,7 +135,7 @@ library VaultAllocation {
                 SubnetClone(clone).setRejectStakingHotkeyGrowth(false); lifted = true;
             }
         }
-        StakeOps.ensureHotkeyHasOwner(landing);
+        StakeOps.ensureHotkeyHasOwner(clone, landing);
         DepositMailbox(mailbox)
             .transferStakeAndHotkey(cloneColdkey, mailboxColdkey, landing, netuid, SafeCast.toUint64(amount));
         if (lifted) SubnetClone(clone).setRejectStakingHotkeyGrowth(true);
