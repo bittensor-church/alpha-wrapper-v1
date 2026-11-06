@@ -2,18 +2,18 @@
 pragma solidity 0.8.36;
 
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
-import { BasicValidatorRegistry } from "src/BasicValidatorRegistry.sol";
+import { PlaceholderValidatorRegistry } from "src/PlaceholderValidatorRegistry.sol";
 import { ChosenHotkeyNotInSet } from "src/VaultErrors.sol";
 
-contract BasicValidatorRegistryVaultTest is AlphaVaultTestBase {
-    BasicValidatorRegistry private basicRegistry;
+contract PlaceholderValidatorRegistryVaultTest is AlphaVaultTestBase {
+    PlaceholderValidatorRegistry private placeholderRegistry;
 
     function setUp() public override {
         super.setUp();
-        basicRegistry = new BasicValidatorRegistry(address(this));
-        basicRegistry.setValidator(NETUID1, hotkey1);
-        basicRegistry.setValidator(NETUID2, hotkey2);
-        (vault, lens) = _deployVaultAndLens(address(basicRegistry));
+        placeholderRegistry = new PlaceholderValidatorRegistry(address(this));
+        placeholderRegistry.setValidator(NETUID1, hotkey1);
+        placeholderRegistry.setValidator(NETUID2, hotkey2);
+        (vault, lens) = _deployVaultAndLens(address(placeholderRegistry));
     }
 
     function test_Wrap_AllocatesToSoleValidator() public {
@@ -34,7 +34,7 @@ contract BasicValidatorRegistryVaultTest is AlphaVaultTestBase {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
         _depositAndWrap(bob, NETUID2, 20 * ALPHA);
         uint256 shares = vault.balanceOf(alice, TOKEN1);
-        basicRegistry.setValidator(NETUID1, hotkey3);
+        placeholderRegistry.setValidator(NETUID1, hotkey3);
         vault.rebalance(NETUID1);
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
         assertEq(_getVaultStake(hotkey3, NETUID1), 10 * ALPHA);
@@ -45,7 +45,7 @@ contract BasicValidatorRegistryVaultTest is AlphaVaultTestBase {
 
     function test_Unwrap_ConsolidatesRotatedValidator() public {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-        basicRegistry.setValidator(NETUID1, hotkey3);
+        placeholderRegistry.setValidator(NETUID1, hotkey3);
         uint256 shares = vault.balanceOf(alice, TOKEN1);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 1);
@@ -56,7 +56,7 @@ contract BasicValidatorRegistryVaultTest is AlphaVaultTestBase {
 
     function test_UnwrapForTao_DrainsRotatedValidator() public {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-        basicRegistry.setValidator(NETUID1, hotkey3);
+        placeholderRegistry.setValidator(NETUID1, hotkey3);
         uint256 shares = vault.balanceOf(alice, TOKEN1);
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares, 0);
@@ -79,7 +79,7 @@ contract BasicValidatorRegistryVaultTest is AlphaVaultTestBase {
     function test_Rebalance_SameHotkeyResubmissionReleasesParking() public {
         _parkAfterASweptSlot();
 
-        basicRegistry.setValidator(NETUID1, hotkey1);
+        placeholderRegistry.setValidator(NETUID1, hotkey1);
         assertFalse(vault.awaitingAttestation(TOKEN1), "the fresh nonce is the owner's decision");
         vault.rebalance(NETUID1);
 
@@ -92,15 +92,15 @@ contract BasicValidatorRegistryVaultTest is AlphaVaultTestBase {
         _parkAfterASweptSlot();
         uint256 shares = vault.balanceOf(alice, TOKEN1);
 
-        basicRegistry.transferOwnership(bob);
+        placeholderRegistry.transferOwnership(bob);
         assertTrue(vault.awaitingAttestation(TOKEN1), "nomination does not publish a validator update");
         vm.prank(bob);
-        basicRegistry.acceptOwnership();
+        placeholderRegistry.acceptOwnership();
         assertTrue(vault.awaitingAttestation(TOKEN1), "acceptance does not publish a validator update");
-        assertEq(basicRegistry.nonces(NETUID1), 1);
+        assertEq(placeholderRegistry.nonces(NETUID1), 1);
         _recordHotkeyOwner(hotkey4);
         vm.prank(bob);
-        basicRegistry.setValidator(NETUID1, hotkey4);
+        placeholderRegistry.setValidator(NETUID1, hotkey4);
         assertFalse(vault.awaitingAttestation(TOKEN1));
         vault.rebalance(NETUID1);
         assertEq(_parkedStake(NETUID1), 0);

@@ -8,9 +8,10 @@ import { NetuidOutOfRange, ZeroHotkey } from "./VaultErrors.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { Ownable2Step } from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
-/// @notice One validator per subnet, updated immediately by an owner with two-step transfers.
+/// @notice Example registry: one validator per subnet, updated immediately by a single owner with
+///         two-step transfers. Integrators are advised to deploy their own governance instead.
 /// @dev The vault performs staking.
-contract BasicValidatorRegistry is IValidatorRegistry, Ownable2Step {
+contract PlaceholderValidatorRegistry is IValidatorRegistry, Ownable2Step {
     mapping(uint256 => bytes32) private _hotkeys;
     mapping(uint256 => uint256) public override nonces;
 

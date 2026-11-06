@@ -40,7 +40,7 @@ chain is unsupported. CI gives each scenario its own container.
 - `substrate.py`: address derivation and wallet-file readers.
 - `chain.py`: cast/forge/btcli wrappers and block waits.
 - `extrinsics.py`: Substrate extrinsics and storage reads.
-- `validators.py`: Basic registry updates.
+- `validators.py`: Placeholder registry updates.
 - `environment.py`: the deployed-localnet handle with getters and vault actions.
 - `checks.py`: shared assertions (payouts, gas, CSV output).
 - `exits.py`: exits measured against the chain: what a holder receives must match

@@ -4,19 +4,19 @@ pragma solidity 0.8.36;
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { NetuidOutOfRange, ZeroHotkey } from "src/VaultErrors.sol";
 import { Test } from "forge-std/Test.sol";
-import { BasicValidatorRegistry } from "src/BasicValidatorRegistry.sol";
+import { PlaceholderValidatorRegistry } from "src/PlaceholderValidatorRegistry.sol";
 import { IValidatorRegistry } from "src/interfaces/IValidatorRegistry.sol";
 import { IStaking, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
-contract BasicValidatorRegistryTest is Test {
-    BasicValidatorRegistry internal registry;
+contract PlaceholderValidatorRegistryTest is Test {
+    PlaceholderValidatorRegistry internal registry;
     address internal registryOwner = makeAddr("registryOwner");
     bytes32 internal constant HOTKEY = keccak256("hotkey");
     bytes32 internal constant HOTKEY_COLDKEY = keccak256("owner");
     uint256 internal constant NETUID = 1;
 
     function setUp() public {
-        registry = new BasicValidatorRegistry(registryOwner);
+        registry = new PlaceholderValidatorRegistry(registryOwner);
         vm.etch(STAKING_PRECOMPILE, hex"00");
         _mockHotkeyOwner(HOTKEY, true, HOTKEY_COLDKEY);
     }
@@ -61,7 +61,7 @@ contract BasicValidatorRegistryTest is Test {
 
     function test_SetValidator_ImmediatelyRecordsHotkeyAndNonce() public {
         vm.expectEmit(true, true, false, true, address(registry));
-        emit BasicValidatorRegistry.ValidatorUpdated(NETUID, 1, HOTKEY);
+        emit PlaceholderValidatorRegistry.ValidatorUpdated(NETUID, 1, HOTKEY);
         _setValidatorAsOwner(NETUID, HOTKEY);
         _assertValidator(NETUID, HOTKEY, 1);
     }
@@ -71,7 +71,7 @@ contract BasicValidatorRegistryTest is Test {
         bytes32 nextHotkey = keccak256("next");
         _mockHotkeyOwner(nextHotkey, true, keccak256("nextOwner"));
         vm.expectEmit(true, true, false, true, address(registry));
-        emit BasicValidatorRegistry.ValidatorUpdated(NETUID, 2, nextHotkey);
+        emit PlaceholderValidatorRegistry.ValidatorUpdated(NETUID, 2, nextHotkey);
         _setValidatorAsOwner(NETUID, nextHotkey);
         _assertValidator(NETUID, nextHotkey, 2);
     }
@@ -121,13 +121,13 @@ contract BasicValidatorRegistryTest is Test {
 
     function test_RevertWhen_HotkeyHasNoOwner() public {
         _mockHotkeyOwner(HOTKEY, false, HOTKEY_COLDKEY);
-        vm.expectRevert(abi.encodeWithSelector(BasicValidatorRegistry.OwnerlessHotkey.selector, HOTKEY));
+        vm.expectRevert(abi.encodeWithSelector(PlaceholderValidatorRegistry.OwnerlessHotkey.selector, HOTKEY));
         _setValidatorAsOwner(NETUID, HOTKEY);
     }
 
     function test_RevertWhen_OwnerRenounces() public {
         vm.prank(registryOwner);
-        vm.expectRevert(BasicValidatorRegistry.RenunciationDisabled.selector);
+        vm.expectRevert(PlaceholderValidatorRegistry.RenunciationDisabled.selector);
         registry.renounceOwnership();
     }
 

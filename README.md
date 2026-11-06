@@ -59,17 +59,18 @@ that control it, depending on the service and jurisdiction.** Each integrator
 must consciously choose its validator strategy, governance and controls, and
 obtain its own legal advice.
 
-This repository includes `BasicValidatorRegistry` as a minimal reference
-implementation. It maintains one validator hotkey at 100% weight per subnet. Its
-owner can replace that hotkey to rotate the vault's stake. Ownership uses
-OpenZeppelin `Ownable2Step`: a nominated successor must explicitly accept before
-control transfers, and ownership renunciation is disabled.
+This repository includes `PlaceholderValidatorRegistry` as an example contract
+only. It maintains one validator hotkey at 100% weight per subnet, chosen by a
+single owner. Its owner can replace that hotkey to rotate the vault's stake.
+Ownership uses OpenZeppelin `Ownable2Step`: a nominated successor must explicitly
+accept before control transfers, and ownership renunciation is disabled.
 
-`BasicValidatorRegistry` is usable, but its owner key is a critical security
-boundary. Operators must protect it with appropriate key management and have a
-recovery plan. A lost owner key can permanently prevent registry updates; a
-compromised owner can select poor or malicious validator destinations. Integrators
-who need a different risk model should implement their own registry.
+A single owner key is a critical security boundary and a central point of control.
+A lost owner key can permanently prevent registry updates; a compromised owner can
+select poor or malicious validator destinations. For stronger decentralization,
+integrators are highly advised to develop their own registry (for example with a
+multisig, timelock or attestation-based governance) rather than deploy the
+placeholder as is.
 
 ## Documentation
 

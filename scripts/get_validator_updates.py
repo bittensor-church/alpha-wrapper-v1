@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Fetch Basic validator registry updates within a block range and print as CSV."""
+"""Fetch Placeholder validator registry updates within a block range and print as CSV."""
 
 import argparse
 import sys
@@ -40,7 +40,7 @@ def main() -> None:
             timestamp=w3.eth.get_block(log["blockNumber"]).timestamp,
         )
         for log, ev_args in fetch_event_logs(
-            w3, args.registry_address, "BasicValidatorRegistry", "ValidatorUpdated",
+            w3, args.registry_address, "PlaceholderValidatorRegistry", "ValidatorUpdated",
             args.block_start, args.block_end, chunk_size=args.chunk_size,
         )
     )
