@@ -243,9 +243,13 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
             Clones.predictDeterministicAddress(vault.cloneFactory().subnetLogic(), salt, address(vault.cloneFactory()));
     }
 
+    function _cloneOwnerColdkey(uint256 netuid) internal view returns (bytes32) {
+        return _toSubstrate(_ownerCandidate(vault.subnetClone(vault.currentTokenId(netuid))));
+    }
+
     function _ownerCandidate(address clone) internal view returns (address) {
         bytes32 hotkey = _toSubstrate(clone);
-        bytes memory initCode = abi.encodePacked(type(CloneOwner).creationCode, abi.encode(hotkey));
+        bytes memory initCode = abi.encodePacked(type(CloneOwner).creationCode, abi.encode(hotkey, address(vault)));
         return vm.computeCreate2Address(
             keccak256(abi.encode("owner-v1", hotkey)), keccak256(initCode), address(vault.cloneFactory())
         );

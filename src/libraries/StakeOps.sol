@@ -3,12 +3,16 @@ pragma solidity 0.8.36;
 
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
-import { INeuron, NEURON_PRECOMPILE } from "../interfaces/INeuron.sol";
 import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
-import { CloneBase } from "../CloneBase.sol";
+import { CloneFactory } from "../CloneFactory.sol";
+import { CloneOwner } from "../CloneOwner.sol";
 import { SubnetClone } from "../SubnetClone.sol";
 import { VaultMath } from "./VaultMath.sol";
 import { VaultReads } from "./VaultReads.sol";
+
+interface IVaultCloneFactory {
+    function cloneFactory() external view returns (CloneFactory);
+}
 
 library StakeOps {
     function taoValue(uint256 alphaAmount, uint256 alphaPriceE18) internal pure returns (uint256) {
@@ -18,10 +22,12 @@ library StakeOps {
     /// @dev The only exposed minimum is for unstakes; using it for transfers/moves is conservative.
     function minStakeTao() internal view returns (uint256) { return IStaking(STAKING_PRECOMPILE).getDefaultMinStake(); }
 
-    /// @notice Claims an ownerless hotkey for the caller's own coldkey; an existing owner stays untouched.
+    /// @notice Claims an ownerless hotkey for the clone's owner contract; an existing owner stays untouched.
     /// @dev The chain refuses to move stake through a hotkey with no owner record.
-    function ensureHotkeyHasOwner(bytes32 hotkey) internal {
-        if (!VaultReads.hasOwner(hotkey)) INeuron(NEURON_PRECOMPILE).tryAssociateHotkey(hotkey);
+    function ensureHotkeyHasOwner(address clone, bytes32 hotkey) internal {
+        if (VaultReads.hasOwner(hotkey)) return;
+        CloneFactory factory = IVaultCloneFactory(address(this)).cloneFactory();
+        CloneOwner(factory.cloneOwnerOf(VaultReads.coldkeyOf(clone))).tryAssociateHotkey(hotkey);
     }
 
     function moveWithinListCap(address clone, bytes32 coldkey, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount,
@@ -31,19 +37,19 @@ library StakeOps {
     }
 
     function moveToListedHotkey(address clone, bytes32 fromHotkey, bytes32 toHotkey, uint16 netuid, uint256 amount) internal {
-        ensureHotkeyHasOwner(fromHotkey);
-        ensureHotkeyHasOwner(toHotkey);
+        ensureHotkeyHasOwner(clone, fromHotkey);
+        ensureHotkeyHasOwner(clone, toHotkey);
         SubnetClone(clone).moveStake(fromHotkey, toHotkey, netuid, amount);
     }
 
-    function flush(address holder, bytes32 hotkey, bytes32 destinationColdkey, uint16 netuid, uint256 amount) internal {
-        ensureHotkeyHasOwner(hotkey);
-        CloneBase(holder).flush(destinationColdkey, hotkey, netuid, amount);
+    function flush(address clone, bytes32 hotkey, bytes32 destinationColdkey, uint16 netuid, uint256 amount) internal {
+        ensureHotkeyHasOwner(clone, hotkey);
+        SubnetClone(clone).flush(destinationColdkey, hotkey, netuid, amount);
     }
 
-    function sell(address holder, bytes32 hotkey, uint16 netuid, uint256 amount) internal {
-        ensureHotkeyHasOwner(hotkey);
-        CloneBase(holder).sellAlphaForTao(hotkey, netuid, amount);
+    function sell(address clone, bytes32 hotkey, uint16 netuid, uint256 amount) internal {
+        ensureHotkeyHasOwner(clone, hotkey);
+        SubnetClone(clone).sellAlphaForTao(hotkey, netuid, amount);
     }
 
     /// @dev Use where the amount must clear the floor at the price just read, such as sizing a payout.

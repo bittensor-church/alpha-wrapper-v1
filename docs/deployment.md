@@ -93,7 +93,7 @@ image pinned in `.github/workflows/e2e.yml` does.
 | Subnet `0x0803` | `getNetworkRegistrationBlock` | Zero while a netuid is unregistered. |
 | Subnet `0x0803` | `getRegisteredSubnetCounter` | Steps on every registration and survives dissolution, so it tells subnet generations apart. |
 | Subnet `0x0803` | `getSubnetCapacityConfig` | Its tenth field is the owner's alpha-transfer switch. |
-| Neuron `0x0804` | `tryAssociateHotkey` | Assigns the caller's coldkey as owner only when the hotkey has none, and succeeds silently otherwise. A newly owned hotkey joins the caller's staking list, so the call is refused once that list holds 256 entries. It is also refused for a hotkey reserved as a coldkey-swap destination, which anyone can reserve while it has no owner. |
+| Neuron `0x0804` | `tryAssociateHotkey` | Assigns the caller's coldkey as owner only when the hotkey has none, and succeeds silently otherwise. A newly owned hotkey joins the caller's staking list, so the call is refused once that list holds 256 entries. It is also refused for a hotkey reserved as a coldkey-swap destination, which anyone can reserve while it has no owner, and for a hotkey under the chain's hashed or post-quantum account schemes, which only an account of at least that scheme may own. |
 | Balance transfer `0x0800` | `transferAll` | Moves the caller's whole free balance to a Substrate account, signed as the caller, crediting it directly. With keep-alive off the amount includes the existential deposit the EVM balance hides, so a fresh destination always admits it and shows what the source showed. |
 
 Two further rules sit outside any single function: the chain refuses a coldkey

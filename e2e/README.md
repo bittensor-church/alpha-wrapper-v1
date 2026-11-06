@@ -77,6 +77,10 @@ Scenario files in `tests/` cover:
   a stranger claimed, and the stranger swaps it away with no edge; the vault finds the
   alpha on the clone's staking list, every rail works with no watcher, and the position
   moves to the successor once the registry names it.
+- `test_split_position_follows_swap.py`: a stranger splits the clone's position across subnets
+  under the attested hotkey; the validator's all-subnet swap carries both parts to the successor,
+  renames the clone's list entry in place and leaves nothing under the ownerless hotkey, so the
+  vault follows the edge and deposits, exits and the rotation work.
 - `test_subnet_dissolved.py`: refunds and mailbox recovery.
 - `test_min_stake_floor.py`, `test_dust_dos.py`, `test_min_stake_liveness.py`:
   minimums, top-ups, dust and repeated position changes.
