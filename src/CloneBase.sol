@@ -2,7 +2,6 @@
 pragma solidity 0.8.36;
 
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
-import { INeuron, NEURON_PRECOMPILE } from "./interfaces/INeuron.sol";
 import { IStaking, STAKING_PRECOMPILE } from "./interfaces/IStaking.sol";
 
 abstract contract CloneBase {
@@ -26,10 +25,6 @@ abstract contract CloneBase {
     }
 
     function _claimOwnHotkey() internal virtual { }
-
-    function tryAssociateHotkey(bytes32 hotkey) external onlyWrapper {
-        INeuron(NEURON_PRECOMPILE).tryAssociateHotkey(hotkey);
-    }
 
     /// @notice Transfer staked alpha to another coldkey without changing its hotkey or subnet.
     function flush(bytes32 destinationColdkey, bytes32 hotkey, uint256 netuid, uint256 amount) external onlyWrapper {

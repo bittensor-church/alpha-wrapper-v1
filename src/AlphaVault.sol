@@ -386,7 +386,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaV
             VaultReads.lockedAlphaOf(mailboxColdkey, nid) != 0
                 && IStaking(STAKING_PRECOMPILE).getRejectLockedAlpha(destSubstrateColdkey)) revert LockedDeposit();
         emit MailboxAlphaReclaimed(msg.sender, netuid, destSubstrateColdkey, amount);
-        StakeOps.flush(mailbox, mailboxColdkey, destSubstrateColdkey, nid, amount);
+        DepositMailbox(mailbox).flush(destSubstrateColdkey, mailboxColdkey, nid, amount);
     }
 
     /// @notice Sell the caller's mailbox deposit, which sits under the mailbox's own hotkey, for native TAO.
@@ -400,8 +400,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaV
         if (VaultReads.lockedAlphaOf(mailboxColdkey, uint16(netuid)) != 0) revert LockedDeposit();
 
         uint256 balanceBefore = mailbox.balance;
-        // forge-lint: disable-next-line(unsafe-typecast)
-        StakeOps.sell(mailbox, mailboxColdkey, uint16(netuid), amount);
+        DepositMailbox(mailbox).sellAlphaForTao(mailboxColdkey, netuid, amount);
 
         uint256 taoOut = mailbox.balance - balanceBefore;
         if (taoOut < minTaoOut) revert SlippageExceeded(taoOut);

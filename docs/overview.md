@@ -13,7 +13,8 @@ Emissions raise the backing behind each share.
   that position's stake and TAO from other positions, replaced by a fresh one
   once its staking list is half full.
 - `CloneOwner`: owns one subnet clone's account as a hotkey, so no coldkey can
-  be swapped into the clone and no subnet can be handed to it.
+  be swapped into the clone and no subnet can be handed to it, and claims the
+  ownerless hotkeys the clone has to move stake through.
 - `DepositMailbox`: one accepted address per user and netuid. The vault only
   credits the caller's own mailbox.
 - `CloneFactory`: a vault-owned deployer that checks each candidate account
