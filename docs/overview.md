@@ -19,7 +19,7 @@ Emissions raise the backing behind each share.
   credits the caller's own mailbox.
 - `CloneFactory`: a vault-owned deployer that checks each candidate account
   before deployment.
-- `BasicValidatorRegistry`: one target hotkey per subnet at 100% weight; see
+- `PlaceholderValidatorRegistry`: one target hotkey per subnet at 100% weight; see
   the [README](../README.md#validator-registry).
 
 A token id is `(registrations << 16) | netuid`, where `registrations` is the

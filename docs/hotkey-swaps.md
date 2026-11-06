@@ -1,7 +1,7 @@
 # Hotkey swaps and recovery
 
 The vault supports weighted `IValidatorRegistry` implementations. Here, the
-`BasicValidatorRegistry` owner updates one target.
+`PlaceholderValidatorRegistry` owner updates one target.
 
 The design uses automatic one-hop swap handling plus an external watcher.
 Temporary wrap/exit failures while the watcher repairs chain state are accepted.

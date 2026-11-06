@@ -21,7 +21,7 @@ not fabricated quotes. `find_strays.py` reads the vault and the chain's staking 
 address-mapping precompiles; `--recover` signs with `RECOVER_PRIVATE_KEY` from the
 environment.
 
-`get_validator_updates.py` decodes `BasicValidatorRegistry.ValidatorUpdated` events,
+`get_validator_updates.py` decodes `PlaceholderValidatorRegistry.ValidatorUpdated` events,
 with `count` equal to one. `get_vault_state.py` reads optional validator columns
 through the generic `IValidatorRegistry` ABI.
 

@@ -9,7 +9,7 @@ be deposited:
               emissions, raise the per-block registration limit
   Phase 2     create + register 3 validator hotkeys per subnet
   Phase 3     stake TAO per validator at ratio 3:2:1
-  Phase 4     deploy the contracts and set one target per subnet via the Basic owner
+  Phase 4     deploy the contracts and set one target per subnet via the Placeholder owner
   Phase 5     fund the wrapper user account and prepare its mailbox on each subnet
 
 btcli calls go through chain.btcli() (auto-appends --network) or
@@ -213,18 +213,18 @@ def _stake_validators(
 
 def _deploy_registry() -> str:
     address = chain.forge_create(
-        "src/BasicValidatorRegistry.sol:BasicValidatorRegistry",
+        "src/PlaceholderValidatorRegistry.sol:PlaceholderValidatorRegistry",
         private_key=config.DEPLOYER_PRIVATE_KEY,
         constructor_args=[config.DEPLOYER_ADDRESS],
     )
-    print(f"  BasicValidatorRegistry: {address} (initial owner={config.DEPLOYER_ADDRESS})")
+    print(f"  PlaceholderValidatorRegistry: {address} (initial owner={config.DEPLOYER_ADDRESS})")
     return address
 
 
 def deploy_contracts(
     netuids: List[int], hotkey_pubkeys: List[str], *, recovery_window: int,
 ) -> Deployment:
-    """Deploy the vault, its lens and a Basic registry naming each subnet's first hotkey."""
+    """Deploy the vault, its lens and a Placeholder registry naming each subnet's first hotkey."""
     _log("Phase 4: Deploy")
 
     observation_block_start = chain.cast_block_number()

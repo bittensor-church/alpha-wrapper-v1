@@ -5,7 +5,7 @@
 - The vault is immutable, and only the vault drives its mailboxes and subnet
   clones.
 - The registry owner's authority is limited to choosing validators and their
-  weights. `BasicValidatorRegistry` has one owner, one hotkey per subnet, and
+  weights. `PlaceholderValidatorRegistry` has one owner, one hotkey per subnet, and
   two-step ownership transfers.
 - If the registry owner loses access, parked positions stay parked: deposits and
   rebalancing stay blocked, while exits remain available.

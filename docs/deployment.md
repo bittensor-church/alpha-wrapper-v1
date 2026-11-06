@@ -4,19 +4,20 @@ Each integrator deploys and operates its own vault, and chooses its
 validator-selection strategy, registry governance and operational controls first.
 
 1. Choose or implement an `IValidatorRegistry`. The included
-   `BasicValidatorRegistry` is the simplest example.
+   `PlaceholderValidatorRegistry` is an example only; see the
+   [README](../README.md#validator-registry) before relying on it.
 2. Deploy and configure the registry for every subnet in scope.
 3. Deploy the vault set with `script/DeployAlpha.s.sol`, pointed at that registry.
 4. Run the verification checks below, then record the addresses and code hashes.
 
 ## Registry
 
-`BasicValidatorRegistry(initialOwner)` assigns each subnet one validator at 100%
+`PlaceholderValidatorRegistry(initialOwner)` assigns each subnet one validator at 100%
 weight. Updates take effect immediately. Ownership transfers use OpenZeppelin
 `Ownable2Step`.
 
 ```sh
-forge create src/BasicValidatorRegistry.sol:BasicValidatorRegistry \
+forge create src/PlaceholderValidatorRegistry.sol:PlaceholderValidatorRegistry \
   --rpc-url <url> --private-key <key> --broadcast \
   --constructor-args <initialOwner>
 

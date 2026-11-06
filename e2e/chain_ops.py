@@ -17,7 +17,7 @@ Subcommands:
     remove_stake            sell staked alpha back to the pool for TAO, as //Alice
     lock_stake              conviction-lock alpha to a hotkey, as //Alice
     get_lock                print a (coldkey, netuid, hotkey) lock's alpha amount
-    set_validator           update the Basic registry from its owner
+    set_validator           update the Placeholder registry from its owner
     toggle_transfer         flip a subnet's alpha transfer toggle via Sudo
     set_admin_freeze_window set the global admin freeze window via Sudo
     dissolve_network        dissolve (deregister) a subnet via Sudo

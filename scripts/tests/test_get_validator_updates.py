@@ -18,6 +18,6 @@ def test_observability_decodes_basic_validator_updates(monkeypatch, capsys):
         return [({"transactionHash": SimpleNamespace(to_0x_hex=lambda: "0x01"), "blockNumber": 42}, event)]
     monkeypatch.setattr(script, "fetch_event_logs", logs)
     script.main()
-    contract, event = "BasicValidatorRegistry", "ValidatorUpdated"
+    contract, event = "PlaceholderValidatorRegistry", "ValidatorUpdated"
     assert calls[0][2:4] == (contract, event)
     assert "0x01,7,2,1,123" in capsys.readouterr().out
