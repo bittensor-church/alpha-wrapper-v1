@@ -84,10 +84,11 @@ later recovery.
   published and the next wrap, rebalance or alpha exit releases it.
 - After a validator swap, stake can sit idle under the old hotkey until the
   registry publishes the successor.
-- A stranger who claims a vacated validator hotkey receives allocations for a
-  slot with no live followed record until the registry replaces it. The alpha
-  stays under the vault's coldkey; moved without a trail it is found on the
-  clone's staking list, and a pile no single listed hotkey covers freezes
+- A stranger who claims a vacated validator hotkey, attested or followed, can
+  receive an empty slot's allocations until the registry replaces the slot's
+  attested hotkey. The stranger cannot take the principal: the alpha stays under
+  the clone's coldkey. Moved without a trail it is found on the clone's staking
+  list, and a pile no single listed hotkey covers freezes
   deposits, exits and rebalances until a watcher parks the position, which earns
   again once the registry publishes a new set.
 - Alpha a clone holds on another subnet stays outside the backing, and so do piles
