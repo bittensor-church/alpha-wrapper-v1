@@ -27,8 +27,7 @@ After a netuid is recycled, call `createMailbox` again before wrapping.
 - `StakingListFull`: anyone can call `replaceClone(tokenId, uid)` with a fresh
   random UID, then retry. Token id, shares and TAO claims carry over. The lens's
   `stakingListEntries(tokenId)` shows the list; replacement opens once it holds
-  128 entries. Alpha left on the old clone is lost for good; see step 6 of the
-  [watcher runbook](hotkey-swaps.md).
+  128 entries.
 
 ## Shares and exits
 

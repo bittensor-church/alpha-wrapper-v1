@@ -72,8 +72,7 @@ The original holders lose at most the hidden alpha and what it earned
 meanwhile. Parking before write-off defeats the attack, which makes watcher
 responsiveness a financial concern. After a write-off, deposits stay shut until
 the registry is updated, and holders who keep their shares keep their claim on
-later recovery. A clone replacement ends that claim for alpha still on the old
-clone.
+later recovery until the clone is replaced.
 
 ## Other accepted risks
 
