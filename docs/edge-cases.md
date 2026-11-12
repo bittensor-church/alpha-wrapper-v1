@@ -93,17 +93,11 @@ to carry it. A later deposit can supply that balance because it lands before
 consolidation. A full-supply TAO exit avoids consolidation, subject to its own
 checks.
 
-A slot the pool would not pay for makes the plain TAO exit fail and burn its gas.
-The exit that takes an exclusion mask sells the other slots and refunds the
-rest as shares; the user guide describes the pre-flight that finds such slots.
-
 The chain's root can raise the minimum a nominator may hold and sweep every
 smaller position. A vault slot swept that way arrives as TAO on the clone,
 claimable by holders, or is deleted unpaid if the sale fails. Either way the
 record reads short and the lens reports the undeclared-shortfall sentinel. A
-watcher calls `syncBacking(tokenId)` to declare the loss and start the window;
-a further `syncBacking` after the window writes the deficit off and parks the
-position unless no shares remain.
+watcher handles it under the [recovery runbook](hotkey-swaps.md#watcher-runbook).
 
 ## Stray TAO and alpha
 
@@ -117,9 +111,10 @@ refund. Already-indexed claim liabilities stay separate.
 
 Third-party alpha under tracked hotkeys increases backing. A clone admits
 third-party alpha only onto a hotkey it already lists; alpha it holds on another
-subnet stays there, outside the backing. Mailbox wraps collect only the
-mailbox's own hotkey. Other vault alpha joins the position through `recoverStray` under the
-[recovery rules](hotkey-swaps.md), including their late-recovery ownership policy.
+subnet is an [accepted risk](security-model.md#other-accepted-risks). Mailbox
+wraps collect only the mailbox's own hotkey. Other vault alpha joins the position
+through `recoverStray` under the [recovery rules](hotkey-swaps.md), including
+their late-recovery ownership policy.
 
 A full-supply `unwrapForTao` attempts to sell all located alpha, including any
 left when supply was zero; the last holder receives the proceeds. An alpha

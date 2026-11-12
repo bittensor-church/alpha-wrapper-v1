@@ -86,11 +86,8 @@ later recovery until the clone is replaced.
   registry publishes the successor.
 - A stranger who claims a vacated validator hotkey, attested or followed, can
   receive an empty slot's allocations until the registry replaces the slot's
-  attested hotkey. The stranger cannot take the principal: the alpha stays under
-  the clone's coldkey. Moved without a trail it is found on the clone's staking
-  list, and a pile no single listed hotkey covers freezes
-  deposits, exits and rebalances until a watcher parks the position, which earns
-  again once the registry publishes a new set.
+  attested hotkey. The stranger cannot take the principal; see
+  [receiving hotkeys](hotkey-swaps.md#receiving-hotkeys).
 - Alpha a clone holds on another subnet stays outside the backing.
 - Whatever a clone replacement leaves on the old clone is lost for good: piles
   below the floor, strays and written-off alpha. Anyone holding enough alpha can
