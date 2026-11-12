@@ -459,6 +459,11 @@ class Environment:
         assert owned == "true", "the clone's account is not a hotkey"
         return owner
 
+    def clone_owner_address(self, token_id: int) -> str:
+        """Owner contract that holds the token's clone account as a hotkey."""
+        factory = chain.cast_call(self.vault_address, "cloneFactory()(address)")
+        return chain.cast_call(factory, "cloneOwnerOf(bytes32)(address)", self.clone_coldkey(token_id))
+
     def set_validator(self, netuid: int, hotkey: str) -> None:
         validators.set_basic_validator(self.validator_registry_address, netuid, hotkey)
 

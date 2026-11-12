@@ -16,6 +16,7 @@ SWAP_DELAY_BLOCKS = 5
 CLONE_DONOR = "//CloneCandidateDonor"
 MAILBOX_DONOR = "//MailboxCandidateDonor"
 SWAP_DONOR = "//PostDeploymentSwapDonor"
+OWNER_SWAP_DONOR = "//CloneOwnerSwapDonor"
 LOCKED_HOLDER = "//LockedHolder"
 SWAP_REFUSALS = ("NewColdKeyIsHotkey", "ColdKeyAlreadyAssociated")
 
@@ -63,8 +64,9 @@ def test_locked_deposit(env, recovery_window):
         validator_registry_address=deployment.validator_registry_address,
     )
     extrinsics.set_coldkey_swap_announcement_delay(SWAP_DELAY_BLOCKS)
-    for uri in (CLONE_DONOR, MAILBOX_DONOR, SWAP_DONOR, LOCKED_HOLDER):
+    for uri in (CLONE_DONOR, MAILBOX_DONOR, SWAP_DONOR, OWNER_SWAP_DONOR, LOCKED_HOLDER):
         extrinsics.fund_account(extrinsics.keypair_ss58(uri), 30 * 10**9)
+    extrinsics.add_stake(gift_hotkey_ss58, netuid, 2 * 10**9, signer_uri=OWNER_SWAP_DONOR)
     for uri in (CLONE_DONOR, MAILBOX_DONOR, LOCKED_HOLDER):
         extrinsics.set_reject_locked_alpha(False, signer_uri=uri)
         extrinsics.add_stake(gift_hotkey_ss58, netuid, 20 * 10**9, signer_uri=uri)
@@ -116,6 +118,15 @@ def test_locked_deposit(env, recovery_window):
     with pytest.raises(extrinsics.ExtrinsicError) as refused:
         _swap_into(SWAP_DONOR, clone)
     assert any(reason in str(refused.value) for reason in SWAP_REFUSALS), str(refused.value)
+
+    owner_contract = env.clone_owner_address(token_id)
+    assert h160_to_substrate_b32(owner_contract).lower() == clone_owner.lower()
+    with pytest.raises(extrinsics.ExtrinsicError) as refused:
+        _swap_into(OWNER_SWAP_DONOR, owner_contract)
+    assert "AccountRejectsStakingHotkeyGrowth" in str(refused.value), str(refused.value)
+    assert len(extrinsics.staking_hotkeys(h160_to_ss58(owner_contract))) == 1, (
+        "the swap grew the owner contract's staking list"
+    )
 
     locked_alpha = env.stake(gift_hotkey, extrinsics.keypair_pubkey(LOCKED_HOLDER), netuid)
     for destination, refusal in ((mailbox, "AccountRejectsLockedAlpha"), (clone, "AccountRejectsStakingHotkeyGrowth")):
