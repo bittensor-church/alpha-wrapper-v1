@@ -78,7 +78,7 @@ contract FollowedHotkeyRetakenTest is BackingScenarios {
         _strangerRetakesTheFollowedHotkey();
     }
 
-    function test_Control_EmptiedSlotGoesToValidatorHeldAttestedHotkey() public {
+    function test_EmptiedFollowedSlot_GoesToTheValidatorHeldAttestedHotkey() public {
         _setUpEmptiedFollowedSlotThenSecondSwap();
 
         vault.rebalance(NETUID1);

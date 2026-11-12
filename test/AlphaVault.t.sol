@@ -137,7 +137,7 @@ contract AlphaVaultTest is BackingScenarios {
         assertEq(abi.decode(entry.data, (address)), mailbox);
     }
 
-    function test_Wrap() public {
+    function test_Wrap_MintsABillionSharesPerRaoForAFirstDeposit() public {
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
 
         vm.expectEmit(true, true, true, true, address(vault));
@@ -184,7 +184,7 @@ contract AlphaVaultTest is BackingScenarios {
         assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 1, "alice's rounding RAO stays behind");
     }
 
-    function test_Unwrap() public {
+    function test_Unwrap_AllSharesReturnTheWholeDeposit() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
 
         vm.prank(alice);
@@ -235,7 +235,7 @@ contract AlphaVaultTest is BackingScenarios {
         assertEq(lens.totalStake(TOKEN1), 10 * ALPHA - 2, "the two weight moves lost one RAO each");
     }
 
-    function test_RevertWhen_UnwrapOnZero() public {
+    function test_RevertWhen_UnwrapZeroShares() public {
         bytes32 aliceSub = _toSubstrate(alice);
         vm.prank(alice);
         vm.expectRevert(ZeroAmount.selector);
@@ -250,7 +250,7 @@ contract AlphaVaultTest is BackingScenarios {
         vault.unwrap(TOKEN1, shares, bytes32(0), 0);
     }
 
-    function test_UnwrapPartialShares() public {
+    function test_Unwrap_HalfTheSharesLeaveTheOtherHalfStaked() public {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
 
         vm.prank(alice);
@@ -262,7 +262,7 @@ contract AlphaVaultTest is BackingScenarios {
         assertEq(lens.totalStake(TOKEN1), 5 * ALPHA);
     }
 
-    function test_InterleavedWrapsUnwraps() public {
+    function test_Unwrap_EachHolderGetsTheirOwnDepositBack() public {
         uint256 aliceShares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
         uint256 bobShares = _depositAndWrap(bob, NETUID1, 20 * ALPHA);
         assertEq(aliceShares, 1e19);
@@ -403,7 +403,7 @@ contract AlphaVaultTest is BackingScenarios {
         assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 0);
     }
 
-    function test_RevertWhen_RegistryWhenNoValidatorsSet() public {
+    function test_RevertWhen_WrapWithNoAttestedValidators() public {
         (AlphaVault freshVault,) = _deployVaultAndLens(address(new MockValidatorRegistry()));
 
         vm.prank(alice);
@@ -478,7 +478,7 @@ contract AlphaVaultTest is BackingScenarios {
         assertEq(mailbox.balance, 0);
     }
 
-    function test_ReclaimAlphaFromMailbox() public {
+    function test_ReclaimAlphaFromMailbox_MovesTheDepositToTheGivenColdkey() public {
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         bytes32 aliceSub = _toSubstrate(alice);
         bytes32 mailboxColdkey = _mailboxColdkey(alice, NETUID1);
@@ -650,7 +650,7 @@ contract AlphaVaultTest is BackingScenarios {
         vault.createMailbox(UNREGISTERED_NETUID, keccak256("fixture-creation"));
     }
 
-    function test_WrapTwoUsersProportionalShares() public {
+    function test_Wrap_SecondDepositorMintsInProportionToTheDeposit() public {
         assertEq(_depositAndWrap(alice, NETUID1, 10 * ALPHA), 1e19);
 
         _simulateAlphaDeposit(bob, NETUID1, 30 * ALPHA);
@@ -845,7 +845,7 @@ contract AlphaVaultTest is BackingScenarios {
         vault.unwrapForTao(TOKEN1, shares, 0);
     }
 
-    function test_UnwrapSucceedsAfterCleanupCompletesAfterForceSend() public {
+    function test_Unwrap_LeavesAForceSentWeiBehindAfterDissolution() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 100 * ALPHA);
 
         _reregisterSubnet(NETUID1);

@@ -72,7 +72,7 @@ contract LockedAlphaDepositTest is DepositScenarios {
         assertTrue(mock.getRejectStakingHotkeyGrowth(coldkey), "a clone refuses staking-list growth by others");
     }
 
-    function test_CreateMailbox_PreparesBothBeforePublishingAddresses() public {
+    function test_CreateMailbox_PublishesAProtectedMailboxAndClone() public {
         assertEq(vault.getDepositAddress(alice, NETUID1), address(0));
         assertEq(vault.subnetClone(TOKEN1), address(0));
         (address mailbox, address clone) = _create(alice, UID);
