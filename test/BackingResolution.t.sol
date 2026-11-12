@@ -12,6 +12,7 @@ import { BackingUnchanged, NothingToRecover } from "src/VaultErrors.sol";
 contract BackingResolutionTest is AlphaVaultTestBase {
     /// @dev 30 alpha at 3334 / 3333 / 3333 bps: hotkey1 holds 10.002 alpha.
     uint256 private constant FIRST_SLOT = 10_002_000_000;
+    uint256 private constant SECOND_SLOT = 9_999_000_000;
 
     function _cutTheEdge(bytes32 fromHotkey, bytes32 toHotkey) private {
         _simulateOffVaultSwap(NETUID1, fromHotkey, toHotkey);
@@ -85,6 +86,110 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         assertEq(backing.hotkeys[1], hotkey5, "the 24 alpha slot takes its own pile");
         assertEq(backing.hotkeys[2], hotkey3);
         assertEq(backing.total, 40 * ALPHA);
+        assertTrue(lens.isBackingIntact(TOKEN1));
+    }
+
+    function _moveTheEqualWeightSlots(uint256 firstPileGain, uint256 secondPileGain) private returns (uint256 shares) {
+        shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _cutTheEdge(hotkey1, hotkey4);
+        _cutTheEdge(hotkey2, hotkey5);
+        MockStaking mock = MockStaking(STAKING_PRECOMPILE);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        mock.setStake(hotkey4, cloneColdkey, NETUID1, mock.getStake(hotkey4, cloneColdkey, NETUID1) + firstPileGain);
+        mock.setStake(hotkey5, cloneColdkey, NETUID1, mock.getStake(hotkey5, cloneColdkey, NETUID1) + secondPileGain);
+    }
+
+    function _nameOnlyTheFirstSuccessor() private {
+        _simulateSquatter(hotkey2);
+        _setValidators(
+            NETUID1, _hotkeys(hotkey4, hotkey2, hotkey3), _weights(NETUID1_BPS_HK1, NETUID1_BPS_HK2, NETUID1_BPS_HK3)
+        );
+    }
+
+    function _nameBothSuccessors() private {
+        _setValidators(
+            NETUID1, _hotkeys(hotkey4, hotkey5, hotkey3), _weights(NETUID1_BPS_HK1, NETUID1_BPS_HK2, NETUID1_BPS_HK3)
+        );
+    }
+
+    function _assertEachSlotUnderItsOwnValidator() private view {
+        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
+        assertEq(slots[0].attested, hotkey4);
+        assertEq(slots[0].stakedUnder, hotkey4, "validator 1's slot sits under validator 1's hotkey");
+        assertEq(slots[1].attested, hotkey5);
+        assertEq(slots[1].stakedUnder, hotkey5, "validator 2's slot sits under validator 2's hotkey");
+    }
+
+    function test_EqualWeightSlotsCanCross() public {
+        _moveTheEqualWeightSlots(20_000_000, 10_000_000);
+
+        VaultReads.Backing memory backing = lens.resolvedBacking(TOKEN1);
+
+        assertEq(backing.hotkeys[0], hotkey5, "slot for hotkey1 resolves to validator 2's pile");
+        assertEq(backing.hotkeys[1], hotkey4, "slot for hotkey2 resolves to validator 1's pile");
+        assertEq(backing.total, 30 * ALPHA + 30_000_000, "total is still exact");
+    }
+
+    function testFuzz_EqualWeightSlotsCross_WhenTheSmallerSlotsPileCoversTheLargerSlot(
+        uint256 firstPileGain,
+        uint256 secondPileGain
+    ) public {
+        uint256 gap = FIRST_SLOT - SECOND_SLOT;
+        secondPileGain = bound(secondPileGain, gap - BACKING_SLACK_RAO, ALPHA);
+        firstPileGain = bound(firstPileGain, secondPileGain >= gap ? secondPileGain - gap + 1 : 0, ALPHA);
+        _moveTheEqualWeightSlots(firstPileGain, secondPileGain);
+
+        VaultReads.Backing memory backing = lens.resolvedBacking(TOKEN1);
+
+        assertEq(backing.hotkeys[0], hotkey5, "the larger slot takes the smaller pile that covers it");
+        assertEq(backing.hotkeys[1], hotkey4, "the smaller slot takes the pile left");
+        assertEq(backing.total, 30 * ALPHA + firstPileGain + secondPileGain, "total is still exact");
+        assertTrue(lens.isBackingIntact(TOKEN1));
+    }
+
+    function test_CrossedSlots_ASetNamingBothSuccessors_PutsEachSlotUnderItsOwnValidator() public {
+        _moveTheEqualWeightSlots(20_000_000, 10_000_000);
+        vault.rebalance(NETUID1);
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey5, "a priced call records the cross");
+        assertEq(vault.recordedSlots(TOKEN1)[1].stakedUnder, hotkey4);
+
+        _nameBothSuccessors();
+        vault.rebalance(NETUID1);
+
+        _assertEachSlotUnderItsOwnValidator();
+        assertEq(lens.totalStake(TOKEN1), 30 * ALPHA + 30_000_000, "no alpha left the backing");
+        assertTrue(lens.isBackingIntact(TOKEN1));
+    }
+
+    function test_RevertWhen_ASetNamesOneSuccessorOfCrossedSlots() public {
+        uint256 shares = _moveTheEqualWeightSlots(20_000_000, 10_000_000);
+        _nameOnlyTheFirstSuccessor();
+        _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
+
+        vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
+        _wrapHotkey(bob, NETUID1, hotkey4);
+        vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares / 4, _toSubstrate(alice), 0);
+        vm.expectRevert(IAlphaVaultAbi.SwappedHotkeyStillAttested.selector);
+        vault.rebalance(NETUID1);
+    }
+
+    function test_CrossedSlots_ASetNamingOneSuccessor_KeepsTheTaoExitAndResumesOnceBothAreNamed() public {
+        uint256 shares = _moveTheEqualWeightSlots(20_000_000, 10_000_000);
+        _nameOnlyTheFirstSuccessor();
+        uint256 balanceBefore = alice.balance;
+
+        vm.prank(alice);
+        vault.unwrapForTao(TOKEN1, shares / 4, 0);
+
+        assertEq(alice.balance - balanceBefore, 375_374_999e9, "the TAO exit sold 7.507499999 alpha at 0.05 TAO/alpha");
+
+        _nameBothSuccessors();
+        vault.rebalance(NETUID1);
+
+        _assertEachSlotUnderItsOwnValidator();
+        assertEq(lens.totalStake(TOKEN1), 22_522_500_001, "30.03 alpha less the TAO exit");
         assertTrue(lens.isBackingIntact(TOKEN1));
     }
 

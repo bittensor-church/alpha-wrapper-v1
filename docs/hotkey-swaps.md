@@ -42,10 +42,11 @@ The resolver follows at most one hop from each recorded hotkey, only when
 the successor covers that slot's expectation within 1000 RAO of accounting slack.
 Failing that, it takes, among the hotkeys the clone stakes under that no other slot
 holds, the one with the smallest pile that covers the slot. It counts each hotkey
-for at most one slot. Two slots that moved together and differ by less than the
-emissions earned since the record was last written can take each other's pile:
-the total stays exact, and a registry set naming both successors puts each slot
-under its own validator. Separately observed swaps can advance the record repeatedly:
+for at most one slot. Two slots that moved together and differ by less than what
+the piles gained since the record was last written can take each other's pile:
+the total stays exact, each validator holds the other's weight on later deposits
+and alignment, and a registry set naming both successors puts each slot under its
+own validator. Separately observed swaps can advance the record repeatedly:
 any priced call, and a `syncBacking` call on a position that accounts for
 itself, writes a followed or found hotkey into the record. A found hotkey keeps
 the slot like a followed one, even when it is a rotated-out validator; a later
