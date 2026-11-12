@@ -42,7 +42,11 @@ The resolver follows at most one hop from each recorded hotkey, only when
 the successor covers that slot's expectation within 1000 RAO of accounting slack.
 Failing that, it takes, among the hotkeys the clone stakes under that no other slot
 holds, the one with the smallest pile that covers the slot. It counts each hotkey
-for at most one slot. Separately observed swaps can advance the record repeatedly:
+for at most one slot. Two slots that moved together and differ by less than what
+the piles gained since the record was last written can take each other's pile:
+the total stays exact, each validator holds the other's weight on later deposits
+and alignment, and a registry set naming both successors puts each slot under its
+own validator. Separately observed swaps can advance the record repeatedly:
 any priced call, and a `syncBacking` call on a position that accounts for
 itself, writes a followed or found hotkey into the record. A found hotkey keeps
 the slot like a followed one, even when it is a rotated-out validator; a later
@@ -129,6 +133,9 @@ even while backing is intact.
    a swap from either, or a lost or changed owner record on a recorded hotkey,
    publish the validator's current hotkey at once: until then an emptied slot can
    re-stake under a hotkey the validator left, idle or held by a stranger.
+   When several validators of one set swapped, publish all their current hotkeys
+   in one update: with two slots on each other's piles, a set naming only one of
+   them makes wraps, alpha exits and rebalances revert `SwappedHotkeyStillAttested`.
 2. For missing backing, call `syncBacking(tokenId)`. It secures all located
    backing on `parkingHotkey` before starting one fixed recovery window, except
    below-floor piles. Other collection failures revert.
@@ -149,10 +156,12 @@ even while backing is intact.
    Remove any lost or captured hotkey and publish the intended successor. The next wrap,
    alpha exit or `rebalance(netuid)` releases the parked position onto it.
 6. The lens's `stakingListEntries(tokenId)` reports the clone's staking list. From
-   128 entries, half the chain's cap, anyone can call `replaceClone(tokenId, uid)`
-   with a fresh random UID; `StakingListFull` on any call means the same. The
-   position, its TAO and the token id move to a fresh clone; piles below the
-   floor stay on the old clone.
+   128 entries anyone can call `replaceClone(tokenId, uid)` with a fresh random
+   UID; `StakingListFull` on any call means the same. The position, its TAO and
+   the token id move to a fresh clone; piles below the floor stay on the old
+   clone. Everything left on the old clone, written-off alpha included, is lost
+   for good. Before the list reaches 128 entries, collect strays with
+   `scripts/find_strays.py --recover`.
 
 `syncBacking` and `recoverStray` are permissionless. Declaration cost grows with
 the number of located hotkeys: simulate the call and budget above the estimate.
