@@ -546,9 +546,13 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         mock.setHotkeyOwner(toHotkey, mock.ownerOf(fromHotkey));
     }
 
+    function _squatterColdkey(bytes32 hotkey) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked("squatter:", hotkey));
+    }
+
     /// @dev A stranger claims the hotkey.
     function _simulateSquatter(bytes32 hotkey) internal {
-        MockStaking(STAKING_PRECOMPILE).setHotkeyOwner(hotkey, keccak256(abi.encodePacked("squatter:", hotkey)));
+        MockStaking(STAKING_PRECOMPILE).setHotkeyOwner(hotkey, _squatterColdkey(hotkey));
         MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey, false);
     }
 
