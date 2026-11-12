@@ -74,10 +74,10 @@ The followed hotkey keeps the slot after its validator registers the attested
 hotkey again; a swap from the followed hotkey onto it, or publishing the
 followed hotkey, moves the slot.
 
-When the vault has to move stake off a hotkey with no owner record, the clone's
-owner contract claims the hotkey first, then the clone moves; the entry lands on
-the owner contract's own staking list.
-The claim is permanent, and while the hotkey stays attested
+When the vault has to move stake off a hotkey with no owner
+record, the clone's owner contract claims the hotkey first, then
+the clone moves; the entry lands on the owner contract's own
+staking list. The claim is permanent, and while the hotkey stays attested
 the claimed hotkey counts as a receiving hotkey for an emptied slot, which stays
 idle there until the registry owner publishes the successor. Anyone paying the
 chain's hotkey-swap fee can block the claim by reserving the ownerless hotkey as a

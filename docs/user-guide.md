@@ -50,7 +50,7 @@ Call `unwrapForTao(tokenId, shares, minTaoOut)`. It sells the backing in the poo
 and pays your EVM account; fees and price impact reduce proceeds. Unsold alpha
 is refunded as shares. Prefer the alpha exit when available.
 
-A slot the pool will not pay for makes the call fail.
+A slot the pool will not pay for makes the call fail and burn its gas.
 `unwrapForTao(tokenId, shares, minTaoOut, excludedSlots)` skips the slots set in
 the mask (bit `i` is slot `i` of `recordedSlots(tokenId)`) and refunds their
 share as shares. `scripts/plan_tao_exit.py` finds those slots and dry-runs the

@@ -110,10 +110,11 @@ present when dissolution starts, and later arrivals, instead back the dissolved
 refund. Already-indexed claim liabilities stay separate.
 
 Third-party alpha under tracked hotkeys increases backing. A clone admits
-third-party alpha only onto a hotkey it already lists. Mailbox wraps collect
-only the mailbox's own hotkey. Other vault alpha joins the position through
-`recoverStray` under the [recovery rules](hotkey-swaps.md), including their
-late-recovery ownership policy.
+third-party alpha only onto a hotkey it already lists; alpha it holds on another
+subnet is an [accepted risk](security-model.md#other-accepted-risks). Mailbox
+wraps collect only the mailbox's own hotkey. Other vault alpha joins the position
+through `recoverStray` under the [recovery rules](hotkey-swaps.md), including
+their late-recovery ownership policy.
 
 A full-supply `unwrapForTao` attempts to sell all located alpha, including any
 left when supply was zero; the last holder receives the proceeds. An alpha
