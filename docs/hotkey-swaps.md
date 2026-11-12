@@ -149,10 +149,12 @@ even while backing is intact.
    Remove any lost or captured hotkey and publish the intended successor. The next wrap,
    alpha exit or `rebalance(netuid)` releases the parked position onto it.
 6. The lens's `stakingListEntries(tokenId)` reports the clone's staking list. From
-   128 entries, half the chain's cap, anyone can call `replaceClone(tokenId, uid)`
-   with a fresh random UID; `StakingListFull` on any call means the same. The
-   position, its TAO and the token id move to a fresh clone; piles below the
-   floor stay on the old clone.
+   128 entries anyone can call `replaceClone(tokenId, uid)` with a fresh random
+   UID; `StakingListFull` on any call means the same. The position, its TAO and
+   the token id move to a fresh clone; piles below the floor stay on the old
+   clone. Everything left on the old clone, written-off alpha included, is lost
+   for good. Before the list reaches 128 entries, collect strays with
+   `scripts/find_strays.py --recover`.
 
 `syncBacking` and `recoverStray` are permissionless. Declaration cost grows with
 the number of located hotkeys: simulate the call and budget above the estimate.

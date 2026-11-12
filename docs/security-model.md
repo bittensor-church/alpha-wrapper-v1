@@ -72,7 +72,8 @@ The original holders lose at most the hidden alpha and what it earned
 meanwhile. Parking before write-off defeats the attack, which makes watcher
 responsiveness a financial concern. After a write-off, deposits stay shut until
 the registry is updated, and holders who keep their shares keep their claim on
-later recovery.
+later recovery. A clone replacement ends that claim for alpha still on the old
+clone.
 
 ## Other accepted risks
 
@@ -91,9 +92,10 @@ later recovery.
   list, and a pile no single listed hotkey covers freezes
   deposits, exits and rebalances until a watcher parks the position, which earns
   again once the registry publishes a new set.
-- Alpha a clone holds on another subnet stays outside the backing, and so do piles
-  a clone replacement leaves behind. Anyone holding enough alpha can push a pile
-  below the floor by dumping the price around a replacement and so destroy
-  it for holders, gaining nothing.
+- Alpha a clone holds on another subnet stays outside the backing.
+- Whatever a clone replacement leaves on the old clone is lost for good: piles
+  below the floor, strays and written-off alpha. Anyone holding enough alpha can
+  push a pile below the floor by dumping the price around a replacement and so
+  destroy it for holders, gaining nothing.
 
 See [edge cases](edge-cases.md) for dissolution, transfer restrictions and minimums.
