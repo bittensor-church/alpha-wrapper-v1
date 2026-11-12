@@ -202,6 +202,17 @@ def announce_coldkey_swap(
         ), signer_uri=signer_uri)
 
 
+def announce_coldkey_swap_and_wait(
+    new_coldkey_account: bytes, delay_blocks: int, *, signer_uri: str,
+    chain_endpoint: str = config.CHAIN_ENDPOINT,
+) -> None:
+    """Announce a coldkey swap onto `new_coldkey_account` and wait until it may execute: the
+    announcement delay, set to `delay_blocks`, plus a block for inclusion either side."""
+    announce_coldkey_swap(new_coldkey_account, signer_uri=signer_uri, chain_endpoint=chain_endpoint)
+    maturity_blocks = delay_blocks + 2
+    chain.wait_for_blocks(maturity_blocks, timeout=maturity_blocks * config.BLOCK_TIMEOUT_SECONDS)
+
+
 def swap_coldkey_announced(
     new_coldkey_ss58: str, *, signer_uri: str, chain_endpoint: str = config.CHAIN_ENDPOINT,
 ) -> str:
@@ -276,6 +287,16 @@ def set_admin_freeze_window(
         raise ExtrinsicError(
             f"set_admin_freeze_window did not reach window={window} (now {current})"
         )
+    return block_hash
+
+
+def set_tempo(netuid: int, tempo: int, *, chain_endpoint: str = config.CHAIN_ENDPOINT) -> str:
+    """Set a subnet's epoch length in blocks via Sudo, which restarts its epoch cycle at the current block."""
+    with _connect(chain_endpoint) as client:
+        block_hash = _submit(client, _sudo(client, _sdk().calls.AdminUtils.sudo_set_tempo(netuid=netuid, tempo=tempo)))
+        current = client.query(_sdk().storage.SubtensorModule.Tempo, [netuid])
+    if int(current) != tempo:
+        raise ExtrinsicError(f"set_tempo netuid={netuid} did not reach tempo={tempo} (now {current})")
     return block_hash
 
 
@@ -408,16 +429,6 @@ def set_network_registration_block(
     return block_hash
 
 
-def set_subnet_alpha_in(
-    netuid: int, alpha_rao: int, *, chain_endpoint: str = config.CHAIN_ENDPOINT,
-) -> str:
-    """Rewrite the alpha side of a subnet's pool through Sudo. The localnet prices alpha
-    above one TAO, where the pool refuses no sale; deepening the alpha side brings the
-    price down to where most subnets trade. Read the result back through the alpha
-    precompile: emissions keep adding to it every block."""
-    return _set_subnet_u64(b"SubnetAlphaIn", netuid, alpha_rao, chain_endpoint)
-
-
 def keypair_pubkey(uri: str) -> str:
     """The 32-byte public key of a dev URI, hex-encoded, as the vault and precompiles take it."""
     return "0x" + bytes(_sdk().sp_core.Keypair.create_from_uri(uri).public_key).hex()
@@ -457,8 +468,8 @@ def swap_hotkey(
     hotkey_ss58: str, new_hotkey_ss58: str,
     *, signer_uri: str = "//Alice", chain_endpoint: str = config.CHAIN_ENDPOINT,
 ) -> str:
-    """Rename a hotkey across every subnet, carrying its stake to the new name and
-    leaving the old name without an owner record. The chain records the
+    """Swap a hotkey on every subnet, carrying its stake to the new hotkey and
+    leaving the old hotkey without an owner record. The chain records the
     old -> new edge the vault follows."""
     with _connect(chain_endpoint) as client:
         return _submit(client, _sdk().calls.SubtensorModule.swap_hotkey_v2(
@@ -470,8 +481,8 @@ def swap_hotkey_on_subnet(
     hotkey_ss58: str, new_hotkey_ss58: str, netuid: int,
     *, signer_uri: str = "//Alice", chain_endpoint: str = config.CHAIN_ENDPOINT,
 ) -> str:
-    """Rename a hotkey on one subnet. The target may be any name with no owner
-    record, and the rename erases that name's own outgoing edge, which is how a
+    """Swap a hotkey on one subnet. The target may be any hotkey with no owner
+    record, and the swap erases that hotkey's own outgoing edge, which is how a
     stranger can cut the trail the vault follows."""
     with _connect(chain_endpoint) as client:
         return _submit(client, _sdk().calls.SubtensorModule.swap_hotkey_v2(

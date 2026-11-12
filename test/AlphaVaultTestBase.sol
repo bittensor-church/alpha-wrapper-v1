@@ -2,8 +2,6 @@
 pragma solidity 0.8.36;
 
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
-import { VaultMath } from "src/libraries/VaultMath.sol";
 import { Vm } from "forge-std/Test.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { AlphaVaultLens } from "src/AlphaVaultLens.sol";
@@ -46,7 +44,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
 
     string internal constant VAULT_URI = "https://example.com/{id}.json";
     uint256 internal constant RECOVERY_WINDOW = 6 hours;
-    uint256 internal constant BACKING_SLACK_RAO = VaultReads.TRACKED_SLACK_RAO;
+    uint256 internal constant BACKING_SLACK_RAO = 1_000;
     bytes32 internal constant PARKING_HOTKEY = keccak256("parking-hotkey");
 
     uint256 public constant NETUID1 = 1;
@@ -59,9 +57,11 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     uint16 public constant NETUID2_BPS_HK2 = 6000;
     uint16 public constant NETUID2_BPS_HK1 = 4000;
 
-    uint16 public constant BPS_BASE = VaultMath.BPS_BASE;
+    uint16 public constant BPS_BASE = 10_000;
 
     uint256 internal constant DUST_THRESHOLD = CHAIN_NOMINATOR_MIN_STAKE;
+
+    uint256 internal constant UNSWEPT_SALE_MARGIN = 2;
 
     /// @dev One alpha in RAO; chain stake is u64 RAO.
     uint256 internal constant ALPHA = 1e9;
@@ -340,7 +340,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     function _catchRecordUpFor(uint256 tokenId) internal {
         if (lens.isBackingIntact(tokenId)) return;
         _runOutRecoveryWindow(tokenId);
-        uint256 netuid = tokenId & VaultMath.NETUID_MASK;
+        uint256 netuid = uint16(tokenId);
         _reattestCurrentSet(netuid);
         vault.rebalance(netuid);
     }
@@ -402,7 +402,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     function _simulateTaoAwardedOnDissolution(uint256 tokenId, uint256 taoAmount) internal {
         address clone = vault.subnetClone(tokenId);
         bytes32 cloneColdkey = _toSubstrate(clone);
-        MockStaking(STAKING_PRECOMPILE).clearPositions(cloneColdkey, tokenId & VaultMath.NETUID_MASK);
+        MockStaking(STAKING_PRECOMPILE).clearPositions(cloneColdkey, uint16(tokenId));
         vm.deal(clone, clone.balance + taoAmount);
     }
 
@@ -413,7 +413,7 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
 
     function _simulateNewNetworkRegistered(uint256 tokenId, uint256 taoInClone) internal {
         _simulateTaoAwardedOnDissolution(tokenId, taoInClone);
-        _reregisterSubnet(tokenId & VaultMath.NETUID_MASK);
+        _reregisterSubnet(uint16(tokenId));
     }
 
     /// @dev The registration block survives the start of asynchronous dissolution cleanup.
@@ -430,36 +430,34 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         return bound(priceRao, 1e6, 2e8) * 1e9;
     }
 
-    /// @dev The most a partial TAO sale can take from a slot: the request, capped to keep a leftover worth more than the
-    ///      nominator minimum at `priceE18`.
-    function _sweepSafeChunk(uint256 balance, uint256 request, uint256 priceE18) internal pure returns (uint256) {
+    function _largestUnsweptSale(uint256 balance, uint256 request, uint256 priceE18) internal pure returns (uint256) {
         if (priceE18 == 0) return 0;
-        uint256 leftover = Math.ceilDiv((DUST_THRESHOLD + 1) * 1e18, priceE18);
-        if (balance <= leftover) return 0;
-        return balance - leftover < request ? balance - leftover : request;
+        uint256 sweptBelow = DUST_THRESHOLD * 1e18 / priceE18;
+        if (balance <= sweptBelow) return 0;
+        return balance - sweptBelow < request ? balance - sweptBelow : request;
     }
 
-    function _recordedHotkeys(uint256 tokenId) internal view returns (bytes32[] memory keys) {
+    function _recordedHotkeys(uint256 tokenId) internal view returns (bytes32[] memory hotkeys) {
         VaultReads.Slot[] memory slots = vault.recordedSlots(tokenId);
-        keys = new bytes32[](slots.length);
+        hotkeys = new bytes32[](slots.length);
         for (uint256 i; i < slots.length; ++i) {
-            keys[i] = slots[i].stakedUnder;
+            hotkeys[i] = slots[i].stakedUnder;
         }
     }
 
-    /// @dev Whether a TAO exit of `assets` sells something from the clone's stake on `keys`: some eligible slot drains
-    ///      within `assets`, or sells a sweep-safe chunk of them that clears the minimum stake at the read price.
-    function _taoExitSellsWithin(bytes32[] memory keys, uint256 assets, uint256 excludedSlots, uint256 netuid)
+    function _taoExitSellsWithin(bytes32[] memory hotkeys, uint256 assets, uint256 excludedSlots, uint256 netuid)
         internal
         view
         returns (bool)
     {
         uint256 price = _alphaPriceRead(netuid);
-        for (uint256 i; i < keys.length; ++i) {
-            uint256 balance = (excludedSlots >> i) & 1 == 0 ? _getVaultStake(keys[i], netuid) : 0;
+        for (uint256 i; i < hotkeys.length; ++i) {
+            uint256 balance = (excludedSlots >> i) & 1 == 0 ? _getVaultStake(hotkeys[i], netuid) : 0;
             if (balance == 0) continue;
             if (balance <= assets) return true;
-            if (_sweepSafeChunk(balance, assets, price) * price / 1e18 >= CHAIN_MIN_STAKE) return true;
+            if (_largestUnsweptSale(balance, assets, price) * price / 1e18 >= CHAIN_MIN_STAKE + UNSWEPT_SALE_MARGIN) {
+                return true;
+            }
         }
         return false;
     }
@@ -473,13 +471,11 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         _setAlphaPrice(netuid, 0.5e9);
     }
 
-    /// @dev The slots among `keys` whose whole balance would sell for nothing. The pool refuses such a sale and burns
-    ///      the forwarded gas, so a TAO exit excludes them, as its callers are told to.
-    function _zeroPaySlots(bytes32[] memory keys, uint256 netuid) internal view returns (uint256 excluded) {
+    function _zeroPaySlots(bytes32[] memory hotkeys, uint256 netuid) internal view returns (uint256 excluded) {
         MockStaking staking = MockStaking(STAKING_PRECOMPILE);
         bytes32 coldkey = _subnetColdkey(netuid);
-        for (uint256 i; i < keys.length; ++i) {
-            uint256 held = staking.getStake(keys[i], coldkey, netuid);
+        for (uint256 i; i < hotkeys.length; ++i) {
+            uint256 held = staking.getStake(hotkeys[i], coldkey, netuid);
             if (held != 0 && staking.quoteTaoOut(uint16(netuid), held) == 0) excluded |= 1 << i;
         }
     }
@@ -638,5 +634,11 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         mock.setStake(hotkey, _toSubstrate(strangerDonor), netuid, amount);
         vm.prank(strangerDonor);
         mock.transferStake(cloneColdkey, hotkey, netuid, netuid, amount);
+    }
+
+    function _strangerTransfer(bytes32 hotkey, bytes32 coldkey, uint256 netuid) internal {
+        MockStaking(STAKING_PRECOMPILE).setStake(hotkey, _toSubstrate(strangerDonor), netuid, CRUMB);
+        vm.prank(strangerDonor);
+        MockStaking(STAKING_PRECOMPILE).transferStake(coldkey, hotkey, netuid, netuid, CRUMB);
     }
 }

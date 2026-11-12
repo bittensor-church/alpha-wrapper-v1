@@ -12,22 +12,16 @@ Hotkey 0x0, which the localnet owns from genesis, is refused like any other unli
 A crumb sent under a listed validator on another subnet keeps that validator listed after
 the registry rotates it out; nothing of the vault's is affected and deposits keep landing.
 """
-import secrets
-from dataclasses import replace
-
 import pytest
 
 from alpha_e2e import bootstrap, chain, checks, config, exits, extrinsics
+from alpha_e2e.environment import random_bytes32
 from alpha_e2e.extrinsics import UNOWNED_ACCOUNT as ZERO_HOTKEY_SS58
 from alpha_e2e.substrate import h160_to_ss58, h160_to_substrate_b32
 
 STRANGER = "//StakingListStranger"
 STRANGER_FUNDING_RAO = 20 * config.RAO_PER_TAO
 ZERO_HOTKEY = "0x" + "00" * 32
-
-
-def _uid() -> str:
-    return "0x" + secrets.token_hex(32)
 
 
 def _rejects_growth(address: str) -> bool:
@@ -47,14 +41,10 @@ def test_stranger_cannot_grow_a_clones_staking_list(env, recovery_window):
     netuid, other_netuid, _ = env.netuids
     token_id = env.token_ids[0]
     hotkeys = env.subnet_hotkey_pubkeys(0)
-    validator, validator_ss58 = hotkeys[0], env.hotkey_ss58s[0]
-    stranger_hotkey, stranger_hotkey_ss58 = env.hotkey_pubkeys[3], env.hotkey_ss58s[3]
+    validator, validator_ss58 = hotkeys[0], env.subnet_hotkey_ss58s(0)[0]
+    stranger_hotkey, stranger_hotkey_ss58 = env.subnet_hotkey_pubkeys(1)[0], env.subnet_hotkey_ss58s(1)[0]
     stranger_ss58 = extrinsics.keypair_ss58(STRANGER)
-    deployment = bootstrap.deploy_contracts([netuid], hotkeys, recovery_window=recovery_window)
-    env = replace(
-        env, vault_address=deployment.vault_address, lens_address=deployment.lens_address,
-        validator_registry_address=deployment.validator_registry_address,
-    )
+    env = bootstrap.redeploy(env, 0, recovery_window)
 
     extrinsics.fund_account(stranger_ss58, STRANGER_FUNDING_RAO)
     extrinsics.add_stake(stranger_hotkey_ss58, other_netuid, 2 * config.RAO_PER_TAO, signer_uri=STRANGER)
@@ -64,7 +54,7 @@ def test_stranger_cannot_grow_a_clones_staking_list(env, recovery_window):
     _, dust = env.floor_boundary(other_netuid, 2 * env.chain_min_transfer_tao())
     _, gift = env.floor_boundary(netuid, 2 * env.chain_min_transfer_tao())
 
-    poisoned_uid = _uid()
+    poisoned_uid = random_bytes32()
     poisoned_clone, poisoned_mailbox = env.candidate_addresses(token_id, netuid, poisoned_uid)
     for candidate in (poisoned_clone, poisoned_mailbox):
         extrinsics.transfer_stake(
@@ -72,17 +62,19 @@ def test_stranger_cannot_grow_a_clones_staking_list(env, recovery_window):
         )
         assert env.stake(stranger_hotkey, h160_to_substrate_b32(candidate), other_netuid) > 0, "the dust did not land"
     env.assert_vault_reverts_with(
-        "CloneContaminated(address)", 2_000_000, "a dusted candidate was accepted",
-        "createMailbox(uint256,bytes32)", netuid, poisoned_uid,
+        "CloneContaminated(address)", 3_000_000, "a dusted candidate was accepted",
+        "createMailbox(uint256,bytes32)", netuid, poisoned_uid, error_args=(poisoned_clone,),
     )
 
     env.vault_send(
-        2_000_000, "fresh UID did not prepare protected addresses", "createMailbox(uint256,bytes32)", netuid, _uid(),
+        2_000_000, "fresh UID did not prepare protected addresses", "createMailbox(uint256,bytes32)", netuid, random_bytes32(),
     )
     clone = env.clone_address(token_id)
     mailbox = env.mailbox_address(netuid)
     clone_owner = env.clone_owner_address(token_id)
-    assert clone.lower() != poisoned_clone.lower() and mailbox.lower() != poisoned_mailbox.lower()
+    assert clone.lower() != poisoned_clone.lower() and mailbox.lower() != poisoned_mailbox.lower(), (
+        "a fresh UID should prepare addresses other than the dusted candidates"
+    )
     for address, own_entries in ((clone, 0), (mailbox, 1), (clone_owner, 1)):
         assert _rejects_growth(address), f"{address} does not refuse staking-list growth"
         assert len(extrinsics.staking_hotkeys(h160_to_ss58(address))) == own_entries, "a fresh clone lists a stranger"
@@ -108,14 +100,17 @@ def test_stranger_cannot_grow_a_clones_staking_list(env, recovery_window):
     assert "AccountRejectsStakingHotkeyGrowth" in str(refused.value), "the clone's own hotkey is no landing pad"
 
     extrinsics.transfer_stake(h160_to_ss58(clone), validator_ss58, other_netuid, dust, signer_uri=STRANGER)
-    assert env.stake(validator, clone_coldkey, other_netuid) > 0, "a crumb under a listed validator did not land"
+    crumb = env.stake(validator, clone_coldkey, other_netuid)
+    assert crumb > 0, "a crumb under a listed validator did not land"
     env.set_validator(netuid, hotkeys[1])
     env.vault_send(4_000_000, "the rotation rebalance failed", "rebalance(uint256)", netuid, label="rebalance [rotate]")
     assert env.stake(validator, clone_coldkey, netuid) <= config.ROUNDING_DUST_SLOT_RAO, "the old validator kept backing"
     assert len(extrinsics.staking_hotkeys(h160_to_ss58(clone))) == 2, "the crumb did not keep the old entry"
 
-    env.deposit_and_wrap(netuid, hotkeys[1], env.hotkey_ss58s[1], config.DEPOSIT_RAO, 1_500_000, "the second wrap failed")
-    assert env.stake(validator, clone_coldkey, other_netuid) > 0, "the crumb stays where the stranger put it"
+    env.deposit_and_wrap(
+        netuid, hotkeys[1], env.subnet_hotkey_ss58s(0)[1], config.DEPOSIT_RAO, 1_500_000, "the second wrap failed",
+    )
+    assert env.stake(validator, clone_coldkey, other_netuid) == crumb, "the crumb stays where the stranger put it"
     assert len(extrinsics.staking_hotkeys(h160_to_ss58(clone))) == 2, "the second deposit grew the list"
     for address in (clone, mailbox, clone_owner):
         _assert_growth_refused(address, stranger_hotkey_ss58, other_netuid, dust)
@@ -123,7 +118,8 @@ def test_stranger_cannot_grow_a_clones_staking_list(env, recovery_window):
     receipt, _ = exits.unwrap(env, token_id, env.vault_shares(token_id), "the full exit failed", hotkeys=hotkeys)
     exits.assert_drained(env, token_id, hotkeys, receipt, "full exit")
     env.deposit_and_wrap(
-        netuid, hotkeys[1], env.hotkey_ss58s[1], config.DEPOSIT_RAO // 10, 1_500_000, "the wrap after a full exit failed",
+        netuid, hotkeys[1], env.subnet_hotkey_ss58s(0)[1], config.DEPOSIT_RAO // 10, 1_500_000,
+        "the wrap after a full exit failed",
     )
     assert _rejects_growth(clone), "the flag is down after a wrap"
     assert env.stake(stranger_hotkey, h160_to_substrate_b32(poisoned_clone), other_netuid) > 0, (

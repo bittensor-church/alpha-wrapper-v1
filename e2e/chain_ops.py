@@ -175,7 +175,7 @@ def main() -> None:
             transaction_hash = validators.set_basic_validator(
                 args.registry, args.netuid, args.hotkey,
                 private_key=args.owner_pk, rpc=args.rpc_url,
-            )
+            )["transactionHash"]
         except validators.ValidatorUpdateError as error:
             print(f"FAIL: {error}", file=sys.stderr)
             sys.exit(1)

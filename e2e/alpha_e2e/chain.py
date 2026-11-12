@@ -1,8 +1,9 @@
-"""Typed subprocess wrappers over cast/forge/btcli.
+"""Typed subprocess wrappers over cast/forge/btcli, and the revert-data probe.
 
 One run() chokepoint; everything else is a thin typed shim. cast output is
 parsed by taking the first whitespace token per line, because cast appends a
-bracketed scientific suffix to numeric values.
+bracketed scientific suffix to numeric values. A call's revert data is read
+through web3, which hands it over as it left the node.
 """
 import json
 import os
@@ -10,6 +11,9 @@ import subprocess
 import time
 from functools import lru_cache
 from typing import List, Optional, Union
+
+from web3 import Web3
+from web3.exceptions import ContractLogicError
 
 from . import config
 
@@ -248,6 +252,49 @@ def cast_keccak(data_hex: str) -> str:
 
 def cast_abi_encode(signature: str, *args) -> str:
     return run(["cast", "abi-encode", signature, *map(str, args)], timeout=_READ_TIMEOUT).stdout.strip()
+
+
+def _without_return_types(signature: str) -> str:
+    """`name(inputs)` from a signature that may carry cast's trailing return types."""
+    depth = 0
+    for index, character in enumerate(signature):
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0:
+                return signature[:index + 1]
+    raise ValueError(f"not a function or error signature: {signature!r}")
+
+
+def encoded_call(signature: str, *args) -> str:
+    """Selector followed by the ABI-encoded arguments, lower-case hex: calldata for a function,
+    revert data for a custom error."""
+    inputs = _without_return_types(signature)
+    encoded_args = cast_abi_encode(inputs, *args)[2:] if args else ""
+    return (cast_sig(inputs) + encoded_args).lower()
+
+
+@lru_cache(maxsize=None)
+def _web3(rpc: str) -> Web3:
+    return Web3(Web3.HTTPProvider(rpc))
+
+
+def revert_data(
+    to: str, signature: str, *args, sender: Optional[str] = None,
+    rpc: str = config.RPC_URL, block: Optional[int] = None,
+) -> Optional[str]:
+    """The data an `eth_call` reverts with, lower-case hex, or None when the call goes through.
+    A node or transport failure propagates: it is not the contract's answer."""
+    transaction = {"to": Web3.to_checksum_address(to), "data": encoded_call(signature, *args)}
+    if sender is not None:
+        transaction["from"] = Web3.to_checksum_address(sender)
+    try:
+        _web3(rpc).eth.call(transaction, block_identifier=block)
+    except ContractLogicError as error:
+        data = error.data.get("data") if isinstance(error.data, dict) else error.data
+        return data.lower() if isinstance(data, str) else "0x"
+    return None
 
 
 def create2_clone_address(deployer: str, implementation: str, salt: str) -> str:

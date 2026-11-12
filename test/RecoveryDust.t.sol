@@ -1,43 +1,33 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
+import { BackingScenarios } from "./helpers/BackingScenarios.sol";
 import { BackingUnchanged, NothingToRecover } from "src/VaultErrors.sol";
-import { VaultReads } from "src/libraries/VaultReads.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 
-contract RecoveryDustTest is AlphaVaultTestBase {
+contract RecoveryDustTest is BackingScenarios {
     uint256 private constant EXPECTED = 6 * ALPHA / 10;
-    uint256 private constant DUST = ALPHA_FLOOR / 2;
     /// @dev 3333 bps of EXPECTED: above the floor at 0.05 TAO/alpha, below the 0.2 alpha floor at 0.01.
     uint256 private constant THIRD_SLOT = 199_980_000;
+    uint256 private constant LARGEST_SMALL_SET = 10;
 
     function _missingPosition() private returns (uint256[] memory swept) {
         _depositAndWrap(alice, NETUID1, EXPECTED);
-        bytes32[] memory keys = _hotkeys(hotkey1, hotkey2, hotkey3);
-        swept = new uint256[](keys.length);
-        for (uint256 i; i < keys.length; ++i) {
-            swept[i] = _sweepDuringCrash(NETUID1, keys[i]);
-        }
-    }
-
-    function _plant(bytes32 key, uint256 amount) private {
-        MockStaking(STAKING_PRECOMPILE).setStake(key, _subnetColdkey(NETUID1), NETUID1, amount);
-        _simulateHotkeyOwnerPresent(key);
+        swept = _sweepEverySlot();
     }
 
     function _emptyRecovery() private returns (uint256[] memory swept, uint256 deadline) {
         swept = _missingPosition();
         vault.syncBacking(TOKEN1);
-        deadline = lens.writeOffDeadline(TOKEN1);
-        assertEq(_parkedStake(NETUID1), 0);
-        assertEq(vault.recordedSlots(TOKEN1)[0].tracked, EXPECTED);
+        deadline = block.timestamp + RECOVERY_WINDOW;
+        assertEq(_parkedStake(NETUID1), 0, "nothing is located at declaration");
+        assertEq(vault.recordedSlots(TOKEN1)[0].tracked, EXPECTED, "against the whole 0.6 alpha obligation");
     }
 
     function test_RevertWhen_RecoveringASubFloorStray() public {
         _missingPosition();
-        _plant(hotkey4, DUST);
+        _strangerReturns(NETUID1, hotkey4, DUST);
         vault.syncBacking(TOKEN1);
         vm.expectRevert(NothingToRecover.selector);
         vault.recoverStray(TOKEN1, hotkey4);
@@ -45,9 +35,9 @@ contract RecoveryDustTest is AlphaVaultTestBase {
 
     function test_DustDuringEmptyRecovery_DoesNotBlockExpiryOrBurningWorthlessShares() public {
         (, uint256 deadline) = _emptyRecovery();
-        _plant(hotkey1, DUST);
-        assertEq(lens.locatedStake(TOKEN1), DUST);
-        assertEq(lens.missingStake(TOKEN1), 580_000_000, "recorded dust is located backing");
+        _strangerReturns(NETUID1, hotkey1, DUST);
+        assertEq(lens.locatedStake(TOKEN1), DUST, "recorded dust is located backing");
+        assertEq(lens.missingStake(TOKEN1), 580_000_000, "0.6 alpha less the 0.02 alpha of dust");
         vm.warp(deadline - 1);
         vm.expectRevert(BackingUnchanged.selector);
         vault.syncBacking(TOKEN1);
@@ -56,50 +46,50 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         vm.expectEmit(true, false, false, true, address(vault));
         emit BackingWrittenOff(TOKEN1, EXPECTED, 0);
         vault.syncBacking(TOKEN1);
-        assertEq(_getVaultStake(hotkey1, NETUID1), DUST);
-        assertEq(lens.totalStake(TOKEN1), 0);
-        assertEq(lens.writeOffDeadline(TOKEN1), 0);
+        assertEq(_getVaultStake(hotkey1, NETUID1), DUST, "the dust stays in place");
+        assertEq(lens.totalStake(TOKEN1), 0, "and is not counted as backing");
+        assertEq(lens.writeOffDeadline(TOKEN1), 0, "the write-off stops the clock");
         uint256 shares = vault.balanceOf(alice, TOKEN1);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
-        assertEq(vault.totalSupply(TOKEN1), 0);
+        assertEq(vault.totalSupply(TOKEN1), 0, "a zero floor burns the worthless shares");
     }
 
     function test_ParkedPile_CollectsDustWithoutExtendingTheWindow() public {
         (uint256[] memory swept, uint256 deadline) = _emptyRecovery();
         _strangerReturns(NETUID1, hotkey4, swept[2]);
         vault.recoverStray(TOKEN1, hotkey4);
-        _plant(hotkey1, DUST);
+        _strangerReturns(NETUID1, hotkey1, DUST);
 
         vm.expectEmit(true, false, false, true, address(vault));
         emit BackingCollected(TOKEN1, DUST);
         vault.syncBacking(TOKEN1);
 
-        assertEq(_parkedStake(NETUID1), THIRD_SLOT + DUST);
-        assertEq(_getVaultStake(hotkey1, NETUID1), 0);
-        assertEq(lens.missingStake(TOKEN1), 380_020_000);
-        assertEq(lens.writeOffDeadline(TOKEN1), deadline);
+        assertEq(_parkedStake(NETUID1), THIRD_SLOT + DUST, "the parked pile carries the dust home");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 0, "leaving nothing under the swept hotkey");
+        assertEq(lens.missingStake(TOKEN1), 380_020_000, "0.6 alpha less the 0.19998 and 0.02 alpha collected");
+        assertEq(lens.writeOffDeadline(TOKEN1), deadline, "and the clock did not move");
     }
 
     function test_AboveFloorReturnAtExpiry_CollectsPreviouslySkippedDust() public {
         (uint256[] memory swept, uint256 deadline) = _emptyRecovery();
-        _plant(hotkey1, DUST);
+        _strangerReturns(NETUID1, hotkey1, DUST);
         _strangerReturns(NETUID1, hotkey3, swept[2]);
         vm.warp(deadline);
         vm.expectEmit(true, false, false, true, address(vault));
         emit BackingWrittenOff(TOKEN1, EXPECTED, THIRD_SLOT + DUST);
         vault.syncBacking(TOKEN1);
-        assertEq(_parkedStake(NETUID1), THIRD_SLOT + DUST);
-        assertEq(_getVaultStake(hotkey1, NETUID1), 0);
-        assertEq(_getVaultStake(hotkey3, NETUID1), 0);
+        assertEq(_parkedStake(NETUID1), THIRD_SLOT + DUST, "the movable return carries the dust onto parking");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 0, "leaving nothing under the dust's hotkey");
+        assertEq(_getVaultStake(hotkey3, NETUID1), 0, "nor under the returned slot's hotkey");
     }
 
     function test_PriceRiseAtExpiry_CollectsDustThatNowClearsTheFloor() public {
         _missingPosition();
-        _plant(hotkey1, DUST);
+        _strangerReturns(NETUID1, hotkey1, DUST);
         vault.syncBacking(TOKEN1);
-        assertEq(_parkedStake(NETUID1), 0);
-        uint256 deadline = lens.writeOffDeadline(TOKEN1);
+        assertEq(_parkedStake(NETUID1), 0, "the dust stays below the floor at declaration");
+        uint256 deadline = block.timestamp + RECOVERY_WINDOW;
         // 0.02 alpha at 0.1 TAO/alpha is exactly the 2e6 RAO floor.
         _setAlphaPrice(NETUID1, 0.1e18);
         vm.warp(deadline);
@@ -107,85 +97,112 @@ contract RecoveryDustTest is AlphaVaultTestBase {
         emit BackingWrittenOff(TOKEN1, EXPECTED, DUST);
         vault.syncBacking(TOKEN1);
         assertEq(_parkedStake(NETUID1), DUST, "newly movable backing must not be written off");
-        assertEq(_getVaultStake(hotkey1, NETUID1), 0);
+        assertEq(_getVaultStake(hotkey1, NETUID1), 0, "and nothing stays under the dust's hotkey");
     }
 
     function test_PriceFallDuringRecovery_DoesNotLetDustBlockTheParkedBalance() public {
         (uint256[] memory swept, uint256 deadline) = _emptyRecovery();
         _strangerReturns(NETUID1, hotkey4, swept[2]);
         vault.recoverStray(TOKEN1, hotkey4);
-        _plant(hotkey1, DUST);
+        _strangerReturns(NETUID1, hotkey1, DUST);
         _setAlphaPrice(NETUID1, 0.01e18);
         vm.warp(deadline);
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), THIRD_SLOT, "the entire parked balance remains backing");
-        assertEq(_getVaultStake(hotkey1, NETUID1), DUST);
-        // A subsequent price recovery permits the holder's normal full alpha exit.
+        assertEq(_getVaultStake(hotkey1, NETUID1), DUST, "while the dust stays in place");
+
         _setAlphaPrice(NETUID1, ALPHA_PRICE);
         uint256 shares = vault.balanceOf(alice, TOKEN1);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), THIRD_SLOT);
-        assertEq(_getStake(vault.parkingHotkey(), alice, NETUID1), THIRD_SLOT);
+        assertEq(
+            _getStake(vault.parkingHotkey(), alice, NETUID1),
+            THIRD_SLOT,
+            "once the price recovers, the full alpha exit pays the parked balance"
+        );
     }
 
-    function test_UnknownRoundedPrice_DoesNotAuthorizeADustWriteOff() public {
+    function test_RevertWhen_TheAlphaPriceReadsZeroAtADustWriteOff() public {
         (, uint256 deadline) = _emptyRecovery();
-        _plant(hotkey1, DUST);
+        _strangerReturns(NETUID1, hotkey1, DUST);
         _setAlphaPriceReadsZero(NETUID1);
         vm.warp(deadline);
         _expectChainRefusal();
         vault.syncBacking(TOKEN1);
     }
 
-    function test_FailedAboveFloorCollection_DoesNotUseTheDustException() public {
+    function test_RevertWhen_AnAboveFloorCollectionFailsBesideDust() public {
         (, uint256 deadline) = _emptyRecovery();
-        _plant(hotkey1, ALPHA_FLOOR);
-        _plant(hotkey2, DUST);
+        _strangerReturns(NETUID1, hotkey1, ALPHA_FLOOR);
+        _strangerReturns(NETUID1, hotkey2, DUST);
         MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(true);
         vm.warp(deadline);
         _expectChainRefusal();
         vault.syncBacking(TOKEN1);
     }
 
-    function _smallSet(uint256 count, uint256 dust, bool movable) private returns (uint256 located) {
-        uint16 netuid = 9;
-        _setRegBlock(netuid, 400);
-        bytes32[] memory keys = _setValidatorCount(netuid, count);
-        _simulateAlphaDeposit(alice, netuid, ALPHA);
-        _wrapHotkey(alice, netuid, keys[0]);
-        uint256 tokenId = vault.currentTokenId(netuid);
-        bytes32 coldkey = _subnetColdkey(netuid);
+    function _smallSetReturnedAs(uint256 count, uint256 dust, bool lastAtTheFloor)
+        private
+        returns (uint256 tokenId, bytes32[] memory hotkeys)
+    {
+        (hotkeys, tokenId) = _wideSetPosition(count, ALPHA);
         for (uint256 i; i < count; ++i) {
-            uint256 balance = movable && i == count - 1 ? ALPHA_FLOOR : dust;
-            MockStaking(STAKING_PRECOMPILE).setStake(keys[i], coldkey, netuid, balance);
-            located += balance;
+            _sweepDuringCrash(WIDE_SET_NETUID, hotkeys[i]);
+            _strangerReturns(WIDE_SET_NETUID, hotkeys[i], lastAtTheFloor && i == count - 1 ? ALPHA_FLOOR : dust);
         }
         vault.syncBacking(tokenId);
-        assertEq(vault.recordedSlots(tokenId)[0].tracked, ALPHA);
-        assertEq(_parkedStake(netuid), movable ? located : 0);
-        uint256 deadline = lens.writeOffDeadline(tokenId);
-        vm.warp(deadline);
+        assertEq(vault.recordedSlots(tokenId)[0].tracked, ALPHA, "the declaration keeps the whole 1 alpha obligation");
+    }
+
+    function _assertDustAloneIsWrittenOffInPlace(uint256 count, uint256 dust) private {
+        (uint256 tokenId, bytes32[] memory hotkeys) = _smallSetReturnedAs(count, dust, false);
+        assertEq(_parkedStake(WIDE_SET_NETUID), 0, "no balance clears the floor on its own");
+
+        vm.warp(block.timestamp + RECOVERY_WINDOW);
         vm.expectEmit(true, false, false, true, address(vault));
-        emit BackingWrittenOff(tokenId, ALPHA, movable ? located : 0);
+        emit BackingWrittenOff(tokenId, ALPHA, 0);
         vault.syncBacking(tokenId);
-        assertEq(lens.totalStake(tokenId), movable ? located : 0);
+
+        assertEq(lens.totalStake(tokenId), 0, "the write-off locates nothing movable");
         for (uint256 i; i < count; ++i) {
-            assertEq(_getVaultStake(keys[i], netuid), movable ? 0 : dust);
+            assertEq(_getVaultStake(hotkeys[i], WIDE_SET_NETUID), dust, "every dust balance stays in place");
+        }
+    }
+
+    function _assertAFloorPileCarriesTheDust(uint256 count, uint256 dust) private {
+        (uint256 tokenId, bytes32[] memory hotkeys) = _smallSetReturnedAs(count, dust, true);
+        uint256 collected = (count - 1) * dust + ALPHA_FLOOR;
+        assertEq(_parkedStake(WIDE_SET_NETUID), collected, "the floor pile carries every dust balance to parking");
+
+        vm.warp(block.timestamp + RECOVERY_WINDOW);
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit BackingWrittenOff(tokenId, ALPHA, collected);
+        vault.syncBacking(tokenId);
+
+        assertEq(lens.totalStake(tokenId), collected, "the write-off keeps everything collected");
+        for (uint256 i; i < count; ++i) {
+            assertEq(_getVaultStake(hotkeys[i], WIDE_SET_NETUID), 0, "nothing stays under a returned hotkey");
         }
     }
 
     function test_TenDustBalances_DoNotBlockWriteOffEvenWhenTheirSumExceedsTheFloor() public {
-        _smallSet(10, ALPHA_FLOOR - 1, false);
+        _assertDustAloneIsWrittenOffInPlace(LARGEST_SMALL_SET, ALPHA_FLOOR - 1);
     }
 
     function test_OneBalanceAtTheFloor_CollectsAllNineDustBalances() public {
-        _smallSet(10, ALPHA_FLOOR - 1, true);
+        _assertAFloorPileCarriesTheDust(LARGEST_SMALL_SET, ALPHA_FLOOR - 1);
     }
 
-    function testFuzz_SmallSets_OnlySkipIndividuallySubFloorBalances(uint256 rawCount, uint256 rawDust, bool movable)
+    function testFuzz_SmallSetOfDust_IsWrittenOffInPlace(uint256 rawCount, uint256 rawDust) public {
+        _assertDustAloneIsWrittenOffInPlace(
+            bound(rawCount, 2, LARGEST_SMALL_SET), bound(rawDust, CRUMB, ALPHA_FLOOR - 1)
+        );
+    }
+
+    function testFuzz_SmallSetWithOneBalanceAtTheFloor_CollectsEveryDustBalance(uint256 rawCount, uint256 rawDust)
         public
     {
-        _smallSet(bound(rawCount, 2, 10), bound(rawDust, VaultReads.TRACKED_SLACK_RAO + 1, ALPHA_FLOOR - 1), movable);
+        _assertAFloorPileCarriesTheDust(bound(rawCount, 2, LARGEST_SMALL_SET), bound(rawDust, CRUMB, ALPHA_FLOOR - 1));
     }
 
     /// @dev A 0.3-alpha slot sits below the 0.4-alpha nominator minimum at 0.05 TAO/alpha. The chain's sweep runs

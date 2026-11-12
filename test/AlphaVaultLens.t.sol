@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { VaultMath } from "src/libraries/VaultMath.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
@@ -10,15 +9,21 @@ import {
     AlphaTransfersDisabled,
     BackingShortfall,
     LockedBacking,
+    NoSharesOutstanding,
     Parked,
     SharePriceBelowPrecision,
     ShortfallOnFile,
+    SubnetDissolved,
+    SubnetInDissolutionBlackoutPeriod,
     ZeroAddress
 } from "src/VaultErrors.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract AlphaVaultLensTest is AlphaVaultTestBase {
+    uint256 private constant TOKEN_WITHOUT_A_CLONE = 3;
+    uint256 private constant TOKEN_OF_AN_UNREGISTERED_SUBNET = 42 + 100 * 65_536;
+
     function test_RevertWhen_ConstructedWithoutAVault() public {
         vm.expectRevert(ZeroAddress.selector);
         new AlphaVaultLens(AlphaVault(address(0)));
@@ -29,18 +34,23 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
     {
         deposit = bound(deposit, ALPHA, MAX_SUBNET_ALPHA / 2);
         emissions = bound(emissions, 0, MAX_SUBNET_ALPHA / 2);
-        shares = bound(shares, 1, _depositAndWrap(alice, NETUID1, deposit));
+        uint256 supply = _depositAndWrap(alice, NETUID1, deposit);
+        shares = bound(shares, 1, supply);
         _simulateEmissions(NETUID1, emissions);
+        uint256 backing = deposit + emissions;
 
         uint256 price = lens.sharePrice(TOKEN1);
-        (uint256 unitAlpha,) = lens.previewUnwrap(TOKEN1, VaultMath.SHARE_PRICE_SCALE);
+        _assertPlainShareLessOneRaoPerAlpha(price, 1e18 * backing / supply);
+        (uint256 unitAlpha,) = lens.previewUnwrap(TOKEN1, 1e18);
         assertEq(price, unitAlpha, "one share unit");
         (uint256 alpha,) = lens.previewUnwrap(TOKEN1, shares);
-        assertLe(
-            (shares * price) / VaultMath.SHARE_PRICE_SCALE,
-            alpha,
-            "a balance valued at the price never overstates its exit"
-        );
+        _assertPlainShareLessOneRaoPerAlpha(alpha, shares * backing / supply);
+        assertLe((shares * price) / 1e18, alpha, "a balance valued at the price never overstates its exit");
+    }
+
+    function _assertPlainShareLessOneRaoPerAlpha(uint256 quote, uint256 plainShare) private pure {
+        assertLe(quote, plainShare, "never above the plain pro-rata share");
+        assertGe(quote + plainShare / 1e9 + 1, plainShare, "at most one RAO per alpha below it, plus one");
     }
 
     function test_SharePrice_RefusesToQuoteBelowItsPrecision() public {
@@ -133,11 +143,10 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         _donateToClone(vault.subnetClone(TOKEN1), 3 * TAO);
         _donateToClone(vault.subnetClone(TOKEN2), TAO);
 
-        uint256 unseeded = vault.currentTokenId(NETUID2) + 1;
         uint256[] memory ids = new uint256[](3);
         ids[0] = TOKEN1;
         ids[1] = TOKEN2;
-        ids[2] = unseeded;
+        ids[2] = TOKEN_WITHOUT_A_CLONE;
 
         uint256[] memory batch = lens.batchClaimableTaoOf(alice, ids);
         assertEq(batch.length, ids.length, "one amount per id");
@@ -154,7 +163,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
     }
 
     function testFuzz_BatchClaimableTaoOf_IsOrderAndRepetitionIndependent(uint256 donation) public {
-        donation = bound(donation, 1, 1_000_000e9) * VaultMath.TAO_NATIVE_QUANTUM;
+        donation = bound(donation, 1, 1_000_000e9) * 1e9;
         _depositAndWrap(alice, NETUID1, 100 * ALPHA);
         _depositAndWrap(alice, NETUID2, 40 * ALPHA);
         _donateToClone(vault.subnetClone(TOKEN1), donation);
@@ -166,6 +175,8 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         ids[3] = TOKEN2;
 
         uint256[] memory batch = lens.batchClaimableTaoOf(alice, ids);
+        assertEq(batch[1], donation, "the sole holder of TOKEN1 is quoted the whole donation");
+        assertEq(batch[0], 0, "TOKEN2 received nothing");
         assertEq(batch[1], batch[2], "the same id quoted twice must agree");
         assertEq(batch[0], batch[3], "the same id quoted twice must agree");
         assertEq(batch[1], lens.claimableTaoOf(alice, TOKEN1), "TOKEN1");
@@ -183,7 +194,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         assertTrue(vault.awaitingAttestation(TOKEN1), "the position is parked");
         assertTrue(lens.isBackingIntact(TOKEN1), "parked backing is whole");
         assertEq(lens.writeOffDeadline(TOKEN1), 0, "and no clock runs on it");
-        assertEq(lens.lastSeenHotkeys(TOKEN1)[0], vault.parkingHotkey(), "the record names the parking hotkey");
+        assertEq(lens.lastSeenHotkeys(TOKEN1)[0], PARKING_HOTKEY, "the record names the parking hotkey");
         assertEq(lens.sharePrice(TOKEN1), ALPHA, "1e18 shares still quote one alpha");
         vm.expectRevert(Parked.selector);
         lens.previewWrap(TOKEN1, ALPHA);
@@ -237,9 +248,11 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         _setTransfersEnabled(NETUID1, false);
         _sweepDuringCrash(NETUID1, hotkey1);
 
-        vm.expectPartialRevert(BackingShortfall.selector);
+        bytes memory firstSlotShort =
+            abi.encodeWithSelector(BackingShortfall.selector, uint16(NETUID1), hotkey1, 100.02e9);
+        vm.expectRevert(firstSlotShort);
         lens.previewWrap(TOKEN1, ALPHA);
-        vm.expectPartialRevert(BackingShortfall.selector);
+        vm.expectRevert(firstSlotShort);
         lens.previewUnwrap(TOKEN1, 1e18);
 
         vault.syncBacking(TOKEN1);
@@ -263,7 +276,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
     function test_DeclaredShortfall_ReadsAsNotIntactUntilSynced() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
         uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
-        assertEq(lens.writeOffDeadline(TOKEN1), VaultReads.UNDECLARED_SHORTFALL, "short and not yet declared");
+        assertEq(lens.writeOffDeadline(TOKEN1), type(uint256).max, "short and not yet declared");
         vault.syncBacking(TOKEN1);
         _strangerReturns(NETUID1, hotkey1, swept);
 
@@ -370,19 +383,262 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         assertEq(lens.stakingListEntries(TOKEN1), 0);
     }
 
-    function testFuzz_StakingListEntries_CountsTheCloneList(uint256 entries) public {
+    function test_StakingListEntries_CountsTheFundedValidatorsAndAHotkeyListedThroughAnotherSubnet() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        entries = bound(entries, 3, MAX_STAKING_HOTKEYS - 1);
-        _fillListTo(_subnetColdkey(NETUID1), entries);
+        assertEq(lens.stakingListEntries(TOKEN1), 3, "one entry per funded validator");
 
-        assertEq(lens.stakingListEntries(TOKEN1), entries);
+        _strangerReturns(NETUID1, hotkey4, ALPHA);
+        assertEq(lens.stakingListEntries(TOKEN1), 4, "the returned pile's hotkey is listed too");
     }
 
     function test_StakingListEntries_FollowsAReplacedClone() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _fillListTo(_subnetColdkey(NETUID1), MAX_STAKING_HOTKEYS - 1);
+        assertEq(lens.stakingListEntries(TOKEN1), 255, "one short of the chain's 256-entry cap");
         vault.replaceClone(TOKEN1, keccak256("successor-uid"));
 
         assertEq(lens.stakingListEntries(TOKEN1), 3, "the successor lists only the funded validators");
+    }
+
+    function testFuzz_PreviewWrap_QuotesABillionSharesPerRaoOnAnEmptyVault(uint256 assets) public view {
+        assets = bound(assets, 0, MAX_SUBNET_ALPHA);
+        assertEq(lens.previewWrap(TOKEN1, assets), assets * 1e9, "an empty vault mints 1e9 shares per RAO");
+    }
+
+    function test_PreviewUnwrap_QuotesTheWholeDepositForAllShares() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+
+        (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, shares);
+        assertEq(alpha, 10 * ALPHA);
+        assertEq(tao, 0);
+    }
+
+    function test_SharePrice_RisesOnlyOnTheSubnetThatEarnedEmissions() public {
+        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+        uint256 shares2 = _depositAndWrap(alice, NETUID2, 5 * ALPHA);
+
+        _simulateEmissions(NETUID1, 10 * ALPHA);
+
+        // 1e18 * (2e10 + 1) / (1e19 + 1e9), floored.
+        assertEq(lens.sharePrice(TOKEN1), 1_999_999_999, "netuid 1 doubles with its emissions");
+        assertEq(lens.sharePrice(TOKEN2), 1e9, "netuid 2 stays at the initial price");
+
+        (uint256 preview2,) = lens.previewUnwrap(TOKEN2, shares2);
+        assertEq(preview2, 5 * ALPHA);
+    }
+
+    function test_RevertWhen_SharePriceForUnregisteredSubnet() public {
+        vm.expectRevert(SubnetDissolved.selector);
+        lens.sharePrice(TOKEN_OF_AN_UNREGISTERED_SUBNET);
+    }
+
+    function test_RevertWhen_SharePriceHasNoSharesOutstanding() public {
+        _prepareMailbox(alice, NETUID1);
+        assertEq(vault.totalSupply(TOKEN1), 0);
+        vm.expectRevert(NoSharesOutstanding.selector);
+        lens.sharePrice(TOKEN1);
+    }
+
+    function test_RevertWhen_SharePriceOnReplacedGenerationDuringSuccessorBlackout() public {
+        _depositAndWrap(alice, NETUID1, 100 * ALPHA);
+        _simulateNewNetworkRegistered(TOKEN1, 5 * TAO);
+        _simulateDissolutionStarted(NETUID1);
+
+        vm.expectRevert(SubnetDissolved.selector);
+        lens.sharePrice(TOKEN1);
+    }
+
+    function test_PreviewUnwrap_QuotesTheDissolutionRefund() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 100 * ALPHA);
+
+        _simulateDissolutionStarted(NETUID1);
+        _simulateTaoAwardedOnDissolution(TOKEN1, 5 * TAO);
+        _simulateDissolutionCompleted(NETUID1);
+
+        (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, shares);
+        assertEq(alpha, 0);
+        assertEq(tao, 5 * TAO);
+    }
+
+    function test_PreviewUnwrap_QuotesReplacedGenerationDuringSuccessorBlackout() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 100 * ALPHA);
+        _simulateNewNetworkRegistered(TOKEN1, 5 * TAO);
+        _simulateDissolutionStarted(NETUID1);
+
+        (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, shares);
+        assertEq(alpha, 0);
+        assertEq(tao, 5 * TAO);
+    }
+
+    function test_PreviewUnwrap_QuotesZeroForATokenWithoutAClone() public view {
+        (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN_WITHOUT_A_CLONE, 1e18);
+        assertEq(alpha, 0);
+        assertEq(tao, 0);
+    }
+
+    function test_PreviewUnwrap_QuotesZeroForZeroShares() public view {
+        (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, 0);
+        assertEq(alpha, 0);
+        assertEq(tao, 0);
+    }
+
+    function test_PreviewUnwrap_AccountsForRotatedOutStake() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+
+        _plantVaultStakes(NETUID1, 0, 0, 30 * ALPHA);
+
+        _setValidators(
+            NETUID1, _hotkeys(hotkey1, hotkey2, hotkey4), _weights(NETUID1_BPS_HK1, NETUID1_BPS_HK2, NETUID1_BPS_HK3)
+        );
+
+        (uint256 previewAlpha,) = lens.previewUnwrap(TOKEN1, shares);
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
+
+        uint256 actualAlpha = _userStakeAcrossHotkeys(alice, NETUID1);
+        assertEq(actualAlpha, 30 * ALPHA, "unwrap reclaims rotated-out stake and pays the full deposit");
+        assertEq(previewAlpha, actualAlpha, "preview must match what unwrap actually pays");
+    }
+
+    function test_PreviewUnwrap_MatchesTheExitAfterAFullRegistryRotation() public {
+        _setValidators(NETUID1, _hotkeys(hotkey4), _weights(BPS_BASE));
+        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+
+        _setValidators(
+            NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(NETUID1_BPS_HK1, NETUID1_BPS_HK2, NETUID1_BPS_HK3)
+        );
+
+        (uint256 previewAlpha,) = lens.previewUnwrap(TOKEN1, shares);
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
+
+        uint256 actualAlpha = _userStakeAcrossHotkeys(alice, NETUID1);
+        assertEq(actualAlpha, 30 * ALPHA, "unwrap reclaims stake from the rotated-out validator");
+        assertEq(previewAlpha, actualAlpha, "preview matches what unwrap pays after registry rotation");
+    }
+
+    function test_PreviewUnwrap_IncludesEmissionsBeforeAnyVaultCall() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+
+        _simulateEmissions(NETUID1, 6 * ALPHA);
+
+        (uint256 previewAlpha,) = lens.previewUnwrap(TOKEN1, shares);
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
+
+        uint256 actualAlpha = _userStakeAcrossHotkeys(alice, NETUID1);
+        // 3e19 * (3.6e10 + 1) / (3e19 + 1e9), floored.
+        assertEq(actualAlpha, 36 * ALPHA - 1, "unwrap pays deposit + accrued emissions");
+        assertEq(previewAlpha, actualAlpha, "preview reflects fresh on-chain balances incl. emissions");
+    }
+
+    function test_PreviewUnwrap_QuotesZeroOnceTheBackingIsGone() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+
+        _plantVaultStakes(NETUID1, 0, 0, 0);
+
+        (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, shares);
+
+        assertEq(alpha, 0);
+        assertEq(tao, 0);
+    }
+
+    function test_RevertWhen_SharePriceForReRegisteredSubnetOldTokenId() public {
+        _depositAndWrap(alice, NETUID1, 100 * ALPHA);
+
+        _simulateNewNetworkRegistered(TOKEN1, 5 * TAO);
+
+        vm.expectRevert(SubnetDissolved.selector);
+        lens.sharePrice(TOKEN1);
+    }
+
+    function test_RevertWhen_SharePriceOfADissolvedTokenEvenAfterAForceSend() public {
+        _depositAndWrap(alice, NETUID1, 100 * ALPHA);
+        address clone = vault.subnetClone(TOKEN1);
+
+        _simulateDissolutionStarted(NETUID1);
+        _simulateTaoAwardedOnDissolution(TOKEN1, 5 * TAO);
+        _simulateDissolutionCompleted(NETUID1);
+
+        vm.expectRevert(SubnetDissolved.selector);
+        lens.sharePrice(TOKEN1);
+
+        _donateToClone(clone, 100 * TAO);
+        vm.expectRevert(SubnetDissolved.selector);
+        lens.sharePrice(TOKEN1);
+    }
+
+    function test_RevertWhen_PreviewWrapForDissolvedTokenId() public {
+        _depositAndWrap(alice, NETUID1, 100 * ALPHA);
+
+        _simulateDissolutionStarted(NETUID1);
+        _simulateTaoAwardedOnDissolution(TOKEN1, 5 * TAO);
+        _simulateDissolutionCompleted(NETUID1);
+
+        vm.expectRevert(SubnetDissolved.selector);
+        lens.previewWrap(TOKEN1, 10 * ALPHA);
+    }
+
+    function test_RevertWhen_PreviewWrapForReRegisteredSubnetOldTokenId() public {
+        _depositAndWrap(alice, NETUID1, 100 * ALPHA);
+
+        _simulateNewNetworkRegistered(TOKEN1, 5 * TAO);
+
+        vm.expectRevert(SubnetDissolved.selector);
+        lens.previewWrap(TOKEN1, 10 * ALPHA);
+    }
+
+    function test_RevertWhen_PreviewUnwrapBlackoutOfCurrentRegistration() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+
+        _simulateDissolutionStarted(NETUID1);
+
+        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
+        lens.previewUnwrap(TOKEN1, shares);
+    }
+
+    function test_RevertWhen_SharePriceBlackoutOfCurrentRegistration() public {
+        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+
+        _simulateDissolutionStarted(NETUID1);
+
+        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
+        lens.sharePrice(TOKEN1);
+    }
+
+    function test_RevertWhen_PreviewWrapBlackoutOfCurrentRegistration() public {
+        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+
+        _simulateDissolutionStarted(NETUID1);
+
+        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
+        lens.previewWrap(TOKEN1, 10 * ALPHA);
+    }
+
+    function test_PreviewUnwrap_QuotesNothingForADissolvedPositionWithoutARefund() public {
+        uint256 shares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+
+        _simulateDissolutionStarted(NETUID1);
+        _simulateTaoAwardedOnDissolution(TOKEN1, 0);
+        _simulateDissolutionCompleted(NETUID1);
+
+        (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, shares);
+        assertEq(alpha, 0, "no alpha remains after dissolution");
+        assertEq(tao, 0, "no refund quotes zero");
+    }
+
+    function test_TotalStake_ReflectsEmissionsWithoutSync() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        assertEq(lens.sharePrice(TOKEN1), 1e9);
+
+        _simulateEmissions(NETUID1, 5 * ALPHA);
+
+        assertEq(lens.totalStake(TOKEN1), 35 * ALPHA, "totalStake includes the 5-alpha emission");
+        assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 35 * ALPHA, "totalStake tracks live stake");
+        // 1e18 * (3.5e10 + 1) / (3e19 + 1e9), floored.
+        assertEq(lens.sharePrice(TOKEN1), 1_166_666_666, "sharePrice rises with emissions");
     }
 }

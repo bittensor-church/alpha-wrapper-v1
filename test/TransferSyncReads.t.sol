@@ -81,5 +81,10 @@ contract TransferSyncReadsTest is AlphaVaultTestBase {
         _expectSubnetReads(NETUID1, 0);
         _transferHalf(TOKEN1);
         _batchTransferHalf();
+
+        assertEq(vault.taoLiability(TOKEN1), DONATION, "the reserve is the donation, counted once");
+        assertEq(lens.claimableTaoOf(alice, TOKEN1), DONATION, "the holder at the donation keeps the whole claim");
+        assertEq(lens.claimableTaoOf(bob, TOKEN1), 0, "shares received afterwards carry no claim");
+        assertEq(vault.balanceOf(bob, TOKEN1), 875e18, "half, a quarter and an eighth of the 1e21 shares moved");
     }
 }

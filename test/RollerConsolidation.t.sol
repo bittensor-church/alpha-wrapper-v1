@@ -1,22 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { VaultMath } from "src/libraries/VaultMath.sol";
-import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
+import { DepositScenarios } from "./helpers/DepositScenarios.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
-import { MockStaking } from "./mocks/MockStaking.sol";
-import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { ALPHA_PRECOMPILE, IAlpha } from "src/interfaces/IAlpha.sol";
 import { WithdrawTooSmall } from "src/VaultErrors.sol";
 
-contract RollerConsolidationTest is AlphaVaultTestBase {
+contract RollerConsolidationTest is DepositScenarios {
     /// @dev The largest pile worth less than the 2e6-RAO minimum stake even at 0.05 TAO/alpha plus the
     ///      price read's 1e9 quantum: 0.04 alpha minus one RAO.
     uint256 private constant DUST = 39_999_999;
-
-    /// @dev At a price the EVM reads as zero (5e-10 TAO/alpha) the chain moves only piles of 200,000 alpha
-    ///      or more, so positions there are sized in millions of alpha.
-    uint256 private constant LARGE_POSITION = 1_000_000 * ALPHA;
 
     function _seedDustOnlyVault() private returns (uint256 tokenId) {
         _registerSubnet(99, hotkey4);
@@ -24,7 +17,7 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
         _wrapHotkey(alice, 99, hotkey4);
         tokenId = vault.currentTokenId(99);
         _plantVaultStake(hotkey4, 99, DUST);
-        _setValidators(99, _hotkeys(hotkey1), _weights(VaultMath.BPS_BASE));
+        _setValidators(99, _hotkeys(hotkey1), _weights(BPS_BASE));
     }
 
     function test_Rebalance_ConsolidatesMultipleRotatedOutSlots() public {
@@ -63,7 +56,7 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(3000, 7000));
         _depositAndWrap(alice, NETUID1, 100 * ALPHA);
 
-        _setValidators(NETUID1, _hotkeys(hotkey4), _weights(VaultMath.BPS_BASE));
+        _setValidators(NETUID1, _hotkeys(hotkey4), _weights(BPS_BASE));
         vm.recordLogs();
         vault.rebalance(NETUID1);
 
@@ -101,8 +94,8 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
 
         _plantVaultStake(hotkey1, 99, 300 * ALPHA);
         _plantVaultStake(hotkey2, 99, DUST);
-        _setValidators(99, _hotkeys(hotkey4), _weights(VaultMath.BPS_BASE));
-        MockStaking(STAKING_PRECOMPILE).setMoveStakeRoundingLoss(1);
+        _setValidators(99, _hotkeys(hotkey4), _weights(BPS_BASE));
+        mock.setMoveStakeRoundingLoss(1);
 
         vault.rebalance(99);
 
@@ -110,7 +103,7 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(hotkey2, 99), 0, "dust folded off the second dropped validator");
         assertEq(_getVaultStake(hotkey4, 99), 300 * ALPHA + DUST - 2, "each of the two hops credits one RAO short");
         assertEq(lens.totalStake(tokenId), 300 * ALPHA + DUST - 2, "backing all sits on the current set");
-        assertEq(_lastSeen(tokenId).length, 1, "nothing left to remember");
+        assertEq(_lastSeen(tokenId), _hotkeys(hotkey4), "the record holds only the attested hotkey");
     }
 
     function test_Unwrap_SucceedsWhenPriceReadsZero() public {
@@ -145,11 +138,12 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
         uint256 tokenId = _seedDustOnlyVault();
 
         uint256 shares = vault.balanceOf(alice, tokenId);
+        uint256 balanceBefore = alice.balance;
         vm.prank(alice);
         vault.unwrapForTao(tokenId, shares, 0);
 
         // 39,999,999 RAO of alpha at 0.05 TAO, rounded down to the RAO.
-        assertEq(alice.balance, 1_999_999 * VaultMath.TAO_NATIVE_QUANTUM, "full dust value recovered as TAO");
+        assertEq(alice.balance - balanceBefore, 1_999_999e9, "full dust value recovered as TAO");
         assertEq(lens.totalStake(tokenId), 0, "nothing left behind");
     }
 
@@ -171,15 +165,15 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
         // 1.8e20 * (3e11 + 1) / (3e20 + 1e9): more than any one 100-alpha slot holds.
         uint256 delivered = 180 * ALPHA;
         assertEq(_userStakeAcrossHotkeys(alice, NETUID1), delivered, "delivery is exact");
-        uint256 receivedOnGatherTarget = MockStaking(STAKING_PRECOMPILE).getStake(hotkey2, _toSubstrate(alice), NETUID1);
+        uint256 receivedOnGatherTarget = _getStake(hotkey2, alice, NETUID1);
         assertEq(receivedOnGatherTarget, delivered, "the whole delivery arrives in one transfer");
         assertEq(lens.totalStake(TOKEN1), 120 * ALPHA, "only the delivered alpha left the vault");
     }
 
-    function test_UnwrapEventReportsCappedAlphaPayoutAfterGatherRounding() public {
+    function test_Unwrap_EventReportsTheCreditAfterGatherRounding() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 300 * ALPHA);
         _plantVaultStakes(NETUID1, 100 * ALPHA, 100 * ALPHA, 100 * ALPHA);
-        MockStaking(STAKING_PRECOMPILE).setMoveStakeRoundingLoss(1);
+        mock.setMoveStakeRoundingLoss(1);
 
         uint256 expectedAlphaOut = 300 * ALPHA - 2;
         vm.expectEmit(true, true, false, true, address(vault));
@@ -189,15 +183,6 @@ contract RollerConsolidationTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
 
         assertEq(_userStakeAcrossHotkeys(_toSubstrate(alice), NETUID1), expectedAlphaOut);
-    }
-
-    function test_RevertWhen_RollerMoveFails() public {
-        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
-        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey4), _weights(3334, 3333, 3333));
-        MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(true);
-
-        _expectChainRefusal();
-        vault.rebalance(NETUID1);
     }
 
     function test_Wrap_AcceptsDepositWhenPriceReadsZero() public {

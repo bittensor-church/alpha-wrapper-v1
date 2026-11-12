@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { VaultMath } from "src/libraries/VaultMath.sol";
 import { Vm } from "forge-std/Test.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import {
@@ -10,7 +9,6 @@ import {
     ClaimBelowNativePrecision,
     InsufficientShares,
     NetuidOutOfRange,
-    NoSharesOutstanding,
     NoValidatorFound,
     ParkingHotkeyUnavailable,
     RecoveryWindowOutOfRange,
@@ -30,10 +28,17 @@ import {
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { MockValidatorRegistry } from "./mocks/MockValidatorRegistry.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
-import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
+import { BackingScenarios } from "./helpers/BackingScenarios.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
-contract AlphaVaultTest is AlphaVaultTestBase {
+contract AlphaVaultTest is BackingScenarios {
+    uint256 private constant UNREGISTERED_NETUID = 42;
+    uint256 private constant SOLE_VALIDATOR_NETUID = 99;
+    uint256 private constant SPARE_NETUID = 91;
+    uint256 private constant ONE_PAST_THE_LARGEST_NETUID = 65_536;
+
+    uint256 private constant BPS_OF_100_ALPHA = 10_000_000;
+
     function test_RevertWhen_ConstructorZeroMailboxLogic() public {
         vm.expectRevert(ZeroAddress.selector);
         new AlphaVault(VAULT_URI, address(0), address(subnetLogic), address(registry), RECOVERY_WINDOW, PARKING_HOTKEY);
@@ -93,7 +98,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     }
 
     function test_Constructor_ClaimsTheParkingHotkeyForTheVault() public view {
-        (bool exists, bytes32 owner) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(vault.parkingHotkey());
+        (bool exists, bytes32 owner) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(PARKING_HOTKEY);
         assertTrue(exists, "the parking hotkey has an owner record");
         assertEq(owner, _toSubstrate(address(vault)), "held by the vault's own coldkey");
     }
@@ -132,7 +137,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(abi.decode(entry.data, (address)), mailbox);
     }
 
-    function test_Wrap() public {
+    function test_Wrap_MintsABillionSharesPerRaoForAFirstDeposit() public {
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
 
         vm.expectEmit(true, true, true, true, address(vault));
@@ -144,23 +149,16 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 10 * ALPHA);
     }
 
-    function test_WrapMultipleSubnets() public {
-        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
-        _wrap(alice, NETUID1);
+    function test_Wrap_KeepsEachSubnetsSharesAndStakeApart() public {
+        assertEq(_depositAndWrap(alice, NETUID1, 10 * ALPHA), 1e19);
+        assertEq(_depositAndWrap(alice, NETUID2, 5 * ALPHA), 5e18);
 
-        _simulateAlphaDeposit(alice, NETUID2, 5 * ALPHA);
-        _wrap(alice, NETUID2);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), 1e19);
-        assertEq(vault.balanceOf(alice, TOKEN2), 5e18);
         assertEq(lens.totalStake(TOKEN1), 10 * ALPHA);
         assertEq(lens.totalStake(TOKEN2), 5 * ALPHA);
     }
 
-    function test_WrapTwice() public {
-        _simulateAlphaDeposit(alice, NETUID1, 5 * ALPHA);
-        _wrap(alice, NETUID1);
-        assertEq(vault.balanceOf(alice, TOKEN1), 5e18);
+    function test_Wrap_SecondDepositMintsAtTheSameRate() public {
+        assertEq(_depositAndWrap(alice, NETUID1, 5 * ALPHA), 5e18);
 
         _simulateAlphaDeposit(alice, NETUID1, 5 * ALPHA);
         // 5e9 * (5e18 + 1e9) / (5e9 + 1) = 5e18 exactly.
@@ -172,7 +170,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 10 * ALPHA);
     }
 
-    function test_RevertWhen_WrapZero() public {
+    function test_RevertWhen_WrapWithAnEmptyMailbox() public {
         _prepareMailbox(alice, NETUID1);
         vm.prank(alice);
         vm.expectRevert(ZeroAmount.selector);
@@ -199,7 +197,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 1, "alice's rounding RAO stays behind");
     }
 
-    function test_Unwrap() public {
+    function test_Unwrap_AllSharesReturnTheWholeDeposit() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
 
         vm.prank(alice);
@@ -246,14 +244,11 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         // Real stake moves can round down, one RAO per move here.
         MockStaking(STAKING_PRECOMPILE).setMoveStakeRoundingLoss(1);
 
-        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
-        _wrap(alice, NETUID1);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), 1e19, "the mint prices the whole deposit");
+        assertEq(_depositAndWrap(alice, NETUID1, 10 * ALPHA), 1e19, "the mint prices the whole deposit");
         assertEq(lens.totalStake(TOKEN1), 10 * ALPHA - 2, "the two weight moves lost one RAO each");
     }
 
-    function test_RevertWhen_UnwrapOnZero() public {
+    function test_RevertWhen_UnwrapZeroShares() public {
         bytes32 aliceSub = _toSubstrate(alice);
         vm.prank(alice);
         vm.expectRevert(ZeroAmount.selector);
@@ -268,20 +263,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, shares, bytes32(0), 0);
     }
 
-    function testFuzz_PreviewWrapScalesLinearlyOnEmptyVault(uint256 assets) public view {
-        assets = bound(assets, 0, MAX_SUBNET_ALPHA);
-        assertEq(lens.previewWrap(TOKEN1, assets), assets * 1e9, "an empty vault mints 1e9 shares per RAO");
-    }
-
-    function test_PreviewUnwrap() public {
-        uint256 shares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-
-        (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, shares);
-        assertEq(alpha, 10 * ALPHA);
-        assertEq(tao, 0);
-    }
-
-    function test_UnwrapPartialShares() public {
+    function test_Unwrap_HalfTheSharesLeaveTheOtherHalfStaked() public {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
 
         vm.prank(alice);
@@ -293,7 +275,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 5 * ALPHA);
     }
 
-    function test_InterleavedWrapsUnwraps() public {
+    function test_Unwrap_EachHolderGetsTheirOwnDepositBack() public {
         uint256 aliceShares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
         uint256 bobShares = _depositAndWrap(bob, NETUID1, 20 * ALPHA);
         assertEq(aliceShares, 1e19);
@@ -315,24 +297,8 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 0);
     }
 
-    function test_SubnetIsolation() public {
-        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-        uint256 shares2 = _depositAndWrap(alice, NETUID2, 5 * ALPHA);
-
-        _simulateEmissions(NETUID1, 10 * ALPHA);
-
-        // 1e18 * (2e10 + 1) / (1e19 + 1e9), floored.
-        assertEq(lens.sharePrice(TOKEN1), 1_999_999_999, "netuid 1 doubles with its emissions");
-        assertEq(lens.sharePrice(TOKEN2), 1e9, "netuid 2 stays at the initial price");
-
-        (uint256 preview2,) = lens.previewUnwrap(TOKEN2, shares2);
-        assertEq(preview2, 5 * ALPHA);
-    }
-
     function test_FirstWrapperInflationAttack_CostsTheNextDepositorOneRao() public {
-        _simulateAlphaDeposit(alice, NETUID1, ALPHA_FLOOR);
-        _wrap(alice, NETUID1);
-        assertEq(vault.balanceOf(alice, TOKEN1), 4e16, "the smallest deposit the vault accepts");
+        assertEq(_depositAndWrap(alice, NETUID1, ALPHA_FLOOR), 4e16, "the smallest deposit the vault accepts");
 
         // A 100,000-alpha gift to the clone (5,000 TAO at 0.05) lands like an emission.
         _simulateEmissions(NETUID1, 100_000 * ALPHA);
@@ -347,54 +313,69 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(_userStakeAcrossHotkeys(bob, NETUID1), 1_000 * ALPHA - 1, "the gift costs bob one RAO");
     }
 
-    function test_RevertWhen_SharePriceForUnregisteredSubnet() public {
-        uint256 tokenId = uint256(uint16(42)) | (uint256(100) << VaultMath.NETUID_BITS);
-        vm.expectRevert(SubnetDissolved.selector);
-        lens.sharePrice(tokenId);
-    }
-
-    function test_RevertWhen_SharePriceWhenSupplyIsZero() public {
-        vault.createMailbox(NETUID1, keccak256("fixture-creation"));
-        uint256 tokenId = vault.currentTokenId(NETUID1);
-        assertEq(vault.totalSupply(tokenId), 0);
-        vm.expectRevert(NoSharesOutstanding.selector);
-        lens.sharePrice(tokenId);
-    }
-
-    function test_RebalanceWithRegistryWeights() public {
-        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(6000, 4000));
-
-        _simulateAlphaDeposit(alice, NETUID1, 100 * ALPHA);
-        _wrap(alice, NETUID1);
-
+    function _holdAHundredAlphaOnTheFirstHotkey(bytes32[] memory hotkeys, uint16[] memory weights) private {
+        _setValidators(NETUID1, hotkeys, weights);
+        _depositAndWrap(alice, NETUID1, 100 * ALPHA);
         _plantVaultStakes(NETUID1, 100 * ALPHA, 0, 0);
+    }
 
+    function testFuzz_Rebalance_SplitsAPileBetweenTwoValidatorsByWeight(uint256 secondWeight) public {
+        secondWeight = bound(secondWeight, ALPHA_FLOOR / BPS_OF_100_ALPHA, 9_999);
+        uint256 firstWeight = 10_000 - secondWeight;
+        _holdAHundredAlphaOnTheFirstHotkey(
+            _hotkeys(hotkey1, hotkey2), _weights(uint16(firstWeight), uint16(secondWeight))
+        );
+
+        vm.recordLogs();
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit Rebalanced(TOKEN1, hotkey1, hotkey2, secondWeight * BPS_OF_100_ALPHA);
         vault.rebalance(NETUID1);
 
-        assertEq(_getVaultStake(hotkey1, NETUID1), 60 * ALPHA);
-        assertEq(_getVaultStake(hotkey2, NETUID1), 40 * ALPHA);
+        assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 1, "one move settles two validators");
+        assertEq(_getVaultStake(hotkey1, NETUID1), firstWeight * BPS_OF_100_ALPHA);
+        assertEq(_getVaultStake(hotkey2, NETUID1), secondWeight * BPS_OF_100_ALPHA);
     }
 
-    function test_RebalanceThreeValidators() public {
-        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(5000, 3000, 2000));
+    function testFuzz_Rebalance_SplitsAPileAcrossThreeValidatorsLargestDeficitFirst(
+        uint256 secondWeight,
+        uint256 thirdWeight
+    ) public {
+        secondWeight = bound(secondWeight, ALPHA_FLOOR / BPS_OF_100_ALPHA, 9_995);
+        thirdWeight = bound(thirdWeight, ALPHA_FLOOR / BPS_OF_100_ALPHA, 9_999 - secondWeight);
+        uint256 firstWeight = 10_000 - secondWeight - thirdWeight;
+        _holdAHundredAlphaOnTheFirstHotkey(
+            _hotkeys(hotkey1, hotkey2, hotkey3),
+            _weights(uint16(firstWeight), uint16(secondWeight), uint16(thirdWeight))
+        );
+        bool thirdIsShortest = thirdWeight > secondWeight;
 
-        _simulateAlphaDeposit(alice, NETUID1, 100 * ALPHA);
-        _wrap(alice, NETUID1);
-
-        _plantVaultStakes(NETUID1, 100 * ALPHA, 0, 0);
-
+        vm.recordLogs();
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit Rebalanced(
+            TOKEN1,
+            hotkey1,
+            thirdIsShortest ? hotkey3 : hotkey2,
+            (thirdIsShortest ? thirdWeight : secondWeight) * BPS_OF_100_ALPHA
+        );
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit Rebalanced(
+            TOKEN1,
+            hotkey1,
+            thirdIsShortest ? hotkey2 : hotkey3,
+            (thirdIsShortest ? secondWeight : thirdWeight) * BPS_OF_100_ALPHA
+        );
         vault.rebalance(NETUID1);
 
-        assertEq(_getVaultStake(hotkey1, NETUID1), 50 * ALPHA);
-        assertEq(_getVaultStake(hotkey2, NETUID1), 30 * ALPHA);
-        assertEq(_getVaultStake(hotkey3, NETUID1), 20 * ALPHA);
+        assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 2, "one move per deficit");
+        assertEq(_getVaultStake(hotkey1, NETUID1), firstWeight * BPS_OF_100_ALPHA);
+        assertEq(_getVaultStake(hotkey2, NETUID1), secondWeight * BPS_OF_100_ALPHA);
+        assertEq(_getVaultStake(hotkey3, NETUID1), thirdWeight * BPS_OF_100_ALPHA);
     }
 
-    function test_RebalanceNoOpWhenAlreadyBalanced() public {
+    function test_Rebalance_MovesNothingWhenEveryHotkeyIsOnTarget() public {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
 
-        _simulateAlphaDeposit(alice, NETUID1, 50 * ALPHA);
-        _wrap(alice, NETUID1);
+        _depositAndWrap(alice, NETUID1, 50 * ALPHA);
 
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, _subnetColdkey(NETUID1), NETUID1, 50 * ALPHA);
         MockStaking(STAKING_PRECOMPILE).setStake(hotkey2, _subnetColdkey(NETUID1), NETUID1, 50 * ALPHA);
@@ -412,19 +393,6 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
     }
 
-    function test_RebalanceEmitsEvent() public {
-        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(8000, 2000));
-
-        _simulateAlphaDeposit(alice, NETUID1, 100 * ALPHA);
-        _wrap(alice, NETUID1);
-
-        _plantVaultStakes(NETUID1, 100 * ALPHA, 0, 0);
-
-        vm.expectEmit(true, true, true, true, address(vault));
-        emit Rebalanced(TOKEN1, hotkey1, hotkey2, 20 * ALPHA);
-        vault.rebalance(NETUID1);
-    }
-
     function test_UnwrapEmitsRebalanced() public {
         _simulateAlphaDeposit(alice, NETUID2, 10 * ALPHA);
         _wrapHotkey(alice, NETUID2, hotkey2);
@@ -438,19 +406,17 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     }
 
     function test_UnwrapEmitsNoRebalancedWhenFullyDrained() public {
-        _registerSubnet(99, hotkey4);
-        _simulateAlphaDeposit(alice, 99, 10 * ALPHA);
-        _wrapHotkey(alice, 99, hotkey4);
-        uint256 tokenId = vault.currentTokenId(99);
+        _registerSubnet(SOLE_VALIDATOR_NETUID, hotkey4);
+        uint256 shares = _depositAndWrap(alice, SOLE_VALIDATOR_NETUID, 10 * ALPHA);
+        uint256 tokenId = vault.currentTokenId(SOLE_VALIDATOR_NETUID);
 
-        uint256 shares = vault.balanceOf(alice, tokenId);
         vm.recordLogs();
         vm.prank(alice);
         vault.unwrap(tokenId, shares, _toSubstrate(alice), 0);
         assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 0);
     }
 
-    function test_RevertWhen_RegistryWhenNoValidatorsSet() public {
+    function test_RevertWhen_WrapWithNoAttestedValidators() public {
         (AlphaVault freshVault,) = _deployVaultAndLens(address(new MockValidatorRegistry()));
 
         vm.prank(alice);
@@ -459,20 +425,16 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     }
 
     function test_TotalStakeMatchesDepositAcrossValidatorSetSizes() public {
-        _setValidators(91, _hotkeys(hotkey4), _weights(VaultMath.BPS_BASE));
-        _setRegBlock(91, 91);
-        _simulateAlphaDeposit(alice, 91, 30 * ALPHA);
-        _wrap(alice, 91);
-        assertEq(lens.totalStake(vault.currentTokenId(91)), 30 * ALPHA);
-        assertEq(_getVaultStake(hotkey4, 91), 30 * ALPHA);
+        _registerSubnet(SPARE_NETUID, hotkey4);
+        _depositAndWrap(alice, SPARE_NETUID, 30 * ALPHA);
+        assertEq(lens.totalStake(vault.currentTokenId(SPARE_NETUID)), 30 * ALPHA);
+        assertEq(_getVaultStake(hotkey4, SPARE_NETUID), 30 * ALPHA);
 
-        _simulateAlphaDeposit(alice, NETUID2, 100 * ALPHA);
-        _wrap(alice, NETUID2);
-        assertEq(lens.totalStake(vault.currentTokenId(NETUID2)), 100 * ALPHA);
+        _depositAndWrap(alice, NETUID2, 100 * ALPHA);
+        assertEq(lens.totalStake(TOKEN2), 100 * ALPHA);
 
-        _simulateAlphaDeposit(alice, NETUID1, 90 * ALPHA);
-        _wrap(alice, NETUID1);
-        assertEq(lens.totalStake(vault.currentTokenId(NETUID1)), 90 * ALPHA);
+        _depositAndWrap(alice, NETUID1, 90 * ALPHA);
+        assertEq(lens.totalStake(TOKEN1), 90 * ALPHA);
         assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 90 * ALPHA);
     }
 
@@ -501,12 +463,12 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         hotkeys[0] = hotkey4;
         weights[0] = 5_000;
         weights[1] = 5_000;
-        mock.setRaw(91, hotkeys, weights);
-        _setRegBlock(91, 91);
+        mock.setRaw(SPARE_NETUID, hotkeys, weights);
+        _setRegBlock(SPARE_NETUID, 1);
 
         vm.prank(alice);
         vm.expectRevert(ValidatorSetMalformed.selector);
-        mockVault.wrap(91, hotkey4, 0);
+        mockVault.wrap(SPARE_NETUID, hotkey4, 0);
     }
 
     function test_RevertWhen_ReclaimTaoFromMailboxBeforeCreatingOne() public {
@@ -529,7 +491,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(mailbox.balance, 0);
     }
 
-    function test_ReclaimAlphaFromMailbox() public {
+    function test_ReclaimAlphaFromMailbox_MovesTheDepositToTheGivenColdkey() public {
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         bytes32 aliceSub = _toSubstrate(alice);
         bytes32 mailboxColdkey = _mailboxColdkey(alice, NETUID1);
@@ -576,13 +538,11 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vault.reclaimAlphaFromMailbox(NETUID1, _toSubstrate(alice));
     }
 
-    /// @dev Anyone can park alpha under the clone's coldkey on an attested name; a deposit on that name
-    ///      must price only itself and leave the stray for recovery.
     function test_Wrap_LeavesAStrayOnASupersededAttestedHotkeyForRecovery() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
         vault.rebalance(NETUID1);
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, _subnetColdkey(NETUID1), NETUID1, 3 * ALPHA);
+        _strangerReturns(NETUID1, hotkey1, 3 * ALPHA);
         _simulateAlphaDeposit(bob, NETUID1, 5 * ALPHA);
 
         _wrapHotkey(bob, NETUID1, hotkey1);
@@ -602,13 +562,13 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     function test_CurrentTokenIdReflectsRegistrationCounter() public {
         _setRegistrations(NETUID1, 3);
         _setRegistrations(NETUID2, 7);
-        assertEq(vault.currentTokenId(NETUID1), uint256(uint16(NETUID1)) | (uint256(3) << VaultMath.NETUID_BITS));
-        assertEq(vault.currentTokenId(NETUID2), uint256(uint16(NETUID2)) | (uint256(7) << VaultMath.NETUID_BITS));
+        assertEq(vault.currentTokenId(NETUID1), 196_609, "netuid 1 below bit 16, counter 3 from bit 16 up");
+        assertEq(vault.currentTokenId(NETUID2), 458_754, "netuid 2 below bit 16, counter 7 from bit 16 up");
     }
 
     function test_RevertWhen_CurrentTokenIdForUnregisteredNetuid() public {
         vm.expectRevert(SubnetNotRegistered.selector);
-        vault.currentTokenId(42);
+        vault.currentTokenId(UNREGISTERED_NETUID);
     }
 
     function testFuzz_CurrentTokenId_FollowsTheRegistrationCounterNotTheBlock(
@@ -622,7 +582,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         _setRegistrations(netuid, registrations);
 
         uint256 tokenId = vault.currentTokenId(netuid);
-        assertEq(tokenId, uint256(netuid) | (uint256(registrations) << VaultMath.NETUID_BITS));
+        assertEq(tokenId, uint256(netuid) + uint256(registrations) * 65_536, "the counter sits above 16 netuid bits");
 
         _setRegBlock(netuid, regBlock == type(uint64).max ? 1 : type(uint64).max);
         assertEq(vault.currentTokenId(netuid), tokenId, "a rewritten block changes nothing");
@@ -632,32 +592,50 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         lens.previewWrap(tokenId, 1e9);
     }
 
-    function testFuzz_RevertWhen_CurrentTokenIdNetuidOutOfRange(uint256 netuid) public {
-        netuid = bound(netuid, uint256(type(uint16).max) + 1, type(uint256).max);
-
-        vm.expectRevert(NetuidOutOfRange.selector);
-        vault.currentTokenId(netuid);
+    function testFuzz_RevertWhen_NetuidOutOfRangeAtAnyEntryPoint(uint256 netuid) public {
+        _expectEveryEntryPointToRejectTheNetuid(bound(netuid, ONE_PAST_THE_LARGEST_NETUID, type(uint256).max));
     }
 
-    function test_RevertWhen_NetuidOutOfRangeAllEntrypoints() public {
-        uint256 oob = uint256(type(uint16).max) + 1;
+    function test_RevertWhen_NetuidIsOnePastTheLargestAtAnyEntryPoint() public {
+        _expectEveryEntryPointToRejectTheNetuid(ONE_PAST_THE_LARGEST_NETUID);
+    }
+
+    function _expectEveryEntryPointToRejectTheNetuid(uint256 netuid) private {
+        vm.expectRevert(NetuidOutOfRange.selector);
+        vault.currentTokenId(netuid);
 
         vm.expectRevert(NetuidOutOfRange.selector);
-        vault.currentTokenId(oob);
+        vault.getDepositAddress(alice, netuid);
 
         vm.expectRevert(NetuidOutOfRange.selector);
-        vault.getDepositAddress(alice, oob);
+        vault.createMailbox(netuid, keccak256("fixture-creation"));
+
+        vm.expectRevert(NetuidOutOfRange.selector);
+        vault.wrap(netuid, hotkey1, 0);
+
+        vm.expectRevert(NetuidOutOfRange.selector);
+        vault.rebalance(netuid);
+
+        vm.expectRevert(NetuidOutOfRange.selector);
+        vault.reclaimTaoFromMailbox(netuid);
+
+        vm.expectRevert(NetuidOutOfRange.selector);
+        vault.reclaimAlphaFromMailbox(netuid, _toSubstrate(alice));
+
+        vm.expectRevert(NetuidOutOfRange.selector);
+        vault.reclaimMailboxAlphaAsTao(netuid, 0);
     }
 
     function test_CurrentTokenIdChangesAfterRecycle() public {
         _reregisterSubnet(NETUID1);
-        assertEq(vault.currentTokenId(NETUID1), uint256(uint16(NETUID1)) | (uint256(1) << VaultMath.NETUID_BITS));
+        assertEq(vault.currentTokenId(NETUID1), 65_537, "netuid 1 below bit 16, counter 1 from bit 16 up");
     }
 
     /// @dev Chain migrations have rewritten live subnets' registration blocks; the token must not notice.
     function test_CurrentTokenId_SurvivesARegistrationBlockRewrite() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-        _setRegBlock(NETUID1, 100 + 13 * 7200);
+        uint64 thirteenDaysOfBlocksLater = 100 + 13 * 7200;
+        _setRegBlock(NETUID1, thirteenDaysOfBlocksLater);
 
         assertEq(vault.currentTokenId(NETUID1), TOKEN1, "the token follows the registration counter");
         assertTrue(lens.isBackingIntact(TOKEN1), "and its record is untouched");
@@ -670,10 +648,10 @@ contract AlphaVaultTest is AlphaVaultTestBase {
 
     function test_RevertWhen_CreateMailboxSubnetNotRegistered() public {
         vm.expectRevert(SubnetNotRegistered.selector);
-        vault.createMailbox(42, keccak256("fixture-creation"));
+        vault.createMailbox(UNREGISTERED_NETUID, keccak256("fixture-creation"));
     }
 
-    function test_WrapTwoUsersProportionalShares() public {
+    function test_Wrap_SecondDepositorMintsInProportionToTheDeposit() public {
         assertEq(_depositAndWrap(alice, NETUID1, 10 * ALPHA), 1e19);
         // 3e10 * (1e19 + 1e9) / (1e10 + 1) = 3e19 exactly.
         assertEq(_depositAndWrap(bob, NETUID1, 30 * ALPHA), 3e19);
@@ -682,7 +660,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
     function test_RevertWhen_WrapSubnetNotRegistered() public {
         vm.prank(alice);
         vm.expectRevert(SubnetNotRegistered.selector);
-        vault.wrap(42, hotkey1, 0);
+        vault.wrap(UNREGISTERED_NETUID, hotkey1, 0);
     }
 
     function test_WrapAfterRecycleDeploysNewCloneAndIsolatesOldShares() public {
@@ -797,17 +775,6 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, aliceShares, bytes32(0), 0);
     }
 
-    function test_UnwrapFromDissolvedSubnetAfterNewSubnetRegistered() public {
-        uint256 shares = _depositAndWrap(alice, NETUID1, 100 * ALPHA);
-
-        _simulateNewNetworkRegistered(TOKEN1, 5 * TAO);
-
-        uint256 aliceBefore = alice.balance;
-        vm.prank(alice);
-        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
-        assertEq(alice.balance - aliceBefore, 5 * TAO);
-    }
-
     function test_TwoDissolvedGenerationsPayFromTheirOwnClones() public {
         uint256 gen1 = TOKEN1;
         uint256 gen1Shares = _depositAndWrap(alice, NETUID1, 100 * ALPHA);
@@ -872,16 +839,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vault.unwrapForTao(TOKEN1, shares, 0);
     }
 
-    function test_RevertWhen_SharePriceOnReplacedGenerationDuringSuccessorBlackout() public {
-        _depositAndWrap(alice, NETUID1, 100 * ALPHA);
-        _simulateNewNetworkRegistered(TOKEN1, 5 * TAO);
-        _simulateDissolutionStarted(NETUID1);
-
-        vm.expectRevert(SubnetDissolved.selector);
-        lens.sharePrice(TOKEN1);
-    }
-
-    function test_UnwrapSucceedsAfterCleanupCompletesAfterForceSend() public {
+    function test_Unwrap_LeavesAForceSentWeiBehindAfterDissolution() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 100 * ALPHA);
 
         _reregisterSubnet(NETUID1);
@@ -899,242 +857,45 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(alice.balance - aliceBefore, 5 * TAO, "the force-sent wei is below one RAO and stays behind");
     }
 
-    function test_RevertWhen_WrapDuringBlackout() public {
-        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
+    function _startDissolutionWithADepositWaiting() private returns (uint256 shares) {
+        shares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+        _simulateAlphaDeposit(bob, NETUID1, 10 * ALPHA);
         _simulateDissolutionStarted(NETUID1);
+    }
+
+    function _expectRevertFromEveryExit(uint256 shares, bytes4 selector) private {
+        vm.prank(alice);
+        vm.expectRevert(selector);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
 
         vm.prank(alice);
-        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
+        vm.expectRevert(selector);
+        vault.unwrapForTao(TOKEN1, shares, 0);
+    }
+
+    function _expectRevertFromWrapAndRebalance(bytes4 selector) private {
+        vm.prank(bob);
+        vm.expectRevert(selector);
         vault.wrap(NETUID1, hotkey1, 0);
-    }
 
-    function test_RevertWhen_UnwrapDuringEarlyBlackout() public {
-        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
-        _wrap(alice, NETUID1);
-        uint256 tokenId = vault.currentTokenId(NETUID1);
-        uint256 shares = vault.balanceOf(alice, tokenId);
-
-        _simulateDissolutionStarted(NETUID1);
-
-        vm.prank(alice);
-        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
-        vault.unwrap(tokenId, shares, _toSubstrate(alice), 0);
-    }
-
-    function test_RevertWhen_UnwrapDuringLateBlackout() public {
-        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
-        _wrap(alice, NETUID1);
-        uint256 tokenId = vault.currentTokenId(NETUID1);
-        uint256 shares = vault.balanceOf(alice, tokenId);
-
-        _simulateDissolutionStarted(NETUID1);
-        _simulateTaoAwardedOnDissolution(tokenId, TAO / 2);
-        _setRegBlock(NETUID1, 0);
-
-        vm.prank(alice);
-        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
-        vault.unwrap(tokenId, shares, _toSubstrate(alice), 0);
-    }
-
-    function test_RevertWhen_UnwrapForTaoDuringBlackout() public {
-        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
-        _wrap(alice, NETUID1);
-        uint256 tokenId = vault.currentTokenId(NETUID1);
-        uint256 shares = vault.balanceOf(alice, tokenId);
-
-        _simulateDissolutionStarted(NETUID1);
-
-        vm.prank(alice);
-        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
-        vault.unwrapForTao(tokenId, shares, 0);
-    }
-
-    function test_RevertWhen_UnwrapForTaoDuringLateBlackout() public {
-        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
-        _wrap(alice, NETUID1);
-        uint256 tokenId = vault.currentTokenId(NETUID1);
-        uint256 shares = vault.balanceOf(alice, tokenId);
-
-        _simulateDissolutionStarted(NETUID1);
-        _simulateTaoAwardedOnDissolution(tokenId, TAO / 2);
-        _setRegBlock(NETUID1, 0);
-
-        vm.prank(alice);
-        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
-        vault.unwrapForTao(tokenId, shares, 0);
-    }
-
-    function test_RevertWhen_RebalanceDuringBlackout() public {
-        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
-        _wrap(alice, NETUID1);
-
-        _simulateDissolutionStarted(NETUID1);
-
-        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
+        vm.expectRevert(selector);
         vault.rebalance(NETUID1);
     }
 
-    function test_RevertWhen_WrapDuringLateBlackout() public {
-        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
+    function test_RevertWhen_DissolutionCleanupHasStarted() public {
+        uint256 shares = _startDissolutionWithADepositWaiting();
 
-        _simulateDissolutionStarted(NETUID1);
+        _expectRevertFromWrapAndRebalance(SubnetInDissolutionBlackoutPeriod.selector);
+        _expectRevertFromEveryExit(shares, SubnetInDissolutionBlackoutPeriod.selector);
+    }
+
+    function test_RevertWhen_DissolutionCleanupHasClearedTheRegistrationBlock() public {
+        uint256 shares = _startDissolutionWithADepositWaiting();
+        _simulateTaoAwardedOnDissolution(TOKEN1, TAO);
         _setRegBlock(NETUID1, 0);
 
-        vm.prank(alice);
-        vm.expectRevert(SubnetNotRegistered.selector);
-        vault.wrap(NETUID1, hotkey1, 0);
-    }
-
-    function test_RevertWhen_RebalanceDuringLateBlackout() public {
-        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
-        _wrap(alice, NETUID1);
-
-        _simulateDissolutionStarted(NETUID1);
-        _setRegBlock(NETUID1, 0);
-
-        vm.expectRevert(SubnetNotRegistered.selector);
-        vault.rebalance(NETUID1);
-    }
-
-    function test_PreviewUnwrap_QuotesTheDissolutionRefund() public {
-        uint256 shares = _depositAndWrap(alice, NETUID1, 100 * ALPHA);
-
-        _simulateDissolutionStarted(NETUID1);
-        _simulateTaoAwardedOnDissolution(TOKEN1, 5 * TAO);
-        _simulateDissolutionCompleted(NETUID1);
-
-        (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, shares);
-        assertEq(alpha, 0);
-        assertEq(tao, 5 * TAO);
-    }
-
-    function test_PreviewUnwrap_QuotesReplacedGenerationDuringSuccessorBlackout() public {
-        uint256 shares = _depositAndWrap(alice, NETUID1, 100 * ALPHA);
-        _simulateNewNetworkRegistered(TOKEN1, 5 * TAO);
-        _simulateDissolutionStarted(NETUID1);
-
-        (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, shares);
-        assertEq(alpha, 0);
-        assertEq(tao, 5 * TAO);
-    }
-
-    function test_PreviewUnwrapUnknownTokenId() public view {
-        (uint256 alpha, uint256 tao) = lens.previewUnwrap(0xDEADBEEF, 1000);
-        assertEq(alpha, 0);
-        assertEq(tao, 0);
-    }
-
-    function test_PreviewUnwrapZeroShares() public view {
-        (uint256 alpha, uint256 tao) = lens.previewUnwrap(1, 0);
-        assertEq(alpha, 0);
-        assertEq(tao, 0);
-    }
-
-    function test_PreviewUnwrap_AccountsForRotatedOutStake() public {
-        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-
-        _plantVaultStakes(NETUID1, 0, 0, 30 * ALPHA);
-
-        _setNetuid1Set(hotkey1, hotkey2, hotkey4);
-
-        (uint256 previewAlpha,) = lens.previewUnwrap(TOKEN1, shares);
-
-        vm.prank(alice);
-        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
-
-        uint256 actualAlpha = _userStakeAcrossHotkeys(alice, NETUID1);
-        assertEq(actualAlpha, 30 * ALPHA, "unwrap reclaims rotated-out stake and pays the full deposit");
-        assertEq(previewAlpha, actualAlpha, "preview must match what unwrap actually pays");
-    }
-
-    function test_PreviewUnwrapSurvivesFullRegistryRotationWithoutRebalance() public {
-        _setValidators(NETUID1, _hotkeys(hotkey4), _weights(VaultMath.BPS_BASE));
-        _simulateAlphaDeposit(alice, NETUID1, 30 * ALPHA);
-        _wrapHotkey(alice, NETUID1, hotkey4);
-
-        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(3334, 3333, 3333));
-
-        uint256 shares = vault.balanceOf(alice, TOKEN1);
-        (uint256 previewAlpha,) = lens.previewUnwrap(TOKEN1, shares);
-
-        vm.prank(alice);
-        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
-
-        uint256 actualAlpha = _userStakeAcrossHotkeys(alice, NETUID1);
-        assertEq(actualAlpha, 30 * ALPHA, "unwrap reclaims stake from the rotated-out validator");
-        assertEq(previewAlpha, actualAlpha, "preview matches what unwrap pays after registry rotation");
-    }
-
-    function test_PreviewUnwrapReflectsFreshEmissions() public {
-        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-
-        _simulateEmissions(NETUID1, 6 * ALPHA);
-
-        (uint256 previewAlpha,) = lens.previewUnwrap(TOKEN1, shares);
-
-        vm.prank(alice);
-        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
-
-        uint256 actualAlpha = _userStakeAcrossHotkeys(alice, NETUID1);
-        // 3e19 * (3.6e10 + 1) / (3e19 + 1e9), floored.
-        assertEq(actualAlpha, 36 * ALPHA - 1, "unwrap pays deposit + accrued emissions");
-        assertEq(previewAlpha, actualAlpha, "preview reflects fresh on-chain balances incl. emissions");
-    }
-
-    function test_PreviewUnwrapReturnsZeroWhenVaultDrained() public {
-        uint256 shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-
-        _plantVaultStakes(NETUID1, 0, 0, 0);
-
-        (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, shares);
-
-        assertEq(alpha, 0);
-        assertEq(tao, 0);
-    }
-
-    function test_RevertWhen_SharePriceForReRegisteredSubnetOldTokenId() public {
-        _depositAndWrap(alice, NETUID1, 100 * ALPHA);
-
-        _simulateNewNetworkRegistered(TOKEN1, 5 * TAO);
-
-        vm.expectRevert(SubnetDissolved.selector);
-        lens.sharePrice(TOKEN1);
-    }
-
-    function test_RevertWhen_SharePriceOfADissolvedTokenEvenAfterAForceSend() public {
-        _depositAndWrap(alice, NETUID1, 100 * ALPHA);
-        address clone = vault.subnetClone(TOKEN1);
-
-        _simulateDissolutionStarted(NETUID1);
-        _simulateTaoAwardedOnDissolution(TOKEN1, 5 * TAO);
-        _simulateDissolutionCompleted(NETUID1);
-
-        vm.expectRevert(SubnetDissolved.selector);
-        lens.sharePrice(TOKEN1);
-
-        _donateToClone(clone, 100 * TAO);
-        vm.expectRevert(SubnetDissolved.selector);
-        lens.sharePrice(TOKEN1);
-    }
-
-    function test_RevertWhen_PreviewWrapForDissolvedTokenId() public {
-        _depositAndWrap(alice, NETUID1, 100 * ALPHA);
-
-        _simulateDissolutionStarted(NETUID1);
-        _simulateTaoAwardedOnDissolution(TOKEN1, 5 * TAO);
-        _simulateDissolutionCompleted(NETUID1);
-
-        vm.expectRevert(SubnetDissolved.selector);
-        lens.previewWrap(TOKEN1, 10 * ALPHA);
-    }
-
-    function test_RevertWhen_PreviewWrapForReRegisteredSubnetOldTokenId() public {
-        _depositAndWrap(alice, NETUID1, 100 * ALPHA);
-
-        _simulateNewNetworkRegistered(TOKEN1, 5 * TAO);
-
-        vm.expectRevert(SubnetDissolved.selector);
-        lens.previewWrap(TOKEN1, 10 * ALPHA);
+        _expectRevertFromWrapAndRebalance(SubnetNotRegistered.selector);
+        _expectRevertFromEveryExit(shares, SubnetInDissolutionBlackoutPeriod.selector);
     }
 
     function test_ForceSendBeforeDissolvedUnwrapIsDonationToHolders() public {
@@ -1176,46 +937,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(bob.balance - bobBalBefore, 3 * TAO, "bob gets the other 2 TAO plus the donation");
     }
 
-    function test_RevertWhen_PreviewUnwrapBlackoutOfCurrentRegistration() public {
-        uint256 shares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-
-        _simulateDissolutionStarted(NETUID1);
-
-        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
-        lens.previewUnwrap(TOKEN1, shares);
-    }
-
-    function test_RevertWhen_SharePriceBlackoutOfCurrentRegistration() public {
-        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-
-        _simulateDissolutionStarted(NETUID1);
-
-        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
-        lens.sharePrice(TOKEN1);
-    }
-
-    function test_RevertWhen_PreviewWrapBlackoutOfCurrentRegistration() public {
-        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-
-        _simulateDissolutionStarted(NETUID1);
-
-        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
-        lens.previewWrap(TOKEN1, 10 * ALPHA);
-    }
-
-    function test_PreviewUnwrap_QuotesNothingForADissolvedPositionWithoutARefund() public {
-        uint256 shares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-
-        _simulateDissolutionStarted(NETUID1);
-        _simulateTaoAwardedOnDissolution(TOKEN1, 0);
-        _simulateDissolutionCompleted(NETUID1);
-
-        (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, shares);
-        assertEq(alpha, 0, "no alpha remains after dissolution");
-        assertEq(tao, 0, "no refund quotes zero");
-    }
-
-    function test_ForceSendDoesNotAffectAlphaPayout() public {
+    function test_ForceSentTao_LeavesTheAlphaExitWholeAndWaitsAsAClaim() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
 
         _donateToClone(vault.subnetClone(TOKEN1), 10 * TAO);
@@ -1223,6 +945,13 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, shares);
         assertEq(tao, 0);
         assertEq(alpha, 10 * ALPHA);
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 10 * ALPHA);
+
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 10 * ALPHA, "the exit pays the whole deposit in alpha");
+        assertEq(alice.balance, 0, "and no TAO");
+        assertEq(lens.claimableTaoOf(alice, TOKEN1), 10 * TAO, "the donation waits as a claim");
     }
 
     function test_RevertWhen_RebalanceRecycledSubnetBeforeItsClone() public {
@@ -1261,15 +990,14 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vault.wrap(NETUID1, hotkey4, 0);
     }
 
-    function test_WrapCount1_LandsOnTheSoleValidator() public {
-        _registerSubnet(99, hotkey4);
+    function test_Wrap_LandsWhollyOnASoleValidator() public {
+        _registerSubnet(SOLE_VALIDATOR_NETUID, hotkey4);
 
-        _simulateAlphaDeposit(alice, 99, 10 * ALPHA);
-        _wrapHotkey(alice, 99, hotkey4);
+        _depositAndWrap(alice, SOLE_VALIDATOR_NETUID, 10 * ALPHA);
 
-        assertEq(_getVaultStake(hotkey4, 99), 10 * ALPHA);
-        assertEq(_getVaultStake(hotkey1, 99), 0);
-        assertEq(_getVaultStake(hotkey2, 99), 0);
+        assertEq(_getVaultStake(hotkey4, SOLE_VALIDATOR_NETUID), 10 * ALPHA);
+        assertEq(_getVaultStake(hotkey1, SOLE_VALIDATOR_NETUID), 0);
+        assertEq(_getVaultStake(hotkey2, SOLE_VALIDATOR_NETUID), 0);
     }
 
     function test_RevertWhen_WrapZeroChosenHotkey() public {
@@ -1302,11 +1030,11 @@ contract AlphaVaultTest is AlphaVaultTestBase {
 
     function testFuzz_WrapMintsTheQuoteUnderAnyBoundAtOrBelowIt(uint256 depositAlpha, uint256 boundBps) public {
         depositAlpha = bound(depositAlpha, ALPHA_FLOOR, MAX_SUBNET_ALPHA);
-        boundBps = bound(boundBps, 0, VaultMath.BPS_BASE);
+        boundBps = bound(boundBps, 0, BPS_BASE);
         _simulateAlphaDeposit(alice, NETUID1, depositAlpha);
         uint256 quoted = lens.previewWrap(TOKEN1, depositAlpha);
         assertEq(quoted, depositAlpha * 1e9, "a first deposit is quoted 1e9 shares per RAO");
-        uint256 minSharesOut = (quoted * boundBps) / VaultMath.BPS_BASE;
+        uint256 minSharesOut = (quoted * boundBps) / BPS_BASE;
 
         vm.prank(alice);
         vault.wrap(NETUID1, hotkey1, minSharesOut);
@@ -1314,23 +1042,28 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(vault.balanceOf(alice, TOKEN1), quoted, "the quote is what the vault mints");
     }
 
-    function testFuzz_RevertWhen_MinSharesOutExceedsTheQuote(uint256 depositAlpha, uint256 excess) public {
+    function testFuzz_RevertWhen_MinSharesOutExceedsTheFirstDepositsMint(uint256 depositAlpha, uint256 excess) public {
         depositAlpha = bound(depositAlpha, ALPHA_FLOOR, MAX_SUBNET_ALPHA);
         _simulateAlphaDeposit(alice, NETUID1, depositAlpha);
-        uint256 quoted = lens.previewWrap(TOKEN1, depositAlpha);
-        excess = bound(excess, 1, type(uint256).max - quoted);
+        uint256 minted = depositAlpha * 1e9;
+        excess = bound(excess, 1, type(uint256).max - minted);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(SlippageExceeded.selector, quoted));
-        vault.wrap(NETUID1, hotkey1, quoted + excess);
+        vm.expectRevert(abi.encodeWithSelector(SlippageExceeded.selector, minted));
+        vault.wrap(NETUID1, hotkey1, minted + excess);
     }
 
-    function testFuzz_RevertWhen_MinAlphaOutExceedsTheQuote(uint256 depositAlpha, uint256 burn, uint256 excess) public {
+    function testFuzz_RevertWhen_MinAlphaOutExceedsTheQuoteBeforeAnyTransfer(
+        uint256 depositAlpha,
+        uint256 burn,
+        uint256 excess
+    ) public {
         depositAlpha = bound(depositAlpha, ALPHA_FLOOR, MAX_SUBNET_ALPHA);
         burn = bound(burn, 1e9, _depositAndWrap(alice, NETUID1, depositAlpha));
         uint256 quoted = burn / 1e9;
         excess = bound(excess, 1, type(uint256).max - quoted);
-        MockStaking(STAKING_PRECOMPILE).setTransferStakeRoundingLoss(1);
+        uint256 raoLostOnceTheTransferRuns = 1;
+        MockStaking(STAKING_PRECOMPILE).setTransferStakeRoundingLoss(raoLostOnceTheTransferRuns);
 
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(SlippageExceeded.selector, quoted));
@@ -1350,19 +1083,17 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(lens.totalStake(TOKEN1), 10 * ALPHA);
     }
 
-    function test_WrapPreservesPriorBalances() public {
-        _simulateAlphaDeposit(alice, NETUID1, 30 * ALPHA);
-        _wrapHotkey(alice, NETUID1, hotkey1);
-        assertEq(_getVaultStake(hotkey1, NETUID1), 10_002_000_000);
-        assertEq(_getVaultStake(hotkey2, NETUID1), 9_999_000_000);
-        assertEq(_getVaultStake(hotkey3, NETUID1), 9_999_000_000);
+    function test_Wrap_SecondEqualDepositDoublesEverySlot() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        assertEq(_getVaultStake(hotkey1, NETUID1), FIRST_SLOT);
+        assertEq(_getVaultStake(hotkey2, NETUID1), OTHER_SLOT);
+        assertEq(_getVaultStake(hotkey3, NETUID1), OTHER_SLOT);
 
-        _simulateAlphaDeposit(bob, NETUID1, 30 * ALPHA);
-        _wrapHotkey(bob, NETUID1, hotkey1);
+        _depositAndWrap(bob, NETUID1, 30 * ALPHA);
 
-        assertEq(_getVaultStake(hotkey1, NETUID1), 20_004_000_000);
-        assertEq(_getVaultStake(hotkey2, NETUID1), 19_998_000_000);
-        assertEq(_getVaultStake(hotkey3, NETUID1), 19_998_000_000);
+        assertEq(_getVaultStake(hotkey1, NETUID1), 2 * FIRST_SLOT);
+        assertEq(_getVaultStake(hotkey2, NETUID1), 2 * OTHER_SLOT);
+        assertEq(_getVaultStake(hotkey3, NETUID1), 2 * OTHER_SLOT);
         assertEq(lens.totalStake(TOKEN1), 60 * ALPHA);
     }
 
@@ -1391,7 +1122,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(
             _countLogs(logs, Rebalanced.selector), 1, "silent consolidation; only the post-consolidation alignment logs"
         );
-        assertEq(_getVaultStake(hotkey4, NETUID1), 9_999_000_000, "the new key takes the dropped key's weight");
+        assertEq(_getVaultStake(hotkey4, NETUID1), OTHER_SLOT, "the new hotkey takes the dropped hotkey's weight");
 
         bytes32[] memory lastSeen = _lastSeen(TOKEN1);
         assertEq(lastSeen.length, 3);
@@ -1434,11 +1165,11 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
 
         assertEq(_getVaultStake(hotkey2, NETUID1), 0, "hotkey2 rotated-out stake consolidated");
-        assertEq(_getVaultStake(hotkey3, NETUID1), 9_999_000_000, "hotkey3 keeps its slice - back in current set");
-        assertEq(_getVaultStake(hotkey4, NETUID1), 9_999_000_000, "hotkey4 takes hotkey2's slice");
+        assertEq(_getVaultStake(hotkey3, NETUID1), OTHER_SLOT, "hotkey3 keeps its slice once attested again");
+        assertEq(_getVaultStake(hotkey4, NETUID1), OTHER_SLOT, "hotkey4 takes hotkey2's slice");
     }
 
-    function test_RotationNoChangeIsNoOp() public {
+    function test_Rebalance_MovesNothingRightAfterAWrap() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
 
         vm.recordLogs();
@@ -1446,7 +1177,7 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(_countLogs(logs, Rebalanced.selector), 0, "no-op rebalance emits nothing");
-        assertEq(_getVaultStake(hotkey3, NETUID1), 9_999_000_000);
+        assertEq(_getVaultStake(hotkey3, NETUID1), OTHER_SLOT);
     }
 
     function test_UnwrapSyncsEmissions() public {
@@ -1492,27 +1223,21 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 20 * ALPHA + 1, "the remaining shares keep the other half");
     }
 
-    function test_TotalStake_ReflectsEmissionsWithoutSync() public {
-        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        assertEq(lens.sharePrice(TOKEN1), 1e9);
-
-        _simulateEmissions(NETUID1, 5 * ALPHA);
-
-        assertEq(lens.totalStake(TOKEN1), 35 * ALPHA, "totalStake includes the 5-alpha emission");
-        assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 35 * ALPHA, "totalStake tracks live stake");
-        // 1e18 * (3.5e10 + 1) / (3e19 + 1e9), floored.
-        assertEq(lens.sharePrice(TOKEN1), 1_166_666_666, "sharePrice rises with emissions");
-    }
-
-    function test_Rebalance_SingleValidatorSet() public {
-        _setValidators(NETUID1, _hotkeys(hotkey1), _weights(VaultMath.BPS_BASE));
+    function test_Rebalance_RecordsEmissionsOnASoleValidator() public {
+        _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
 
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        assertEq(vault.recordedSlots(TOKEN1)[0].tracked, 30 * ALPHA, "the record starts at the deposit");
 
         _simulateEmissions(NETUID1, 4 * ALPHA);
         vault.rebalance(NETUID1);
 
-        assertEq(lens.totalStake(TOKEN1), 34 * ALPHA, "single-validator stake stays whole and live");
+        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
+        assertEq(slots.length, 1);
+        assertEq(slots[0].stakedUnder, hotkey1);
+        assertEq(slots[0].tracked, 34 * ALPHA, "the rebalance records the emissions");
+        assertEq(_getVaultStake(hotkey1, NETUID1), 34 * ALPHA, "and moves nothing");
+        assertEq(lens.totalStake(TOKEN1), 34 * ALPHA, "single-validator stake stays whole");
     }
 
     function test_WrapRebalancesPreSkewedBalances() public {
@@ -1524,9 +1249,9 @@ contract AlphaVaultTest is AlphaVaultTestBase {
         _wrapHotkey(bob, NETUID1, hotkey1);
 
         assertEq(lens.totalStake(TOKEN1), 100 * ALPHA, "totalStake synced to on-chain total");
-        assertEq(_getVaultStake(hotkey1, NETUID1), 33_340_000_000);
-        assertEq(_getVaultStake(hotkey2, NETUID1), 33_330_000_000);
-        assertEq(_getVaultStake(hotkey3, NETUID1), 33_330_000_000);
+        assertEq(_getVaultStake(hotkey1, NETUID1), 3334 * BPS_OF_100_ALPHA);
+        assertEq(_getVaultStake(hotkey2, NETUID1), 3333 * BPS_OF_100_ALPHA);
+        assertEq(_getVaultStake(hotkey3, NETUID1), 3333 * BPS_OF_100_ALPHA);
     }
 
     function test_WrapAutoRebalancesTwoValidatorSet() public {

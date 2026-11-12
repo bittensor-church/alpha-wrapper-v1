@@ -9,12 +9,10 @@ import os
 CHAIN_ENDPOINT = "ws://127.0.0.1:9944"
 RPC_URL = "http://127.0.0.1:9944"
 
-NETUID_BITS = 16
 ALPHA_PRICE_SCALE = 10**18
 RAO_PER_TAO = 10**9
 RAO_PER_ALPHA = 10**9
-VIRTUAL_SHARES = 10**9
-VIRTUAL_ASSETS = 1
+SHARES_PER_RAO_AT_FIRST_DEPOSIT = 10**9
 WEI_PER_RAO = 10**9
 EXISTENTIAL_DEPOSIT_RAO = 500
 
@@ -53,6 +51,7 @@ HOTKEY_SUFFIXES = ("a", "b", "c")
 VALIDATORS_PER_SUBNET = len(HOTKEY_SUFFIXES)
 DEPOSIT_RAO = 30 * RAO_PER_ALPHA
 RECOVERY_WINDOW_SECONDS = 3 * 60 * 60
+SHORT_RECOVERY_WINDOW_SECONDS = 120
 
 COMMAND_TIMEOUT_SECONDS = 300
 CALL_TIMEOUT_SECONDS = 60
@@ -71,9 +70,15 @@ WRAP_GAS_BOUND = 1_000_000
 UNWRAP_GAS_BOUND = 1_700_000
 REVERT_GAS_BOUND = 500_000
 assert REVERT_GAS_BOUND < WRAP_GAS_BOUND < UNWRAP_GAS_BOUND
+# A burned precompile dispatch takes all the gas forwarded to it, and an out-of-gas run all of the limit.
+REVERT_GAS_SHARE_PERCENT = 75
 
 # The chain's share arithmetic leaves about one RAO behind per move or drain.
 ROUNDING_DUST_SLOT_RAO = 2
 # A drain touches up to six slots.
 ROUNDING_DUST_TOTAL_RAO = ROUNDING_DUST_SLOT_RAO * 6
 CONSOLIDATION_ROUNDING_TOLERANCE_RAO = 100
+# A share conversion floors once and the vault's virtual offsets shift it by under one RAO.
+SHARE_MATH_ROUNDING_RAO = 2
+# A sale is quoted one block before it runs; only that block's emission moves the pool in between.
+PAYOUT_QUOTE_TOLERANCE_PERCENT = 1

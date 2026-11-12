@@ -11,8 +11,8 @@ import {
 import { AlphaVault } from "src/AlphaVault.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
-import { MockStaking } from "./mocks/MockStaking.sol";
-import { MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { CHAIN_MAX_STAKING_HOTKEYS, MockStaking } from "./mocks/MockStaking.sol";
+import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract BackingHandler is BackingCampaignHandler {
     uint256 public strayAnnexations;
@@ -31,9 +31,19 @@ contract BackingHandler is BackingCampaignHandler {
     /// @dev Strangers have pinned the clone's list to its last own entry; anyone may then replace the clone. A
     ///      refused replacement lifts the pins again so the rest of the campaign keeps its own refusal rules.
     function replaceClone(uint256 uidSeed) external {
+        address previous = vault.subnetClone(tokenId);
+        bytes32 previousColdkey = harness.cloneColdkey();
+        uint256 cloneTao = previous.balance;
+        uint256 holdings = harness.chainHoldings();
         _backing().pinStakingList(true);
         try vault.replaceClone(tokenId, keccak256(abi.encode("successor", replacements, uidSeed))) {
             ++replacements;
+            assertEq(previous.balance, 0, "the old clone keeps no TAO");
+            assertEq(vault.subnetClone(tokenId).balance, cloneTao, "the new clone receives all the TAO");
+            uint256 moved = harness.assertRecordMatchesChain();
+            assertEq(harness.chainHoldings(), moved, "the new clone holds exactly the recorded backing");
+            assertEq(harness.stakeOf(previousColdkey) + moved, holdings, "the replacement conserves the alpha");
+            _backing().assertMovedPilesLeft(previousColdkey);
         } catch (bytes memory reason) {
             _backing().pinStakingList(false);
             _requireJustifiedRevert(reason, replaceErrors(), Attempt(0, 0, 0, bytes32(0), false));
@@ -76,7 +86,7 @@ contract BackingHandler is BackingCampaignHandler {
     }
 
     function recoverHeldStray(uint256 sourceSeed) external {
-        bytes32[] memory held = _backing().touchedKeysHoldingStake(touchedHotkeys);
+        bytes32[] memory held = _backing().touchedHotkeysHoldingStake(touchedHotkeys);
         if (held.length == 0) return;
         _recover(held[bound(sourceSeed, 0, held.length - 1)]);
     }
@@ -84,27 +94,38 @@ contract BackingHandler is BackingCampaignHandler {
     function _recover(bytes32 source) private {
         uint256 slotsBefore = vault.recordedSlots(tokenId).length;
         if (slotsBefore == 0) return;
+        (uint256 shortSince,) = vault.recovery(tokenId);
         uint256 owedBefore = harness.trackedBacking();
         uint256 supplyBefore = vault.totalSupply(tokenId);
+        uint256 holdings = harness.chainHoldings();
+        uint256 parkedBefore = harness.parkedStake();
+        uint256 stray = harness.vaultStakeAt(source);
+        bytes32[] memory watched = harness.watchedHotkeys();
+        uint256[] memory stakesBefore = harness.vaultStakesAt(watched);
         try vault.recoverStray(tokenId, source) {
-            (uint256 since,) = vault.recovery(tokenId);
-            if (since == 0) {
+            assertEq(vault.totalSupply(tokenId), supplyBefore, "recovery changed the supply");
+            assertEq(harness.chainHoldings(), holdings, "recovery only moves backing within the clone");
+            assertEq(harness.vaultStakeAt(source), 0, "recovery empties the stray");
+            if (shortSince == 0) {
                 ++strayAnnexations;
-                bool[] memory covered = _backing().coveredSlots();
-                for (uint256 i; i < covered.length; ++i) {
-                    assertTrue(covered[i], "annexation left a slot short");
-                }
+                uint256 tracked = harness.assertRecordMatchesChain();
+                assertEq(
+                    tracked,
+                    harness.recordedStakeAmong(watched, stakesBefore) + stray,
+                    "an annexation adds exactly the stray to the backing"
+                );
+                assertGe(
+                    tracked + harness.slack() * slotsBefore, owedBefore, "recovery discarded part of the obligation"
+                );
             } else {
                 ++strayCollections;
                 assertEq(harness.trackedBacking(), owedBefore, "collection changed the obligation");
+                assertEq(
+                    harness.parkedStake(),
+                    parkedBefore + stray,
+                    "a collection moves exactly the stray onto the parking hotkey"
+                );
             }
-            assertEq(vault.totalSupply(tokenId), supplyBefore, "recovery changed the supply");
-            // The record is rewritten from live balances; those balances must still answer for what was owed.
-            assertGe(
-                harness.trackedBacking() + _backing().recoverySlack(slotsBefore),
-                owedBefore,
-                "recovery discarded part of the obligation"
-            );
         } catch (bytes memory reason) {
             _requireJustifiedRevert(reason, recoverErrors(), Attempt(0, 0, 0, source, false));
         }
@@ -147,29 +168,23 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
         return handler;
     }
 
-    function backingIntact() external view returns (bool) {
-        return lens.isBackingIntact(TOKEN1);
-    }
-
-    function recoverySlack(uint256 slots) external pure returns (uint256) {
-        return BACKING_SLACK_RAO * slots;
-    }
-
-    function coveredSlots() external view returns (bool[] memory covered) {
+    function assertMovedPilesLeft(bytes32 previousColdkey) external view {
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
-        covered = new bool[](slots.length);
-        bytes32 coldkey = _subnetColdkey(NETUID1);
         for (uint256 i; i < slots.length; ++i) {
-            uint256 held = _getStakeForColdkey(slots[i].stakedUnder, coldkey, NETUID1);
-            covered[i] = held >= slots[i].tracked || slots[i].tracked - held <= BACKING_SLACK_RAO;
+            if (slots[i].tracked == 0) continue;
+            assertEq(
+                _getStakeForColdkey(slots[i].stakedUnder, previousColdkey, NETUID1),
+                0,
+                "a moved pile leaves nothing on the old clone"
+            );
         }
     }
 
-    function touchedKeysHoldingStake(bytes32[] memory keys) external view returns (bytes32[] memory held) {
+    function touchedHotkeysHoldingStake(bytes32[] memory hotkeys) external view returns (bytes32[] memory held) {
         uint256 count;
-        held = new bytes32[](keys.length);
-        for (uint256 i; i < keys.length; ++i) {
-            if (_getVaultStake(keys[i], NETUID1) != 0) held[count++] = keys[i];
+        held = new bytes32[](hotkeys.length);
+        for (uint256 i; i < hotkeys.length; ++i) {
+            if (_getVaultStake(hotkeys[i], NETUID1) != 0) held[count++] = hotkeys[i];
         }
         assembly {
             mstore(held, count)
@@ -181,7 +196,8 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
     }
 
     function pinStakingList(bool pinned) external {
-        MockStaking(STAKING_PRECOMPILE).pinStakingEntries(_subnetColdkey(NETUID1), pinned ? MAX_STAKING_HOTKEYS - 1 : 0);
+        MockStaking(STAKING_PRECOMPILE)
+            .pinStakingEntries(_subnetColdkey(NETUID1), pinned ? CHAIN_MAX_STAKING_HOTKEYS - 1 : 0);
     }
 
     function simulateSilentMove(bytes32 from, bytes32 to) external {
@@ -206,7 +222,7 @@ contract BackingInvariantTest is BackingCampaignSetup {
 }
 
 contract BackingCampaignPathsTest is BackingCampaignSetup {
-    function test_ReplayMergedStrayRecovery_PreservesBackingInvariants() public {
+    function test_ReplayOfEdgelessAndFollowedSwapsBetweenSyncsAndRecoveries_PreservesBackingInvariants() public {
         handler.swapWithoutAnEdge(3920, 702498195375104724870804370661893358612984996200603330987954554);
         _assertSharedInvariants();
         handler.swapWithoutAnEdge(21936, 9555);
@@ -248,8 +264,6 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         _assertSharedInvariants();
         handler.recoverStray(115792089237316195423570985008687907853269984665640564039457584007913129639935);
         _assertSharedInvariants();
-
-        _assertSharedInvariants();
     }
 
     function test_HandlerReachesEverySuccessPath() public {
@@ -273,7 +287,7 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         );
 
         handler.strandInTwoPiles(3, 1);
-        assertGt(vault.recordedSlots(TOKEN1).length, 1, "check the multi-slot record before recovery");
+        assertEq(vault.recordedSlots(TOKEN1).length, 3, "one slot per attested hotkey before recovery");
         _assertSharedInvariants();
         handler.syncBacking();
         _assertSharedInvariants();
@@ -310,11 +324,36 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         assertEq(handler.recoveriesClosed(), 2, "full collection closes the recovery");
         assertEq(trackedBacking(), owed, "the position is whole again");
         _assertSharedInvariants();
+
+        handler.accrueEmissions(10);
+        _assertSharedInvariants();
+        assertEq(_parkedStake(NETUID1), owed + 10e9, "emissions raise the parked pile by 10 alpha");
+        handler.movePrice(1e8);
+        assertEq(_alphaPriceRead(NETUID1), 0.1e18, "the price moves to 0.1 TAO per alpha");
+        uint256 start = vm.getBlockTimestamp();
+        handler.passTime(1 hours);
+        assertEq(vm.getBlockTimestamp(), start + 1 hours, "time passes by the bounded hour");
+
+        handler.replaceClone(0);
+        _assertSharedInvariants();
+        assertEq(handler.replacements(), 1, "anyone replaces the clone once its list is pinned full");
+        assertEq(trackedBacking(), owed + 10e9, "the replacement carries the whole parked pile");
+        assertEq(_parkedStake(NETUID1), owed + 10e9, "the new clone holds the parked pile");
+
+        handler.swapHotkey(0, 1);
+        _assertSharedInvariants();
+        assertTrue(
+            handler.touched(keccak256(abi.encode("swapped", uint256(1)))), "the swap's successor joins the campaign"
+        );
+        handler.rotateValidators(1);
+        _assertSharedInvariants();
+        assertEq(attestedHotkeys.length, 1, "the registry attests a one-hotkey set");
     }
 
     function _seedSelecting(bytes32 hotkey) private view returns (uint256 seed) {
         while (handler.sourceFor(seed) != hotkey) {
             ++seed;
+            assertLt(seed, 1_000, "no seed below 1000 selects the hotkey");
         }
     }
 

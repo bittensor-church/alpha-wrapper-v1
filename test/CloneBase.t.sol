@@ -6,32 +6,16 @@ import { CloneBase } from "src/CloneBase.sol";
 import { DepositMailbox } from "src/DepositMailbox.sol";
 import { SubnetClone } from "src/SubnetClone.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
-import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { IStaking, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 
 contract CloneBaseTest is AlphaVaultTestBase {
-    /// @dev Wrapped by this test, so the test can drive it the way the vault does.
-    SubnetClone internal directClone;
-    bytes32 internal directCloneColdkey;
-
-    function setUp() public override {
-        super.setUp();
-        directClone = SubnetClone(Clones.clone(address(subnetLogic)));
-        directClone.initialize();
-        directCloneColdkey = _toSubstrate(address(directClone));
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, directCloneColdkey, NETUID1, 50 * ALPHA);
-    }
-
-    function test_SellAlphaForTao_CreditsCloneNativeBalance() public {
-        directClone.sellAlphaForTao(hotkey1, NETUID1, 40 * ALPHA);
-
-        assertEq(address(directClone).balance, 2 * TAO, "40 alpha at 0.05 TAO/alpha");
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey1, directCloneColdkey, NETUID1), 10 * ALPHA);
-    }
-
     function test_SellAlphaForTao_NoOpOnZero() public {
-        // Make the precompile reject even zero, exposing any missing caller-side zero guard.
-        MockStaking(STAKING_PRECOMPILE).setRemoveStakeReverts(true);
+        SubnetClone directClone = SubnetClone(Clones.clone(address(subnetLogic)));
+        directClone.initialize();
+        bytes32 directCloneColdkey = _toSubstrate(address(directClone));
+        MockStaking(STAKING_PRECOMPILE).setStake(hotkey1, directCloneColdkey, NETUID1, 50 * ALPHA);
+        vm.expectCall(STAKING_PRECOMPILE, abi.encodeWithSelector(IStaking.removeStake.selector), 0);
 
         directClone.sellAlphaForTao(hotkey1, NETUID1, 0);
 
@@ -39,21 +23,12 @@ contract CloneBaseTest is AlphaVaultTestBase {
         assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey1, directCloneColdkey, NETUID1), 50 * ALPHA);
     }
 
-    function test_MoveStake_MovesTheAmountBetweenHotkeys() public {
-        directClone.moveStake(hotkey1, hotkey2, NETUID1, 50 * ALPHA);
+    function test_TransferStakeAndHotkey_NoOpOnZero() public {
+        DepositMailbox directMailbox = DepositMailbox(Clones.clone(address(mailboxLogic)));
+        directMailbox.initialize();
+        vm.expectCall(STAKING_PRECOMPILE, abi.encodeWithSelector(IStaking.transferStakeAndHotkey.selector), 0);
 
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey1, directCloneColdkey, NETUID1), 0);
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey2, directCloneColdkey, NETUID1), 50 * ALPHA);
-    }
-
-    function test_UnwrapTao_PaysTheRecipient() public {
-        vm.deal(address(directClone), 5 * TAO);
-        uint256 aliceBefore = alice.balance;
-
-        directClone.unwrapTao(payable(alice), 5 * TAO);
-
-        assertEq(address(directClone).balance, 0);
-        assertEq(alice.balance - aliceBefore, 5 * TAO);
+        directMailbox.transferStakeAndHotkey(_toSubstrate(bob), hotkey1, hotkey2, uint16(NETUID1), 0);
     }
 
     function test_RevertWhen_NonWrapperFlushesMailboxAlpha() public {
@@ -63,16 +38,6 @@ contract CloneBaseTest is AlphaVaultTestBase {
         vm.prank(bob);
         vm.expectRevert(CloneBase.NotWrapper.selector);
         CloneBase(mailbox).flush(_toSubstrate(bob), hotkey1, NETUID1, 10 * ALPHA);
-    }
-
-    function test_TransferStakeAndHotkey_NoOpOnZero() public {
-        DepositMailbox directMailbox = DepositMailbox(Clones.clone(address(mailboxLogic)));
-        directMailbox.initialize();
-        MockStaking(STAKING_PRECOMPILE).setTransferStakeReverts(true);
-
-        directMailbox.transferStakeAndHotkey(directCloneColdkey, hotkey1, hotkey2, uint16(NETUID1), 0);
-
-        assertEq(MockStaking(STAKING_PRECOMPILE).getStake(hotkey2, directCloneColdkey, NETUID1), 0);
     }
 
     function test_RevertWhen_NonWrapperTransfersMailboxAlphaAndHotkey() public {

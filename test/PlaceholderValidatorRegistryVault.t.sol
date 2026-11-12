@@ -21,7 +21,7 @@ contract PlaceholderValidatorRegistryVaultTest is AlphaVaultTestBase {
         assertEq(_getVaultStake(hotkey1, NETUID1), 10 * ALPHA);
         assertEq(_getVaultStake(hotkey2, NETUID1), 0);
         assertEq(lens.totalStake(TOKEN1), 10 * ALPHA);
-        assertEq(_lastSeen(TOKEN1).length, 1);
+        assertEq(_lastSeen(TOKEN1), _hotkeys(hotkey1), "the record holds the sole validator");
     }
 
     function test_RevertWhen_WrapHotkeyIsUnlisted() public {
@@ -33,14 +33,13 @@ contract PlaceholderValidatorRegistryVaultTest is AlphaVaultTestBase {
     function test_Rebalance_RotationPreservesSharesAndOtherSubnet() public {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
         _depositAndWrap(bob, NETUID2, 20 * ALPHA);
-        uint256 shares = vault.balanceOf(alice, TOKEN1);
         placeholderRegistry.setValidator(NETUID1, hotkey3);
         vault.rebalance(NETUID1);
         assertEq(_getVaultStake(hotkey1, NETUID1), 0);
         assertEq(_getVaultStake(hotkey3, NETUID1), 10 * ALPHA);
-        assertEq(vault.balanceOf(alice, TOKEN1), shares);
+        assertEq(vault.balanceOf(alice, TOKEN1), 10e18, "10 alpha keeps its 1e9 shares per RAO");
         assertEq(_getVaultStake(hotkey2, NETUID2), 20 * ALPHA);
-        assertEq(_lastSeen(TOKEN1).length, 1);
+        assertEq(_lastSeen(TOKEN1), _hotkeys(hotkey3), "the record follows the rotation");
     }
 
     function test_Unwrap_ConsolidatesRotatedValidator() public {
@@ -58,20 +57,16 @@ contract PlaceholderValidatorRegistryVaultTest is AlphaVaultTestBase {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
         placeholderRegistry.setValidator(NETUID1, hotkey3);
         uint256 shares = vault.balanceOf(alice, TOKEN1);
+        uint256 balanceBefore = alice.balance;
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares, 0);
         assertEq(vault.balanceOf(alice, TOKEN1), 0);
         assertEq(lens.totalStake(TOKEN1), 0);
-        assertEq(alice.balance, TAO / 2, "10 alpha sold at 0.05 TAO");
+        assertEq(alice.balance - balanceBefore, 0.5e18, "10 alpha sold at 0.05 TAO");
     }
 
     function _parkAfterASweptSlot() private {
-        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
-        vault.syncBacking(TOKEN1);
-        _strangerReturns(NETUID1, hotkey4, swept);
-        vault.recoverStray(TOKEN1, hotkey4);
-        vault.syncBacking(TOKEN1);
+        _parkedPosition(10 * ALPHA);
         assertTrue(vault.awaitingAttestation(TOKEN1));
         assertEq(_parkedStake(NETUID1), 10 * ALPHA);
     }
@@ -90,7 +85,6 @@ contract PlaceholderValidatorRegistryVaultTest is AlphaVaultTestBase {
 
     function test_Rebalance_NewOwnerReleasesRecoveredParking() public {
         _parkAfterASweptSlot();
-        uint256 shares = vault.balanceOf(alice, TOKEN1);
 
         placeholderRegistry.transferOwnership(bob);
         assertTrue(vault.awaitingAttestation(TOKEN1), "nomination does not publish a validator update");
@@ -105,7 +99,7 @@ contract PlaceholderValidatorRegistryVaultTest is AlphaVaultTestBase {
         vault.rebalance(NETUID1);
         assertEq(_parkedStake(NETUID1), 0);
         assertEq(_getVaultStake(hotkey4, NETUID1), 10 * ALPHA);
-        assertEq(vault.balanceOf(alice, TOKEN1), shares);
+        assertEq(vault.balanceOf(alice, TOKEN1), 10e18, "parking and release leave the 1e19 shares untouched");
         assertTrue(lens.isBackingIntact(TOKEN1));
     }
 }

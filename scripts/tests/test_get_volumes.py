@@ -1,5 +1,7 @@
 """Chainless tests for the volume tool's aggregation of TAO exits."""
 
+import pytest
+
 from get_volumes import EventTotals, build_volume_row
 
 
@@ -32,8 +34,5 @@ def test_build_volume_row_reports_gross_burns_and_a_refund_larger_than_the_burn(
 
 def test_event_totals_rejects_an_event_missing_a_summed_field():
     totals = EventTotals(("sharesBurned",))
-    try:
+    with pytest.raises(KeyError, match="sharesBurned"):
         totals.add({"shares": 1})
-    except KeyError:
-        return
-    raise AssertionError("a renamed field must not silently read as zero")

@@ -11,11 +11,10 @@ Gas rows: deposit and `previewUnwrap` on the fresh clone; deposit, partial exit 
 `previewUnwrap` on the full list; the replacement; deposit, `previewUnwrap` and full exit
 on the successor.
 """
-import secrets
-
 import pytest
 
 from alpha_e2e import chain, config, exits, extrinsics
+from alpha_e2e.environment import random_bytes32
 from alpha_e2e.substrate import h160_to_ss58
 
 STRANGER = "//CapStranger"
@@ -30,7 +29,7 @@ def test_list_reaches_the_cap_and_replacement_reopens_it(env):
     token_id = env.token_ids[0]
     clone = env.clone_address(token_id)
     clone_ss58 = h160_to_ss58(clone)
-    first_validator, first_validator_ss58 = env.hotkey_pubkeys[0], env.hotkey_ss58s[0]
+    first_validator, first_validator_ss58 = env.subnet_hotkey_pubkeys(0)[0], env.subnet_hotkey_ss58s(0)[0]
     rounds = OWN_CAP - PARKING_RESERVE - 1
     validators = [
         (extrinsics.keypair_pubkey(f"{STRANGER}//{i}"), extrinsics.keypair_ss58(f"{STRANGER}//{i}"))
@@ -93,24 +92,42 @@ def test_list_reaches_the_cap_and_replacement_reopens_it(env):
     )
 
     shares = env.vault_shares(token_id)
-    pile = env.stake(last_listed, env.clone_coldkey(token_id), netuid)
+    old_coldkey = env.clone_coldkey(token_id)
     tao_before = chain.cast_balance_wei(clone)
+    assert tao_before == 0, f"the clone should hold no TAO before it is funded, holds {tao_before} wei"
     extrinsics.fund_account(h160_to_ss58(clone), config.RAO_PER_TAO)
     tao_shown = chain.cast_balance_wei(clone)
-    hidden_rao = config.EXISTENTIAL_DEPOSIT_RAO if tao_before == 0 else 0
-    assert tao_shown - tao_before == (config.RAO_PER_TAO - hidden_rao) * config.WEI_PER_RAO, (
-        f"the clone shows {tao_shown - tao_before} wei more after a 1 TAO transfer"
+    assert tao_shown == (config.RAO_PER_TAO - config.EXISTENTIAL_DEPOSIT_RAO) * config.WEI_PER_RAO, (
+        f"a fresh account shows 1 TAO less the existential deposit, the clone shows {tao_shown} wei"
     )
-    env.replace_clone(token_id, "0x" + secrets.token_hex(32), "Cap: replacing the clone failed")
+    receipt = env.replace_clone(token_id, random_bytes32(), "Cap: replacing the clone failed")
+    replace_block = chain.receipt_block_number(receipt, "Cap: replacement")
     successor = env.clone_address(token_id)
     assert successor.lower() != clone.lower(), "the token has no fresh clone"
+    successor_coldkey = env.clone_coldkey(token_id)
     assert chain.cast_balance_wei(clone) == 0, "the old clone kept TAO"
     assert chain.cast_balance_wei(successor) == tao_shown, "the successor shows a different TAO balance"
     assert env.vault_shares(token_id) == shares, "shares changed with the clone"
     assert listed(successor) == 1, f"the successor lists {listed(successor)} hotkeys, expected the one it holds"
-    assert env.vault_total_stake(token_id) >= pile - config.ROUNDING_DUST_SLOT_RAO, "the position shrank with the clone"
-    env.wrap(netuid, spare, 2_500_000, "Cap, successor: the deposit should land once the list has room")
-    assert env.stake(spare, env.clone_coldkey(token_id), netuid) > 0, "the fresh validator holds the deposit"
+    pile = env.stake(last_listed, old_coldkey, netuid, replace_block - 1)
+    moved = env.stake(last_listed, successor_coldkey, netuid, replace_block)
+    assert abs(moved - pile) <= config.ROUNDING_DUST_SLOT_RAO, f"the successor took {moved} alpha RAO of a {pile} RAO pile"
+    left = env.stake(last_listed, old_coldkey, netuid, replace_block)
+    assert left <= config.ROUNDING_DUST_SLOT_RAO, f"the old clone kept {left} alpha RAO of the recorded pile"
+    quoted = env.vault_total_stake(token_id, block=replace_block)
+    assert quoted == moved, f"the quote prices {quoted} alpha RAO; the successor holds {moved}"
+
+    receipt = env.wrap(netuid, spare, 2_500_000, "Cap, successor: the deposit should land once the list has room")
+    wrap_block = chain.receipt_block_number(receipt, "Cap, successor: deposit")
+    deposited = env.deposited(receipt, netuid)
+    landed = env.stake_change(successor_coldkey, netuid, [last_listed, spare], wrap_block)
+    assert abs(landed - deposited) <= config.ROUNDING_DUST_TOTAL_RAO, (
+        f"the successor gained {landed} alpha RAO from a {deposited} RAO deposit"
+    )
+    rotated_out = env.stake(last_listed, successor_coldkey, netuid, wrap_block)
+    assert rotated_out <= config.ROUNDING_DUST_SLOT_RAO, (
+        f"the deposit should carry the pile onto the fresh validator, {rotated_out} RAO stayed behind"
+    )
     assert listed(clone) == OWN_CAP - PARKING_RESERVE, "the crumbs keep every entry on the old clone"
     preview_gas("Cap, successor")
 

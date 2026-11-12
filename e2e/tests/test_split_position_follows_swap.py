@@ -2,14 +2,14 @@
 
 A stranger gives the clone a position under the attested hotkey on the other subnet, then the
 validator swaps that hotkey across all subnets. The chain moves both of the clone's positions to
-the successor, renames the clone's staking-list entry in place under its reject-growth flag and
-removes the old hotkey's owner record, so nothing stays behind under a hotkey nobody owns. The
-vault follows the edge: the next deposit joins the successor, exits pay from it, and the rotation
-onto the attested successor leaves the position where it is.
+the successor, swaps the clone's staking-list entry to the successor in place under its
+reject-growth flag and removes the old hotkey's owner record, so nothing stays behind under a
+hotkey nobody owns. The vault follows the edge: the next deposit joins the successor, exits pay
+from it, and the rotation onto the attested successor leaves the position where it is.
 """
 import pytest
 
-from alpha_e2e import config, exits, extrinsics
+from alpha_e2e import chain, config, exits, extrinsics
 from alpha_e2e.substrate import h160_to_ss58
 
 STRANGER = "//SplitStranger"
@@ -22,7 +22,7 @@ def test_a_split_position_follows_the_all_subnet_swap(env):
     netuid, other_netuid = env.netuids[0], env.netuids[1]
     token_id = env.token_ids[0]
     hotkeys = env.subnet_hotkey_pubkeys(0)
-    swapped_pubkey, swapped_ss58 = env.hotkey_pubkeys[0], env.hotkey_ss58s[0]
+    swapped_pubkey, swapped_ss58 = hotkeys[0], env.subnet_hotkey_ss58s(0)[0]
 
     env.deposit_and_wrap(
         netuid, swapped_pubkey, swapped_ss58, config.DEPOSIT_RAO, 1_500_000, "Split position: the setup wrap failed",
@@ -53,7 +53,7 @@ def test_a_split_position_follows_the_all_subnet_swap(env):
     assert env.stake(successor_pubkey, clone_coldkey, netuid) >= position, "the position should follow the swap"
     assert env.stake(successor_pubkey, clone_coldkey, other_netuid) >= split, "the split part should follow too"
     assert extrinsics.staking_hotkeys(clone_ss58) == [successor_ss58], (
-        "the swap renames the clone's list entry in place under the reject-growth flag"
+        "the swap moves the clone's list entry to the successor in place under the reject-growth flag"
     )
     assert env.resolved_hotkeys(token_id)[0] == successor_pubkey, "the vault should resolve the slot to the successor"
     assert env.backing_intact(token_id), "a followed swap is not a loss"
@@ -66,11 +66,12 @@ def test_a_split_position_follows_the_all_subnet_swap(env):
         "Split position: a deposit after the swap failed", label="wrap [followed swap]",
     )
     collected = env.deposited(receipt, netuid)
-    joined = env.stake(successor_pubkey, clone_coldkey, netuid) - position
-    assert joined >= collected - config.ROUNDING_DUST_SLOT_RAO, (
+    wrap_block = chain.receipt_block_number(receipt, "Split position: deposit after the swap")
+    joined = env.stake_change(clone_coldkey, netuid, [successor_pubkey], wrap_block)
+    assert abs(joined - collected) <= config.ROUNDING_DUST_SLOT_RAO, (
         f"the deposit should join the position on the successor: {joined} RAO of {collected}"
     )
-    assert env.stake(swapped_pubkey, clone_coldkey, netuid) == 0, "the ownerless hotkey must receive nothing"
+    assert env.stake(swapped_pubkey, clone_coldkey, netuid, wrap_block) == 0, "the ownerless hotkey must receive nothing"
 
     exits.unwrap(
         env, token_id, shares // 2, "Split position: the partial exit failed", hotkeys=located,
@@ -78,12 +79,13 @@ def test_a_split_position_follows_the_all_subnet_swap(env):
     )
 
     env.set_validator(netuid, successor_pubkey)
-    before = env.stake(successor_pubkey, clone_coldkey, netuid)
-    env.vault_send_between_epochs(
+    receipt = env.vault_send_between_epochs(
         netuid, 4_000_000, "Split position: the rebalance onto the successor failed", "rebalance(uint256)", netuid,
         label="rebalance [successor attested]",
     )
-    assert env.stake(successor_pubkey, clone_coldkey, netuid) >= before, "the position already sits on the successor"
+    rebalance_block = chain.receipt_block_number(receipt, "Split position: rebalance onto the successor")
+    moved = env.stake_change(clone_coldkey, netuid, [successor_pubkey], rebalance_block)
+    assert moved == 0, f"the position already sits on the successor, yet the rebalance moved {moved} alpha RAO"
 
     receipt, _ = exits.unwrap(
         env, token_id, env.vault_shares(token_id), "Split position: the full exit failed", hotkeys=located,

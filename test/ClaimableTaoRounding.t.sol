@@ -5,6 +5,12 @@ import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { ZeroAmount } from "src/VaultErrors.sol";
 
 contract ClaimableTaoRoundingTest is AlphaVaultTestBase {
+    uint256 private constant FIRST_GIFT = 30 * TAO;
+    uint256 private constant SECOND_GIFT = 0.3e18;
+    uint256 private constant THIRD_GIFT = 96e9;
+    uint256 private constant LAST_GIFT = 4359e9;
+    uint256 private constant SHARES_EARNING_LESS_THAN_A_WEI_OF_THE_SECOND_GIFT = 2827;
+
     function test_TinyTransfersAndNearFullExits_PreserveHistoricalClaims() public {
         address carol = makeAddr("carol");
         _depositAndWrap(alice, NETUID1, 1_000 * ALPHA);
@@ -12,11 +18,11 @@ contract ClaimableTaoRoundingTest is AlphaVaultTestBase {
         _depositAndWrap(carol, NETUID1, 1_000 * ALPHA);
         address clone = vault.subnetClone(TOKEN1);
 
-        _donateToClone(clone, 30 * TAO);
-        _transfer(carol, alice, 2827);
-        _donateToClone(clone, 0.3e18);
+        _donateToClone(clone, FIRST_GIFT);
+        _transfer(carol, alice, SHARES_EARNING_LESS_THAN_A_WEI_OF_THE_SECOND_GIFT);
+        _donateToClone(clone, SECOND_GIFT);
         _sell(alice, vault.balanceOf(alice, TOKEN1) - 1);
-        _donateToClone(clone, 96e9);
+        _donateToClone(clone, THIRD_GIFT);
         _sell(carol, vault.balanceOf(carol, TOKEN1) - 2);
         // The sale leaves 0.40000002 alpha on the first slot to stay off the dust threshold, so this exit
         // also mints refund shares.
@@ -24,15 +30,19 @@ contract ClaimableTaoRoundingTest is AlphaVaultTestBase {
         _transfer(alice, carol, 1);
         _transfer(bob, carol, 1);
 
-        // A third of 30.3 TAO plus half of the 96-RAO gift, whose share for alice's last share is below one wei.
-        assertEq(_claimQuotedAmount(bob, TOKEN1), 10_100_000_048e9, "bob");
-        assertEq(_claimQuotedAmount(carol, TOKEN1), 10_100_000_048e9, "carol");
-        _donateToClone(clone, 4359e9);
+        uint256 thirdOfTheFirstTwoGiftsPlusHalfOfTheThird = (FIRST_GIFT + SECOND_GIFT) / 3 + THIRD_GIFT / 2;
+        assertEq(thirdOfTheFirstTwoGiftsPlusHalfOfTheThird, 10_100_000_048e9);
+        assertEq(_claimQuotedAmount(bob, TOKEN1), thirdOfTheFirstTwoGiftsPlusHalfOfTheThird, "bob");
+        assertEq(_claimQuotedAmount(carol, TOKEN1), thirdOfTheFirstTwoGiftsPlusHalfOfTheThird, "carol");
+        _donateToClone(clone, LAST_GIFT);
 
-        // The 2,827 shares alice took from carol earn 0.28 wei of the 0.3 TAO gift, lost to rounding.
-        assertEq(_claimQuotedAmount(alice, TOKEN1), 10.1e18, "alice keeps her historical third");
-        assertEq(clone.balance, 4359e9, "only the last gift remains");
-        assertEq(vault.taoLiability(TOKEN1), 4359e9, "reserved for bob and carol");
+        assertEq(
+            _claimQuotedAmount(alice, TOKEN1),
+            (FIRST_GIFT + SECOND_GIFT) / 3,
+            "alice keeps her historical third; the shares she took from carol earn under a wei"
+        );
+        assertEq(clone.balance, LAST_GIFT, "only the last gift remains");
+        assertEq(vault.taoLiability(TOKEN1), LAST_GIFT, "reserved for bob and carol");
     }
 
     function test_RevertWhen_SellingOneShareWorthLessThanOneRao() public {

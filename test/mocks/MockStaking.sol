@@ -2,12 +2,10 @@
 pragma solidity 0.8.36;
 
 import { Vm } from "forge-std/Vm.sol";
-import { VaultMath } from "src/libraries/VaultMath.sol";
 import { MockAlpha } from "./MockAlpha.sol";
 import { MockSubnetPrecompile } from "./MockSubnetPrecompile.sol";
 import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { SUBNET_PRECOMPILE } from "src/interfaces/ISubnet.sol";
-import { MAX_STAKING_HOTKEYS, STAKING_LIST_PAGE } from "src/interfaces/IStaking.sol";
 
 /// @dev Fixtures must seed minimums after `vm.etch`, which copies code but not storage.
 uint256 constant CHAIN_MIN_STAKE = 2e6;
@@ -16,7 +14,15 @@ uint256 constant CHAIN_MIN_TRANSFER = 1e5;
 
 uint256 constant CHAIN_NOMINATOR_MIN_STAKE = 20e6;
 
+uint256 constant CHAIN_MAX_STAKING_HOTKEYS = 256;
+
 uint256 constant MAX_THIRD_PARTY_STAKING_HOTKEYS = 128;
+
+uint16 constant CHAIN_STAKING_LIST_PAGE = 64;
+
+uint256 constant CHAIN_PRICE_SCALE = 1e18;
+
+uint256 constant WEI_PER_RAO = 1e9;
 
 address constant VM_ADDRESS = address(uint160(uint256(keccak256("hevm cheat code"))));
 
@@ -121,7 +127,7 @@ contract MockStaking {
         if (_stakingHotkeySlot[destinationColdkey][hotkey] != 0) return;
         uint256 listed = _listLength(destinationColdkey);
         if (originColdkey == destinationColdkey) {
-            if (listed >= MAX_STAKING_HOTKEYS) _fail();
+            if (listed >= CHAIN_MAX_STAKING_HOTKEYS) _fail();
             return;
         }
         bool owned = _hasOwnerRecord(hotkey) && ownerOf(hotkey) == destinationColdkey;
@@ -134,7 +140,7 @@ contract MockStaking {
         view
         returns (bytes32[] memory hotkeys, uint64 total)
     {
-        if (limit == 0 || limit > STAKING_LIST_PAGE) _fail();
+        if (limit == 0 || limit > CHAIN_STAKING_LIST_PAGE) _fail();
         bytes32[] storage listed = _stakingHotkeys[coldkey];
         uint256 length = _listLength(coldkey);
         total = uint64(length);
@@ -216,7 +222,7 @@ contract MockStaking {
     // Chain minimums use full-precision prices even when the EVM reader rounds to zero.
     function _belowTaoValue(uint256 amount, uint256 netuid, uint256 thresholdTao) private view returns (bool) {
         uint256 alphaPriceE18 = MockAlpha(ALPHA_PRECOMPILE).chainAlphaPrice(uint16(netuid));
-        return (amount * alphaPriceE18) / VaultMath.ALPHA_PRICE_SCALE < thresholdTao;
+        return (amount * alphaPriceE18) / CHAIN_PRICE_SCALE < thresholdTao;
     }
 
     function setChainMinStake(uint256 minStakeTao) external {
@@ -255,7 +261,6 @@ contract MockStaking {
     ///      when a lock moves or clears, so readers check the lock still names the hotkey.
     mapping(bytes32 => mapping(uint256 => bytes32[])) private _lockingColdkeys;
     mapping(bytes32 => bool) private _acceptsLockedAlpha;
-    mapping(bytes32 => uint256) public rejectLockedAlphaCalls;
 
     function setLockedAlpha(bytes32 coldkey, uint256 netuid, bytes32 hotkey, uint256 amount) external {
         lockedAlpha[coldkey][netuid] = amount;
@@ -283,12 +288,6 @@ contract MockStaking {
     {
         locked = lockedAlpha[coldkey][netuid];
         return (locked != 0, lockHotkey[coldkey][netuid], locked, conviction, perpetual);
-    }
-
-    function setRejectLockedAlpha(bool enabled) external payable {
-        bytes32 coldkey = _senderColdkey();
-        _acceptsLockedAlpha[coldkey] = !enabled;
-        rejectLockedAlphaCalls[coldkey]++;
     }
 
     /// @dev Alpha the coldkey holds on `netuid` across hotkeys beyond its lock.
@@ -393,7 +392,6 @@ contract MockStaking {
         moveStakeRoundingLoss = loss;
     }
 
-    /// @dev Fault injection with no chain counterpart: leave alpha at the source despite a successful move.
     function setMoveStakeResidual(uint256 residual) external {
         moveStakeResidual = residual;
     }
@@ -633,7 +631,7 @@ contract MockStaking {
     /// @dev TAO RAO a sale of `alpha` RAO pays on `netuid`.
     function quoteTaoOut(uint16 netuid, uint256 alpha) public view returns (uint256) {
         if (taoPerAlphaDenom != 0) return (alpha * taoPerAlpha) / taoPerAlphaDenom;
-        return (alpha * MockAlpha(ALPHA_PRECOMPILE).chainAlphaPrice(netuid)) / VaultMath.ALPHA_PRICE_SCALE;
+        return (alpha * MockAlpha(ALPHA_PRECOMPILE).chainAlphaPrice(netuid)) / CHAIN_PRICE_SCALE;
     }
 
     function setRemoveStakeReverts(bool v) external {
@@ -681,7 +679,7 @@ contract MockStaking {
     }
 
     function _creditTao(address to, uint256 taoRao) private {
-        VM.deal(to, to.balance + taoRao * VaultMath.TAO_NATIVE_QUANTUM);
+        VM.deal(to, to.balance + taoRao * WEI_PER_RAO);
     }
 
     /// @dev The chain force-sells a non-owner's remainder below the nominator minimum, at the price after any sale
@@ -715,7 +713,7 @@ contract MockStaking {
         returns (bool)
     {
         if (remainder == 0 || nominatorMinRequiredStake == 0 || ownerOf(hotkey) == coldkey) return false;
-        uint256 minAlpha = (nominatorMinRequiredStake * VaultMath.ALPHA_PRICE_SCALE)
+        uint256 minAlpha = (nominatorMinRequiredStake * CHAIN_PRICE_SCALE)
             / MockAlpha(ALPHA_PRECOMPILE).chainAlphaPrice(uint16(netuid));
         return remainder < minAlpha;
     }

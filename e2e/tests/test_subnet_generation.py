@@ -9,6 +9,7 @@ import pytest
 from alpha_e2e import bootstrap, chain, checks, config, exits, extrinsics
 
 IMMUNITY_EXTENSION_BLOCKS = 13 * 7200
+TOKENS_PER_REGISTRATION = 2**16
 
 
 @pytest.mark.scenario
@@ -17,14 +18,18 @@ def test_token_follows_the_registration_counter_not_the_block(env):
     token_id = env.token_ids[0]
     hotkeys = env.subnet_hotkey_pubkeys(0)
 
-    env.deposit_and_wrap(
-        netuid, hotkeys[0], env.hotkey_ss58s[0],
+    hotkey_ss58 = env.subnet_hotkey_ss58s(0)[0]
+
+    receipt = env.deposit_and_wrap(
+        netuid, hotkeys[0], hotkey_ss58,
         config.DEPOSIT_RAO, 1_500_000, "Generation: wrap failed",
     )
     shares = env.vault_shares(token_id)
-    assert shares != 0, "no shares minted by the setup wrap"
+    checks.assert_first_deposit_shares(shares, env.deposited(receipt, netuid), "Generation: setup wrap")
     registrations = env.registration_counter(netuid)
-    assert token_id == netuid | (registrations << config.NETUID_BITS), "the token id carries the registration counter"
+    assert token_id == netuid + registrations * TOKENS_PER_REGISTRATION, (
+        f"token {token_id} should carry netuid {netuid} in its low 16 bits and registration {registrations} above"
+    )
 
     block_before = extrinsics.network_registration_block(netuid)
     extrinsics.set_network_registration_block(netuid, block_before + IMMUNITY_EXTENSION_BLOCKS)
@@ -36,7 +41,7 @@ def test_token_follows_the_registration_counter_not_the_block(env):
         hotkeys=hotkeys, label="unwrap [after block rewrite]",
     )
     receipt = env.deposit_and_wrap(
-        netuid, hotkeys[0], env.hotkey_ss58s[0],
+        netuid, hotkeys[0], hotkey_ss58,
         config.DEPOSIT_RAO // 10, 1_500_000, "Generation: deposits should land on the same token",
     )
     deposited = env.deposited(receipt, netuid)
@@ -52,17 +57,24 @@ def test_token_follows_the_registration_counter_not_the_block(env):
     assert bootstrap.create_subnet() == netuid, "the chain hands the freed netuid back"
 
     assert env.registration_counter(netuid) == registrations + 1, "the counter stepped with the registration"
-    assert env.current_token_id(netuid) == netuid | ((registrations + 1) << config.NETUID_BITS), "so the new subnet has a new token"
+    assert env.current_token_id(netuid) == netuid + (registrations + 1) * TOKENS_PER_REGISTRATION, (
+        "so the new subnet has a new token"
+    )
 
     old_clone = env.clone_address(token_id)
-    expected_refund = chain.cast_balance_wei(old_clone) // config.WEI_PER_RAO * config.WEI_PER_RAO
-    assert expected_refund > 0, "the old token's clone received no dissolution refund"
+    clone_refund = chain.cast_balance_wei(old_clone)
+    assert clone_refund > 0, "the old token's clone received no dissolution refund"
+    remaining_shares = env.vault_shares(token_id)
+    assert env.vault_total_supply(token_id) == remaining_shares, "the wrapper user should hold every share"
     balance_before = env.user_tao_wei()
     receipt = env.vault_send(
         2_000_000, "Generation: the old token should redeem its dissolution refund",
         "unwrap(uint256,uint256,bytes32,uint256)",
-        token_id, env.vault_shares(token_id), env.wrapper_substrate_coldkey, 0,
+        token_id, remaining_shares, env.wrapper_substrate_coldkey, 0,
     )
     refund = checks.reconstructed_payout(balance_before, env.user_tao_wei(), receipt, "Generation: refund")
-    assert refund == expected_refund, f"the old token paid {refund} wei of its clone's {expected_refund} wei refund"
+    checks.assert_floored_pro_rata(
+        refund, clone_refund, remaining_shares, remaining_shares, config.WEI_PER_RAO,
+        "the old token's only holder should receive its clone's whole refund, in whole RAO",
+    )
     assert env.vault_total_supply(token_id) == 0, "the old token kept outstanding shares"
