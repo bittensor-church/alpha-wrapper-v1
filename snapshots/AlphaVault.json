@@ -1,6 +1,6 @@
 {
   "createMailbox: existing": "43720",
-  "createMailbox: first on subnet": "887855",
+  "createMailbox: first on subnet": "933791",
   "createMailbox: shared subnet": "403243",
   "rebalance: after registry weight update": "276403",
   "rebalance: fully rotated (10 validators)": "3033173",
@@ -10,7 +10,7 @@
   "rebalance: resolve a cut edge through a full staking list (10 validators)": "2907607",
   "recoverStray: collect merged source (10 validators)": "332879",
   "recoverStray: collect one source (10 validators)": "215910",
-  "replaceClone: 3 validators": "4900186",
+  "replaceClone: 3 validators": "4946122",
   "syncBacking: loss on file (10 validators)": "1168632",
   "syncBacking: record a cut edge": "138826",
   "unwrap: full": "573559",

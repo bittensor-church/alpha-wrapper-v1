@@ -10,6 +10,7 @@ import { AttestedHotkeyRetired } from "src/VaultErrors.sol";
 contract StrandedStakeClaimTest is AlphaVaultTestBase {
     bytes32 private constant PROTECTED_COLDKEY = keccak256("ml-dsa-coldkey");
     bytes32 private constant UID = keccak256("successor-uid");
+    address private stranger = makeAddr("stranger");
 
     function _fundedSlotLosesItsOwnerRecord(uint256 deposit) private returns (uint256 shares) {
         shares = _depositAndWrap(alice, NETUID1, deposit);
@@ -132,6 +133,51 @@ contract StrandedStakeClaimTest is AlphaVaultTestBase {
         (, bytes32 owner) = mock.getHotkeyOwner(hotkey1);
         assertEq(owner, PROTECTED_COLDKEY, "the claim stays with the protected account");
         assertEq(_getVaultStake(hotkey1, NETUID1), 0, "and the pile left the clone");
+    }
+
+    function testFuzz_A1_StrangerCannotGrowTheCloneOwnersList(uint256 hotkeySeed, uint256 amount) public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        MockStaking mock = MockStaking(STAKING_PRECOMPILE);
+        bytes32 clone = _subnetColdkey(NETUID1);
+        bytes32 ownerColdkey = _cloneOwnerColdkey(NETUID1);
+        bytes32 strangerHotkey = keccak256(abi.encode("stranger hotkey", hotkeySeed));
+        bytes32 strangerColdkey = _toSubstrate(stranger);
+        amount = bound(amount, CRUMB, 100_000 * ALPHA);
+        mock.setHotkeyOwned(strangerHotkey, true);
+        mock.setStake(strangerHotkey, strangerColdkey, NETUID2, amount);
+        assertTrue(mock.getRejectStakingHotkeyGrowth(ownerColdkey), "the owner contract refuses list growth");
+        assertEq(_listedHotkeys(ownerColdkey), _hotkeys(clone), "the owner contract lists the clone's account only");
+
+        vm.prank(stranger);
+        _expectChainRefusal();
+        mock.transferStake(ownerColdkey, strangerHotkey, NETUID2, NETUID2, amount);
+    }
+
+    function test_A1_DepositLandingOnAVacatedFirstEntry_ClaimsItForTheCloneOwner() public {
+        MockStaking mock = MockStaking(STAKING_PRECOMPILE);
+        _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        bytes32 clone = _subnetColdkey(NETUID1);
+        bytes32 ownerColdkey = _cloneOwnerColdkey(NETUID1);
+
+        mock.setStake(hotkey1, clone, NETUID2, CRUMB);
+        _setValidators(NETUID1, _hotkeys(hotkey2), _weights(BPS_BASE));
+        vault.rebalance(NETUID1);
+        assertEq(_listedHotkeys(clone)[0], hotkey1, "rotated-out hotkey1 stays the clone's first entry");
+
+        mock.setHotkeyDeleted(hotkey1, true);
+        _setValidators(NETUID1, _hotkeys(hotkey3), _weights(BPS_BASE));
+
+        _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
+        _wrapHotkey(bob, NETUID1, hotkey3);
+
+        _assertClaimedBy(hotkey1, ownerColdkey);
+        assertEq(
+            _listedHotkeys(ownerColdkey), _hotkeys(clone, hotkey1), "the claim joins the owner contract's own list"
+        );
+        assertEq(vault.balanceOf(bob, TOKEN1), 6e18, "the deposit mints its exact share");
+        assertEq(_getVaultStake(hotkey3, NETUID1), 36 * ALPHA, "all backing sits under the attested hotkey");
+        assertEq(lens.totalStake(TOKEN1), 36 * ALPHA);
     }
 
     function test_RevertWhen_NonVaultClaimsThroughTheCloneOwner() public {

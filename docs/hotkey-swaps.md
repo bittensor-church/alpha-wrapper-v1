@@ -73,7 +73,7 @@ followed hotkey, moves the slot.
 The chain refuses to move stake through a hotkey with no owner record. When the
 vault has to move stake off such a hotkey, the clone's owner contract claims the
 hotkey first, then the clone moves; the entry lands on the owner contract's own
-staking list. The claim is permanent, and while the hotkey stays attested
+staking list, which refuses growth by other accounts. The claim is permanent, and while the hotkey stays attested
 the claimed hotkey counts as a receiving hotkey for an emptied slot, which stays
 idle there until the registry owner publishes the successor. Anyone paying the
 chain's hotkey-swap fee can block the claim by reserving the ownerless hotkey as a

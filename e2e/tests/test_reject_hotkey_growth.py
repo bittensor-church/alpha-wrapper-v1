@@ -2,10 +2,11 @@
 
 Subtensor lets another coldkey add a hotkey to an account's staking list by transferring
 stake onto it, until the list holds 128 entries; after that, transfers onto unlisted hotkeys
-are refused. Each clone refuses that growth from the moment it is created, so a stranger
-can only top up hotkeys the clone already lists. Deposits land on the mailbox's own hotkey
-and reach the clone on a hotkey it lists, with the growth flag lifted for the one transfer
-that lands on a clone listing nothing. A candidate dusted before creation is rejected.
+are refused. Each clone and each subnet clone's owner contract refuses that growth from the
+moment it is created, so a stranger can only top up hotkeys the account already lists.
+Deposits land on the mailbox's own hotkey and reach the clone on a hotkey it lists, with
+the growth flag lifted for the one transfer that lands on a clone listing nothing. A
+candidate dusted before creation is rejected.
 Hotkey 0x0, which the localnet owns from genesis, is refused like any other unlisted hotkey.
 
 A crumb sent under a listed validator on another subnet keeps that validator listed after
@@ -80,8 +81,9 @@ def test_stranger_cannot_grow_a_clones_staking_list(env, recovery_window):
     )
     clone = env.clone_address(token_id)
     mailbox = env.mailbox_address(netuid)
+    clone_owner = env.clone_owner_address(token_id)
     assert clone.lower() != poisoned_clone.lower() and mailbox.lower() != poisoned_mailbox.lower()
-    for address, own_entries in ((clone, 0), (mailbox, 1)):
+    for address, own_entries in ((clone, 0), (mailbox, 1), (clone_owner, 1)):
         assert _rejects_growth(address), f"{address} does not refuse staking-list growth"
         assert len(extrinsics.staking_hotkeys(h160_to_ss58(address))) == own_entries, "a fresh clone lists a stranger"
         _assert_growth_refused(address, stranger_hotkey_ss58, other_netuid, dust)
@@ -115,7 +117,7 @@ def test_stranger_cannot_grow_a_clones_staking_list(env, recovery_window):
     env.deposit_and_wrap(netuid, hotkeys[1], env.hotkey_ss58s[1], config.DEPOSIT_RAO, 1_500_000, "the second wrap failed")
     assert env.stake(validator, clone_coldkey, other_netuid) > 0, "the crumb stays where the stranger put it"
     assert len(extrinsics.staking_hotkeys(h160_to_ss58(clone))) == 2, "the second deposit grew the list"
-    for address in (clone, mailbox):
+    for address in (clone, mailbox, clone_owner):
         _assert_growth_refused(address, stranger_hotkey_ss58, other_netuid, dust)
 
     receipt, _ = exits.unwrap(env, token_id, env.vault_shares(token_id), "the full exit failed", hotkeys=hotkeys)
