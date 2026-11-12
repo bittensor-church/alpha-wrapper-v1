@@ -60,6 +60,7 @@ A slot the vault has followed a swap from stays on that hotkey while it keeps it
 owner record and no outgoing swap edge, whoever claims the vacated hotkey. If the
 validator swaps on from the followed hotkey while the slot is empty, a stranger
 can claim that hotkey, clear its swap edge and receive the slot's allocation.
+The stranger cannot take the principal: the alpha stays under the clone's coldkey.
 An attested hotkey with no followed record receives an empty slot's allocation while it has an
 owner record, whoever holds it. Alpha moved off either without a trail is
 missing backing: every priced call reverts `BackingShortfall` until a watcher
