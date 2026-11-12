@@ -147,6 +147,18 @@ contract BackingResolutionTest is AlphaVaultTestBase {
         assertTrue(lens.isBackingIntact(TOKEN1));
     }
 
+    function test_CrossedSlots_ALaterDepositGivesEachValidatorTheOthersWeight() public {
+        _moveTheEqualWeightSlots(20_000_000, 10_000_000);
+
+        _simulateAlphaDeposit(bob, NETUID1, 30 * ALPHA);
+        _wrapHotkey(bob, NETUID1, hotkey1);
+
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey5, "hotkey1's slot stakes under validator 2");
+        assertEq(_getVaultStake(hotkey5, NETUID1), 20_014_002_000, "validator 2 holds 3334 bps of 60.03 alpha");
+        assertEq(_getVaultStake(hotkey4, NETUID1), 20_007_999_000, "validator 1 holds 3333 bps of 60.03 alpha");
+        assertEq(lens.totalStake(TOKEN1), 60 * ALPHA + 30_000_000);
+    }
+
     function test_CrossedSlots_ASetNamingBothSuccessors_PutsEachSlotUnderItsOwnValidator() public {
         _moveTheEqualWeightSlots(20_000_000, 10_000_000);
         vault.rebalance(NETUID1);
