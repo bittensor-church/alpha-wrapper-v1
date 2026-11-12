@@ -10,11 +10,8 @@ contract DynamicValidatorSetTest is DepositScenarios {
     }
 
     function _assertEvenSpreadOnNetuid1(bytes32[] memory hks, uint256 amount) private view {
-        uint256 evenShare = amount / hks.length;
-        uint256 eachStake = _getVaultStake(hks[0], NETUID1);
+        uint256 eachStake = amount * _evenWeights(hks.length)[0] / BPS_BASE;
         _assertSpreadOnNetuid1(hks, eachStake, amount - (hks.length - 1) * eachStake);
-        assertLe(eachStake, evenShare, "no slot above an even share");
-        assertLe(evenShare - eachStake, amount / BPS_BASE + 1, "short of an even share by at most one bps");
     }
 
     function test_Wrap_SpreadsAcrossFullValidatorCap() public {

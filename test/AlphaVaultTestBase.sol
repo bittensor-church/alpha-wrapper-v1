@@ -57,10 +57,12 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     uint16 public constant NETUID2_BPS_HK2 = 6000;
     uint16 public constant NETUID2_BPS_HK1 = 4000;
 
-    uint16 public constant BPS_BASE = 10_000;
+    uint256 internal constant STAKING_LIST_CAP = 256;
+    uint256 internal constant VALIDATOR_CAP = 10;
 
     uint256 internal constant DUST_THRESHOLD = CHAIN_NOMINATOR_MIN_STAKE;
 
+    // The vault keeps one TAO RAO above the threshold and rounds the leftover up: up to 2 RAO of value unsold.
     uint256 internal constant UNSWEPT_SALE_MARGIN = 2;
 
     /// @dev One alpha in RAO; chain stake is u64 RAO.
@@ -341,12 +343,12 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         if (lens.isBackingIntact(tokenId)) return;
         _runOutRecoveryWindow(tokenId);
         uint256 netuid = uint16(tokenId);
-        _reattestCurrentSet(netuid);
+        _reattestValidators(netuid);
         vault.rebalance(netuid);
     }
 
     /// @dev Lands the current set again under a new nonce, releasing a parked position.
-    function _reattestCurrentSet(uint256 netuid) internal {
+    function _reattestValidators(uint256 netuid) internal {
         (bytes32[] memory hks, uint16[] memory wts) = registry.getValidators(netuid);
         _setValidators(netuid, hks, wts);
     }
@@ -631,14 +633,17 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
         mock.setStake(hotkey, cloneColdkey, netuid == NETUID1 ? NETUID2 : NETUID1, CRUMB);
         mock.setHotkeyOwned(hotkey, true);
         _simulateHotkeyOwnerPresent(hotkey);
-        mock.setStake(hotkey, _toSubstrate(strangerDonor), netuid, amount);
-        vm.prank(strangerDonor);
-        mock.transferStake(cloneColdkey, hotkey, netuid, netuid, amount);
+        _strangerTransfer(hotkey, cloneColdkey, netuid, amount);
     }
 
-    function _strangerTransfer(bytes32 hotkey, bytes32 coldkey, uint256 netuid) internal {
-        MockStaking(STAKING_PRECOMPILE).setStake(hotkey, _toSubstrate(strangerDonor), netuid, CRUMB);
+    function _strangerTransfer(bytes32 hotkey, bytes32 coldkey, uint256 netuid, uint256 amount) internal {
+        MockStaking(STAKING_PRECOMPILE).setStake(hotkey, _toSubstrate(strangerDonor), netuid, amount);
         vm.prank(strangerDonor);
-        MockStaking(STAKING_PRECOMPILE).transferStake(coldkey, hotkey, netuid, netuid, CRUMB);
+        MockStaking(STAKING_PRECOMPILE).transferStake(coldkey, hotkey, netuid, netuid, amount);
+    }
+
+    function _cutTheEdge(bytes32 fromHotkey, bytes32 toHotkey) internal {
+        _simulateOffVaultSwap(NETUID1, fromHotkey, toHotkey);
+        MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(fromHotkey, true);
     }
 }

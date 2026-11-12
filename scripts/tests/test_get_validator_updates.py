@@ -17,5 +17,5 @@ def test_validator_update_rows_carry_the_netuid_nonce_and_block_time(run_event_r
     ]
 
 
-def test_validator_updates_of_an_empty_range_print_only_the_header(run_event_reader):
+def test_validator_updates_of_an_empty_range_print_no_rows(run_event_reader):
     assert run_event_reader(script, ["--registry-address", "registry"], {}, 1, 42) == []

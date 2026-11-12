@@ -72,7 +72,7 @@ def test_a_claimed_hotkey_swapped_away_keeps_every_rail_open(env):
 
     located = hotkeys + [successor_pubkey, stranger_hotkey_pubkey]
     run = rails.assert_rails_skip_hotkey(
-        env, 0, vacated_pubkey, successor_ss58, vacated_pubkey, located, "swapped away", "Claimed hotkey",
+        env, 0, vacated_pubkey, successor_ss58, located, "swapped away", "Claimed hotkey",
     )
     wrap_block = chain.receipt_block_number(run.wrap_receipt, "Claimed hotkey: deposit after the swap away")
     joined = env.stake_change(clone_coldkey, netuid, [stranger_hotkey_pubkey], wrap_block)

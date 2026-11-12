@@ -57,7 +57,7 @@ def test_every_rail_skips_a_vacated_hotkey_a_stranger_claimed(env):
     assert env.backing_intact(token_id), "the position is whole on the successor"
 
     rails.assert_rails_skip_hotkey(
-        env, 0, vacated_pubkey, successor_ss58, vacated_pubkey, located, "claimed hotkey", "Squatted hotkey",
+        env, 0, vacated_pubkey, successor_ss58, located, "claimed hotkey", "Squatted hotkey",
     )
 
     env.set_validator(netuid, successor_pubkey)

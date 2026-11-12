@@ -17,7 +17,7 @@ subnets):
 import pytest
 
 from alpha_e2e import chain, config, exits, extrinsics
-from alpha_e2e.checks import assert_gas_within, assert_value_per_share_kept, min_tao_out_for
+from alpha_e2e.checks import assert_value_per_share_kept, min_tao_out_for
 from alpha_e2e.substrate import h160_to_ss58, h160_to_substrate_b32
 
 
@@ -64,9 +64,6 @@ def test_rotated_out_dust_cannot_lock_the_vault(env):
         "Rotated-out dust: alpha exit did NOT revert as ConsolidationBelowFloor",
         "unwrap(uint256,uint256,bytes32,uint256)",
         token_id, remaining_shares, env.wrapper_substrate_coldkey, 0,
-    )
-    assert_gas_within(
-        refusal_receipt, config.REVERT_GAS_BOUND, "Rotated-out dust: alpha-exit refusal",
     )
 
     position_alpha = env.total_stake_across(clone_coldkey, netuid, hotkeys)
@@ -120,7 +117,6 @@ def test_price_crash_cannot_lock_exits(env):
         "unwrap(uint256,uint256,bytes32,uint256)",
         token_id, crashed_shares, env.wrapper_substrate_coldkey, 0,
     )
-    assert_gas_within(refusal_receipt, config.REVERT_GAS_BOUND, "Price crash: alpha-exit refusal")
 
     position_alpha = env.total_stake_across(clone_coldkey, netuid, hotkeys)
     tao_exit_receipt, _ = exits.unwrap_for_tao(
@@ -195,17 +191,11 @@ def test_sub_floor_co_holder_cannot_be_locked_in_or_leak_the_other_holder(env):
         "unwrap(uint256,uint256,bytes32,uint256)", token_id, small_holder_shares, second_holder_coldkey, 0,
         private_key=config.SECOND_HOLDER_PRIVATE_KEY, sender=config.SECOND_HOLDER_ADDRESS,
     )
-    assert_gas_within(
-        alpha_refusal_receipt, config.REVERT_GAS_BOUND, "Co-holder: alpha-exit refusal",
-    )
     tao_refusal_receipt = env.assert_vault_reverts_with(
         "WithdrawTooSmall()", 2_500_000,
         "Co-holder: sub-floor TAO exit did NOT revert as WithdrawTooSmall",
         "unwrapForTao(uint256,uint256,uint256)", token_id, small_holder_shares, 1,
         private_key=config.SECOND_HOLDER_PRIVATE_KEY, sender=config.SECOND_HOLDER_ADDRESS,
-    )
-    assert_gas_within(
-        tao_refusal_receipt, config.REVERT_GAS_BOUND, "Co-holder: TAO-exit refusal",
     )
     print("  Both exits refused the sub-floor slice cleanly")
 

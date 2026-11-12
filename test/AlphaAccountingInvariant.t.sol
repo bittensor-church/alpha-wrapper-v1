@@ -20,7 +20,6 @@ contract AlphaAccountingHandler is Test {
     uint256 public alphaDelivered;
     uint256 public alphaSold;
     uint256 public shareConversions;
-    uint256 public partialExits;
     uint256 public virtualShareSlice;
 
     constructor(AlphaAccountingCampaignSetup owner, AlphaVault v, uint256 id, address[3] memory users) {
@@ -63,7 +62,6 @@ contract AlphaAccountingHandler is Test {
             _exitInFull(actor, forTao);
             return;
         }
-        ++partialExits;
         _redeem(actor, shares, forTao);
     }
 

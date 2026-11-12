@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 import { BackingScenarios } from "./helpers/BackingScenarios.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
 import { AttestedHotkeyRetired } from "src/VaultErrors.sol";
@@ -72,7 +71,7 @@ contract BackingRecordTest is BackingScenarios {
         assertEq(lens.totalStake(tokenId), 10 * ALPHA, "backing whole across both swaps");
     }
 
-    function test_FollowedSwap_EveryRailKeepsWorking() public {
+    function test_SwappedValidator_AllRailsKeepWorking() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _simulateFollowedSwap(NETUID1, hotkey1, hotkey4);
 
@@ -618,7 +617,7 @@ contract BackingRecordTest is BackingScenarios {
     }
 
     function testFuzz_DrainedSwap_LeavesEverySlotOnItsOwnHotkey(uint256 rawCount) public {
-        uint256 count = bound(rawCount, 2, MAX_VALIDATORS);
+        uint256 count = bound(rawCount, 2, VALIDATOR_CAP);
         (bytes32[] memory hotkeys, uint256 tokenId) = _wideSetPosition(count, 30 * ALPHA);
         uint256 drained = _getVaultStake(hotkeys[0], WIDE_SET_NETUID);
 
@@ -711,7 +710,7 @@ contract BackingRecordTest is BackingScenarios {
     }
 
     function testFuzz_WideSet_FollowsASwap(uint256 rawCount) public {
-        uint256 count = bound(rawCount, 2, MAX_VALIDATORS);
+        uint256 count = bound(rawCount, 2, VALIDATOR_CAP);
         (bytes32[] memory hotkeys, uint256 tokenId) = _wideSetPosition(count, 10 * ALPHA);
         uint256 firstSlot = _getVaultStake(hotkeys[0], WIDE_SET_NETUID);
 

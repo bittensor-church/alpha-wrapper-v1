@@ -377,8 +377,8 @@ class Environment:
         """Assert a vault call fails with one designed custom error. An eth_call must revert
         with exactly that error, carrying `error_args` when the test knows them (an error that
         takes arguments matches on its selector alone without them). The broadcast must then be
-        mined as failed within `config.REVERT_GAS_SHARE_PERCENT` of its gas limit, which a
-        burned precompile dispatch or an out-of-gas run exceeds. Returns the broadcast receipt."""
+        mined as failed within `config.REVERT_GAS_BOUND`, which a burned precompile dispatch or an
+        out-of-gas run exceeds. Returns the broadcast receipt."""
         expected = chain.encoded_call(error_signature, *(error_args or ()))
         reverted = chain.revert_data(
             self.vault_address, signature, *args, sender=sender or config.WRAPPER_USER_ADDRESS,
@@ -394,9 +394,8 @@ class Environment:
         )
         assert receipt.get("status") == "0x0", f"{message}: {receipt}"
         gas_used = chain.receipt_gas_used(receipt)
-        gas_bound = gas_limit * config.REVERT_GAS_SHARE_PERCENT // 100
-        assert gas_used <= gas_bound, (
-            f"{message}: the mined revert used {gas_used} of {gas_limit} gas (bound {gas_bound}), "
+        assert gas_used <= config.REVERT_GAS_BOUND, (
+            f"{message}: the mined revert used {gas_used} gas (bound {config.REVERT_GAS_BOUND}), "
             "as a burned precompile dispatch or an out-of-gas run would"
         )
         return receipt

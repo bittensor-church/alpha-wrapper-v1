@@ -37,7 +37,7 @@ contract LockedAlphaDepositTest is DepositScenarios {
 
     function _strangerStakesFor(address candidate) private {
         _recordHotkeyOwner(hotkey5);
-        _strangerTransfer(hotkey5, _toSubstrate(candidate), NETUID2);
+        _strangerTransfer(hotkey5, _toSubstrate(candidate), NETUID2, CRUMB);
     }
 
     function _assertMailboxProtected(address mailbox) private view {
@@ -72,7 +72,7 @@ contract LockedAlphaDepositTest is DepositScenarios {
         assertTrue(mock.getRejectStakingHotkeyGrowth(coldkey), "a clone refuses staking-list growth by others");
     }
 
-    function test_CreateMailbox_PublishesAProtectedMailboxAndClone() public {
+    function test_CreateMailbox_PreparesBothBeforePublishingAddresses() public {
         assertEq(vault.getDepositAddress(alice, NETUID1), address(0));
         assertEq(vault.subnetClone(TOKEN1), address(0));
         (address mailbox, address clone) = _create(alice, UID);

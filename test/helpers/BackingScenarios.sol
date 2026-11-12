@@ -26,11 +26,6 @@ abstract contract BackingScenarios is AlphaVaultTestBase {
         assertTrue(owned, "the hotkey has no owner record");
     }
 
-    function _cutTheEdge(bytes32 fromHotkey, bytes32 toHotkey) internal {
-        _simulateOffVaultSwap(NETUID1, fromHotkey, toHotkey);
-        MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(fromHotkey, true);
-    }
-
     function _sweepEverySlot() internal returns (uint256[] memory swept) {
         bytes32[] memory hotkeys = _hotkeys(hotkey1, hotkey2, hotkey3);
         swept = new uint256[](hotkeys.length);

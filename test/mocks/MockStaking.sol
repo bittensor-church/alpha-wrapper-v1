@@ -37,14 +37,9 @@ contract MockStaking {
     uint256 public removeStakeRoundingLoss;
     uint256 public moveStakeResidual;
     uint256 public transferStakeRoundingLoss;
-    bool public transferStakeReverts;
     uint256 private _chainMinStakeTao;
 
     uint256 private _chainMinTransferTao;
-
-    function setTransferStakeReverts(bool v) external {
-        transferStakeReverts = v;
-    }
 
     function _fail() private pure {
         assembly {
@@ -357,7 +352,6 @@ contract MockStaking {
         uint256 destinationNetuid,
         uint256 amount
     ) private {
-        if (transferStakeReverts) _fail();
         bytes32 origin = _senderColdkey();
         amount = _requestedAlpha(originHotkey, origin, originNetuid, amount);
         if (destinationColdkey == origin && originHotkey == destinationHotkey && originNetuid == destinationNetuid) {

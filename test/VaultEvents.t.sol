@@ -163,7 +163,7 @@ contract VaultEventsTest is BackingScenarios {
 
     function test_Rebalance_ReleasesParkingAfterANewerAttestation() public {
         _parkedPosition(DEPOSIT);
-        _reattestCurrentSet(NETUID1);
+        _reattestValidators(NETUID1);
 
         vm.expectEmit(true, false, false, true, address(vault));
         emit ParkingReleased(TOKEN1, SETUP_NONCE);

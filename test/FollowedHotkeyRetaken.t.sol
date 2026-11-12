@@ -78,7 +78,7 @@ contract FollowedHotkeyRetakenTest is BackingScenarios {
         _strangerRetakesTheFollowedHotkey();
     }
 
-    function test_EmptiedFollowedSlot_GoesToTheValidatorHeldAttestedHotkey() public {
+    function test_Control_EmptiedSlotGoesToValidatorHeldAttestedHotkey() public {
         _setUpEmptiedFollowedSlotThenSecondSwap();
 
         vault.rebalance(NETUID1);
@@ -116,7 +116,7 @@ contract FollowedHotkeyRetakenTest is BackingScenarios {
         );
     }
 
-    function test_StrangerRetakingTheFollowedHotkeyBehindASwapEdge_CarriesTheEmptiedSlot() public {
+    function test_StrangerRetakingTheFollowedHotkeyAndClearingItsSwapEdge_CarriesTheEmptiedSlot() public {
         _setUpEmptiedFollowedSlotThenSecondSwap();
         uint256 aliceShares = vault.balanceOf(alice, TOKEN1);
         assertEq(lens.totalStake(TOKEN1), BACKING_AFTER_DRAIN, "3,000 alpha less the drained 1,000.2");
@@ -148,7 +148,7 @@ contract FollowedHotkeyRetakenTest is BackingScenarios {
         assertTrue(lens.isBackingIntact(TOKEN1), "nothing looks wrong to the vault or the lens");
     }
 
-    function test_RetakenFollowedHotkey_EveryRailKeepsWorking() public {
+    function test_RetakenFollowedHotkey_AllRailsKeepWorking() public {
         _setUpRetakenFollowedHotkeyOnAnIdleToken();
 
         assertEq(lens.previewWrap(TOKEN1, FIRST_DEPOSIT), 3e21, "the idle token quotes 1e9 shares per RAO");
@@ -224,7 +224,7 @@ contract FollowedHotkeyRetakenTest is BackingScenarios {
     function test_RepublishingTheSameSet_LeavesTheAllocationOnTheRetakenHotkey() public {
         _setUpRetakenFollowedHotkeyHoldingItsWeight();
 
-        _reattestCurrentSet(NETUID1);
+        _reattestValidators(NETUID1);
         vault.rebalance(NETUID1);
 
         assertEq(

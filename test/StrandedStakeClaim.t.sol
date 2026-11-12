@@ -4,7 +4,7 @@ pragma solidity 0.8.36;
 import { BackingScenarios } from "./helpers/BackingScenarios.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { CloneOwner } from "src/CloneOwner.sol";
-import { STAKING_PRECOMPILE, MAX_STAKING_HOTKEYS } from "src/interfaces/IStaking.sol";
+import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { AttestedHotkeyRetired } from "src/VaultErrors.sol";
 
 contract StrandedStakeClaimTest is BackingScenarios {
@@ -85,7 +85,7 @@ contract StrandedStakeClaimTest is BackingScenarios {
     function test_ReplaceClone_ClaimsTheHotkeyForTheOldCloneOwner() public {
         _fundedSlotLosesItsOwnerRecord(30 * ALPHA);
         bytes32 oldCloneOwner = _cloneOwnerColdkey(NETUID1);
-        _fillListTo(_subnetColdkey(NETUID1), MAX_STAKING_HOTKEYS / 2);
+        _fillListTo(_subnetColdkey(NETUID1), STAKING_LIST_CAP / 2);
 
         vault.replaceClone(TOKEN1, UID);
 
@@ -135,7 +135,7 @@ contract StrandedStakeClaimTest is BackingScenarios {
         bytes32 clone = _subnetColdkey(NETUID1);
         bytes32 ownerColdkey = _cloneOwnerColdkey(NETUID1);
 
-        _strangerTransfer(hotkey1, clone, NETUID2);
+        _strangerTransfer(hotkey1, clone, NETUID2, CRUMB);
         _setValidators(NETUID1, _hotkeys(hotkey2), _weights(BPS_BASE));
         vault.rebalance(NETUID1);
         assertEq(_listedHotkeys(clone)[0], hotkey1, "the stranger's crumb keeps rotated-out hotkey1 first on the list");

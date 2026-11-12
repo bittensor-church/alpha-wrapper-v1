@@ -21,10 +21,10 @@ class RailsRun:
 
 
 def assert_rails_skip_hotkey(
-    env: Environment, subnet_index: int, attested_pubkey: str, funding_ss58: str,
-    skipped_pubkey: str, located: List[str], tag: str, context: str,
+    env: Environment, subnet_index: int, skipped_pubkey: str, funding_ss58: str,
+    located: List[str], tag: str, context: str,
 ) -> RailsRun:
-    """Run every rail with the deposit chosen under `attested_pubkey` and funded from Alice's stake
+    """Run every rail with the deposit chosen under `skipped_pubkey` and funded from Alice's stake
     under `funding_ss58`, asserting `skipped_pubkey` holds none of the clone's alpha after each.
     `located` must cover the clone's stake on the subnet; `tag` labels the gas rows."""
     netuid = env.netuids[subnet_index]
@@ -38,7 +38,7 @@ def assert_rails_skip_hotkey(
 
     deposit = config.DEPOSIT_RAO // 10
     wrap_receipt = env.deposit_and_wrap(
-        netuid, attested_pubkey, funding_ss58, deposit, 1_500_000, f"{context}: the deposit failed",
+        netuid, skipped_pubkey, funding_ss58, deposit, 1_500_000, f"{context}: the deposit failed",
         label=f"wrap [{tag}]", min_shares_out=env.preview_wrap(token_id, deposit) * 95 // 100,
     )
     assert_skipped(wrap_receipt, "deposit")

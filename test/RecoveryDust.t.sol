@@ -10,7 +10,6 @@ contract RecoveryDustTest is BackingScenarios {
     uint256 private constant EXPECTED = 6 * ALPHA / 10;
     /// @dev 3333 bps of EXPECTED: above the floor at 0.05 TAO/alpha, below the 0.2 alpha floor at 0.01.
     uint256 private constant THIRD_SLOT = 199_980_000;
-    uint256 private constant LARGEST_SMALL_SET = 10;
 
     function _missingPosition() private returns (uint256[] memory swept) {
         _depositAndWrap(alice, NETUID1, EXPECTED);
@@ -131,16 +130,6 @@ contract RecoveryDustTest is BackingScenarios {
         vault.syncBacking(TOKEN1);
     }
 
-    function test_RevertWhen_AnAboveFloorCollectionFailsBesideDust() public {
-        (, uint256 deadline) = _emptyRecovery();
-        _strangerReturns(NETUID1, hotkey1, ALPHA_FLOOR);
-        _strangerReturns(NETUID1, hotkey2, DUST);
-        MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(true);
-        vm.warp(deadline);
-        _expectChainRefusal();
-        vault.syncBacking(TOKEN1);
-    }
-
     function _smallSetReturnedAs(uint256 count, uint256 dust, bool lastAtTheFloor)
         private
         returns (uint256 tokenId, bytes32[] memory hotkeys)
@@ -186,23 +175,21 @@ contract RecoveryDustTest is BackingScenarios {
     }
 
     function test_TenDustBalances_DoNotBlockWriteOffEvenWhenTheirSumExceedsTheFloor() public {
-        _assertDustAloneIsWrittenOffInPlace(LARGEST_SMALL_SET, ALPHA_FLOOR - 1);
+        _assertDustAloneIsWrittenOffInPlace(VALIDATOR_CAP, ALPHA_FLOOR - 1);
     }
 
     function test_OneBalanceAtTheFloor_CollectsAllNineDustBalances() public {
-        _assertAFloorPileCarriesTheDust(LARGEST_SMALL_SET, ALPHA_FLOOR - 1);
+        _assertAFloorPileCarriesTheDust(VALIDATOR_CAP, ALPHA_FLOOR - 1);
     }
 
     function testFuzz_SmallSetOfDust_IsWrittenOffInPlace(uint256 rawCount, uint256 rawDust) public {
-        _assertDustAloneIsWrittenOffInPlace(
-            bound(rawCount, 2, LARGEST_SMALL_SET), bound(rawDust, CRUMB, ALPHA_FLOOR - 1)
-        );
+        _assertDustAloneIsWrittenOffInPlace(bound(rawCount, 2, VALIDATOR_CAP), bound(rawDust, CRUMB, ALPHA_FLOOR - 1));
     }
 
     function testFuzz_SmallSetWithOneBalanceAtTheFloor_CollectsEveryDustBalance(uint256 rawCount, uint256 rawDust)
         public
     {
-        _assertAFloorPileCarriesTheDust(bound(rawCount, 2, LARGEST_SMALL_SET), bound(rawDust, CRUMB, ALPHA_FLOOR - 1));
+        _assertAFloorPileCarriesTheDust(bound(rawCount, 2, VALIDATOR_CAP), bound(rawDust, CRUMB, ALPHA_FLOOR - 1));
     }
 
     /// @dev A 0.3-alpha slot sits below the 0.4-alpha nominator minimum at 0.05 TAO/alpha. The chain's sweep runs

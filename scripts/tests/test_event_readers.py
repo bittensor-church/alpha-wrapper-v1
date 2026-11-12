@@ -10,6 +10,7 @@ USER = "0x00000000000000000000000000000000000000AA"
 CLONE = "0x00000000000000000000000000000000000000Bb"
 FROM_HOTKEY = bytes.fromhex("11" * 32)
 TO_HOTKEY = bytes.fromhex("22" * 32)
+DESTINATION_COLDKEY = bytes.fromhex("33" * 32)
 
 
 def test_deposit_rows_carry_user_token_assets_and_shares(run_event_reader):
@@ -24,7 +25,7 @@ def test_deposit_rows_carry_user_token_assets_and_shares(run_event_reader):
 
 def test_unwrap_rows_carry_the_observed_alpha_out(run_event_reader):
     events = {("AlphaVault", "Unwrapped"): [
-        (fake_log("0x0b", 6), {"user": USER, "tokenId": 7, "shares": 500, "alphaOut": 29, "destinationColdkey": TO_HOTKEY}),
+        (fake_log("0x0b", 6), {"user": USER, "tokenId": 7, "shares": 500, "alphaOut": 29, "destinationColdkey": DESTINATION_COLDKEY}),
     ]}
 
     rows = run_event_reader(get_unwraps, VAULT, events, 3, 9)
@@ -52,7 +53,7 @@ def test_subnet_proxy_rows_carry_the_token_and_its_clone(run_event_reader):
     assert rows == [{"tx_hash": "0x0d", "token_id": "7", "clone": CLONE}]
 
 
-def test_event_readers_print_only_the_header_without_their_own_event(run_event_reader):
+def test_event_readers_print_no_rows_without_their_own_event(run_event_reader):
     events = {("AlphaVault", "Deposited"): [
         (fake_log("0x0a", 5), {"user": USER, "tokenId": 7, "assets": 30, "shares": 30}),
     ]}

@@ -6,9 +6,6 @@ import { MockStaking } from "../mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 abstract contract DepositScenarios is AlphaVaultTestBase {
-    uint256 internal constant STAKING_LIST_CAP = 256;
-    uint256 internal constant VALIDATOR_CAP = 10;
-
     /// @dev Ten alpha over ten validators leaves each 1 alpha, above the 0.04-alpha floor at 0.05 TAO per alpha.
     uint256 internal constant MIN_SPREADABLE = 10 * ALPHA;
 
@@ -17,9 +14,6 @@ abstract contract DepositScenarios is AlphaVaultTestBase {
     /// @dev At a price the EVM reads as zero (5e-10 TAO/alpha) the chain moves only piles of 200,000 alpha
     ///      or more, so positions there are sized in millions of alpha.
     uint256 internal constant LARGE_POSITION = 1_000_000 * ALPHA;
-
-    /// @dev The least alpha one transfer can deliver: the chain's 1e5-RAO transfer minimum at 0.2 TAO per alpha.
-    uint256 internal constant SMALLEST_TRANSFER = 500_000;
 
     struct PlantedBurn {
         uint256 deposit;
@@ -36,26 +30,14 @@ abstract contract DepositScenarios is AlphaVaultTestBase {
         mock = MockStaking(STAKING_PRECOMPILE);
     }
 
-    function _parkAfterASweep(bytes32 hotkey, bytes32 returnHotkey) internal returns (uint256 swept) {
-        swept = _sweepDuringCrash(NETUID1, hotkey);
-        vault.syncBacking(TOKEN1);
-        _strangerReturns(NETUID1, returnHotkey, swept);
-        vault.recoverStray(TOKEN1, returnHotkey);
-        vault.syncBacking(TOKEN1);
-    }
-
-    function _transferablePile(uint256 raw, uint256 max) internal pure returns (uint256) {
-        return bound(raw, 0, max / SMALLEST_TRANSFER) * SMALLEST_TRANSFER;
-    }
-
     /// @dev `deposit * 1e9` shares back `deposit` RAO, so a burn is worth `shares / 1e9` RAO.
     function _burnOverAPlantedLayout(uint256 deposit, uint256 a, uint256 b, uint256 shareBps, uint256 priceRao)
         internal
         returns (PlantedBurn memory burn)
     {
         burn.deposit = bound(deposit, 1, 100_000) * ALPHA;
-        a = _transferablePile(a, burn.deposit);
-        b = _transferablePile(b, burn.deposit - a);
+        a = bound(a, 0, burn.deposit);
+        b = bound(b, 0, burn.deposit - a);
         uint256 c = burn.deposit - a - b;
         burn.largestSlot = a > b ? a : b;
         if (c > burn.largestSlot) burn.largestSlot = c;

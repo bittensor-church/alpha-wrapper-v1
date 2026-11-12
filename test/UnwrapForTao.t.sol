@@ -46,18 +46,6 @@ contract UnwrapForTaoTest is DepositScenarios {
             .call(abi.encodeWithSignature("unwrapForTao(uint256,uint256,uint256,uint256)", TOKEN1, shares, 0, excluded));
     }
 
-    function test_Rebalance_AlignsWhileTransfersAreDisabled() public {
-        _depositForAlice(100 * ALPHA);
-        _plantVaultStakes(NETUID1, 100 * ALPHA, 0, 0);
-        _setTransfersEnabled(NETUID1, false);
-
-        vault.rebalance(NETUID1);
-
-        assertEq(_getVaultStake(hotkey1, NETUID1), 33_340_000_000, "alignment moves stake without transfers");
-        assertEq(_getVaultStake(hotkey2, NETUID1), 33_330_000_000);
-        assertEq(_getVaultStake(hotkey3, NETUID1), 33_330_000_000);
-    }
-
     function test_UnwrapForTao_PaysWhileTransfersAreDisabled() public {
         uint256 shares = _depositForAlice(100 * ALPHA);
         _setTransfersEnabled(NETUID1, false);
@@ -729,8 +717,8 @@ contract UnwrapForTaoTest is DepositScenarios {
         uint256 priceRao,
         uint256 sellCap
     ) public {
-        a = _transferablePile(a, MAX_SUBNET_ALPHA / 3);
-        b = _transferablePile(b, MAX_SUBNET_ALPHA / 3);
+        a = bound(a, 0, MAX_SUBNET_ALPHA / 3);
+        b = bound(b, 0, MAX_SUBNET_ALPHA / 3);
         c = bound(c, 10 * ALPHA, MAX_SUBNET_ALPHA / 3);
         shareBps = bound(shareBps, 1, BPS_BASE);
         sellCap = bound(sellCap, 0, MAX_SUBNET_ALPHA / 3);

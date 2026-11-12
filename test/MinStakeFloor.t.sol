@@ -13,6 +13,7 @@ contract MinStakeFloorTest is DepositScenarios {
     /// @dev Worth 0.00105 TAO at 0.05 TAO per alpha: above the move minimum, below the unstake minimum.
     uint256 private constant BETWEEN_MINIMUMS_DEPOSIT = 21_000_000;
 
+    // The vault adds 1 RAO per alpha to the price: 2 RAO on a floor-sized pile at 0.001 TAO, plus 1 of rounding.
     uint256 private constant READ_PRICE_MARGIN = 3;
 
     function _setChainMinStake(uint256 minStakeTao) private {
@@ -250,11 +251,8 @@ contract MinStakeFloorTest is DepositScenarios {
     }
 
     function testFuzz_Rebalance_AlignsByWeightDownToTheFloor(uint256 priceRao, uint256 a, uint256 b, uint256 c) public {
-        uint256[3] memory balances = [
-            _transferablePile(a, MAX_SUBNET_ALPHA / 3),
-            _transferablePile(b, MAX_SUBNET_ALPHA / 3),
-            _transferablePile(c, MAX_SUBNET_ALPHA / 3)
-        ];
+        uint256[3] memory balances =
+            [bound(a, 0, MAX_SUBNET_ALPHA / 3), bound(b, 0, MAX_SUBNET_ALPHA / 3), bound(c, 0, MAX_SUBNET_ALPHA / 3)];
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         uint256 total = _plantVaultStakes(NETUID1, balances[0], balances[1], balances[2]);
         uint256 priceE18 = _wholeRaoPrice(priceRao);
@@ -275,6 +273,12 @@ contract MinStakeFloorTest is DepositScenarios {
         assertEq(_getVaultStake(hotkey2, NETUID1), balances[1]);
         assertEq(_getVaultStake(hotkey3, NETUID1), balances[2]);
         assertEq(lens.totalStake(TOKEN1), total, "moves conserve the position");
+        // The refused move is worth under the floor, so no slot is two floors off; the last target rounds by 2 RAO.
+        uint256 maxOffTarget = 2 * CHAIN_MIN_STAKE * 1e18 / priceE18 + 2;
+        uint16[3] memory weights = [NETUID1_BPS_HK1, NETUID1_BPS_HK2, NETUID1_BPS_HK3];
+        for (uint256 i; i < 3; ++i) {
+            assertApproxEqAbs(balances[i], total * weights[i] / BPS_BASE, maxOffTarget, "each slot sits at its weight");
+        }
 
         vm.recordLogs();
         vault.rebalance(NETUID1);
@@ -292,7 +296,7 @@ contract MinStakeFloorTest is DepositScenarios {
     }
 
     function testFuzz_Rebalance_ConsolidationMatchesChainFloor(uint256 dust, uint256 priceRao) public {
-        dust = bound(dust, SMALLEST_TRANSFER, MAX_SUBNET_ALPHA);
+        dust = bound(dust, 1, MAX_SUBNET_ALPHA);
         uint256 priceE18 = _wholeRaoPrice(priceRao);
         _registerSubnet(99, hotkey4);
         _simulateAlphaDeposit(alice, 99, 10 * ALPHA);

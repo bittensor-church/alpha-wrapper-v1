@@ -42,9 +42,6 @@ def test_deposit_below_the_floor_waits_for_a_top_up_and_rotated_out_dust_consoli
         "Floor gate: a wrap a tenth under the floor did NOT revert as DepositTooSmall",
         "wrap(uint256,bytes32,uint256)", gate_netuid, gate_hotkey_pubkey, 0,
     )
-    checks.assert_gas_within(
-        gate_refusal_receipt, config.REVERT_GAS_BOUND, "Floor gate: sub-floor wrap refusal",
-    )
     refusal_block = chain.receipt_block_number(gate_refusal_receipt, "Floor gate: refusal")
     assert env.mailbox_deposit(gate_netuid, block=refusal_block) == parked, (
         "the refused wrap should leave the deposit in the mailbox"

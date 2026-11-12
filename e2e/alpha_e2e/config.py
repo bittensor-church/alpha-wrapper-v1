@@ -70,8 +70,6 @@ WRAP_GAS_BOUND = 1_000_000
 UNWRAP_GAS_BOUND = 1_700_000
 REVERT_GAS_BOUND = 500_000
 assert REVERT_GAS_BOUND < WRAP_GAS_BOUND < UNWRAP_GAS_BOUND
-# A burned precompile dispatch takes all the gas forwarded to it, and an out-of-gas run all of the limit.
-REVERT_GAS_SHARE_PERCENT = 75
 
 # The chain's share arithmetic leaves about one RAO behind per move or drain.
 ROUNDING_DUST_SLOT_RAO = 2

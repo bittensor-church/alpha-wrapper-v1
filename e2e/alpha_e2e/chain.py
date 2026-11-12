@@ -254,25 +254,11 @@ def cast_abi_encode(signature: str, *args) -> str:
     return run(["cast", "abi-encode", signature, *map(str, args)], timeout=_READ_TIMEOUT).stdout.strip()
 
 
-def _without_return_types(signature: str) -> str:
-    """`name(inputs)` from a signature that may carry cast's trailing return types."""
-    depth = 0
-    for index, character in enumerate(signature):
-        if character == "(":
-            depth += 1
-        elif character == ")":
-            depth -= 1
-            if depth == 0:
-                return signature[:index + 1]
-    raise ValueError(f"not a function or error signature: {signature!r}")
-
-
 def encoded_call(signature: str, *args) -> str:
     """Selector followed by the ABI-encoded arguments, lower-case hex: calldata for a function,
     revert data for a custom error."""
-    inputs = _without_return_types(signature)
-    encoded_args = cast_abi_encode(inputs, *args)[2:] if args else ""
-    return (cast_sig(inputs) + encoded_args).lower()
+    encoded_args = cast_abi_encode(signature, *args)[2:] if args else ""
+    return (cast_sig(signature) + encoded_args).lower()
 
 
 @lru_cache(maxsize=None)

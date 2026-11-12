@@ -31,7 +31,7 @@ def dust_threshold_raised(factor: int) -> Iterator[None]:
     finally:
         try:
             extrinsics.set_nominator_min_required_stake(previous)
-        except extrinsics.ExtrinsicError as restore_error:
+        except Exception as restore_error:  # noqa: BLE001
             print(f"  WARNING: dust threshold not restored to {previous}: {restore_error}")
 
 
@@ -155,13 +155,13 @@ def sweep(env: Environment, subnet_index: int, context: str) -> Sweep:
         f"{context}: the rotation left alpha behind"
     )
     swept_rao = env.stake(attested_pubkey, clone_coldkey, netuid, rotation_block)
-    assert swept_rao > 0, f"{context}: the rotation moved nothing"
+    assert swept_rao >= position_rao - config.ROUNDING_DUST_TOTAL_RAO, (
+        f"{context}: the rotation moved {swept_rao} of the position's {position_rao} RAO"
+    )
 
-    previous_factor = extrinsics.get_nominator_min_required_stake()
-    extrinsics.set_nominator_min_required_stake(_threshold_factor(env, threshold_rao))
-    extrinsics.set_nominator_min_required_stake(previous_factor)
-    assert env.stake(attested_pubkey, clone_coldkey, netuid) == 0, f"{context}: the sweep left the position"
-    assert env.stake(listed_pubkey, clone_coldkey, other_netuid) > 0, f"{context}: the sweep took the gift"
+    with dust_threshold_raised(_threshold_factor(env, threshold_rao)):
+        assert env.stake(attested_pubkey, clone_coldkey, netuid) == 0, f"{context}: the sweep left the position"
+        assert env.stake(listed_pubkey, clone_coldkey, other_netuid) > 0, f"{context}: the sweep took the gift"
     return Sweep(attested_pubkey, attested_ss58, listed_pubkey, listed_ss58, swept_rao)
 
 

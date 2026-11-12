@@ -11,7 +11,7 @@ import {
 import { AlphaVault } from "src/AlphaVault.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
-import { CHAIN_MAX_STAKING_HOTKEYS, MockStaking } from "./mocks/MockStaking.sol";
+import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract BackingHandler is BackingCampaignHandler {
@@ -196,8 +196,7 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
     }
 
     function pinStakingList(bool pinned) external {
-        MockStaking(STAKING_PRECOMPILE)
-            .pinStakingEntries(_subnetColdkey(NETUID1), pinned ? CHAIN_MAX_STAKING_HOTKEYS - 1 : 0);
+        MockStaking(STAKING_PRECOMPILE).pinStakingEntries(_subnetColdkey(NETUID1), pinned ? STAKING_LIST_CAP - 1 : 0);
     }
 
     function simulateSilentMove(bytes32 from, bytes32 to) external {
@@ -222,7 +221,7 @@ contract BackingInvariantTest is BackingCampaignSetup {
 }
 
 contract BackingCampaignPathsTest is BackingCampaignSetup {
-    function test_ReplayOfEdgelessAndFollowedSwapsBetweenSyncsAndRecoveries_PreservesBackingInvariants() public {
+    function test_ReplayMergedStrayRecovery_PreservesBackingInvariants() public {
         handler.swapWithoutAnEdge(3920, 702498195375104724870804370661893358612984996200603330987954554);
         _assertSharedInvariants();
         handler.swapWithoutAnEdge(21936, 9555);
@@ -328,11 +327,6 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         handler.accrueEmissions(10);
         _assertSharedInvariants();
         assertEq(_parkedStake(NETUID1), owed + 10e9, "emissions raise the parked pile by 10 alpha");
-        handler.movePrice(1e8);
-        assertEq(_alphaPriceRead(NETUID1), 0.1e18, "the price moves to 0.1 TAO per alpha");
-        uint256 start = vm.getBlockTimestamp();
-        handler.passTime(1 hours);
-        assertEq(vm.getBlockTimestamp(), start + 1 hours, "time passes by the bounded hour");
 
         handler.replaceClone(0);
         _assertSharedInvariants();

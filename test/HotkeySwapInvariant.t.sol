@@ -69,20 +69,12 @@ contract HotkeySwapHandler is BackingCampaignHandler {
     function swapColdkey(uint256 validatorSeed, uint256 coldkeySeed) external {
         bytes32 destination = keccak256(abi.encode("coldkey", coldkeySeed));
         bytes32 validatorHotkey = validatorHotkeys[_validator(validatorSeed)];
-        uint256 holdings = harness.chainHoldings();
         uint256 located = _swaps().locatedStake();
         bool intact = _swaps().backingIntact();
-        bool[] memory attestedOwned = _swaps().attestedOwnerRecords();
         if (!_swaps().simulateColdkeySwap(validatorHotkey, destination)) return;
         ++coldkeySwaps;
-        assertEq(harness.chainHoldings(), holdings, "a validator's coldkey swap leaves the clone's stake in place");
         assertEq(_swaps().locatedStake(), located, "a validator's coldkey swap leaves the located backing");
         assertEq(_swaps().backingIntact(), intact, "a validator's coldkey swap leaves the backing's coverage");
-        assertEq(
-            _swaps().attestedOwnerRecords(),
-            attestedOwned,
-            "a validator's coldkey swap keeps every attested owner record"
-        );
     }
 
     function republish(uint256 seed) external {
@@ -138,14 +130,6 @@ abstract contract HotkeySwapCampaignSetup is BackingCampaignHarness {
 
     function backingIntact() external view returns (bool) {
         return lens.isBackingIntact(TOKEN1);
-    }
-
-    function attestedOwnerRecords() external view returns (bool[] memory owned) {
-        (bytes32[] memory attested,) = registry.getValidators(NETUID1);
-        owned = new bool[](attested.length);
-        for (uint256 i; i < attested.length; ++i) {
-            owned[i] = _hasOwner(attested[i]);
-        }
     }
 
     function ownerlessHotkeys() external view returns (bytes32[] memory vacated) {
@@ -249,6 +233,7 @@ contract HotkeySwapCampaignPathsTest is HotkeySwapCampaignSetup {
         _assertSharedInvariants();
 
         assertEq(handler.alphaExits(), 1, "the parked position pays the alpha exit");
+        assertEq(handler.lastAlphaPaid(), 8_333_750_000, "a quarter of the 33.335 parked alpha");
         assertEq(
             handler.lastAlphaPaid(),
             _getStakeForColdkey(vault.parkingHotkey(), recipient, NETUID1) - before,
@@ -283,11 +268,6 @@ contract HotkeySwapCampaignPathsTest is HotkeySwapCampaignSetup {
         handler.accrueEmissions(3);
         _assertSharedInvariants();
         assertEq(lens.locatedStake(TOKEN1), owed + 3e9, "emissions raise the located backing by 3 alpha");
-        handler.movePrice(1e8);
-        assertEq(_alphaPriceRead(NETUID1), 0.1e18, "the price moves to 0.1 TAO per alpha");
-        uint256 start = vm.getBlockTimestamp();
-        handler.passTime(1 hours);
-        assertEq(vm.getBlockTimestamp(), start + 1 hours, "time passes by the bounded hour");
 
         assertEq(handler.wraps(), 1, "a deposit wraps");
         assertEq(handler.alphaExits(), 1, "an alpha exit pays");

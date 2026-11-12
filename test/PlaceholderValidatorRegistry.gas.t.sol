@@ -19,14 +19,14 @@ contract PlaceholderValidatorRegistryGasTest is Test {
         registry = new PlaceholderValidatorRegistry(address(this));
     }
 
-    function test_Gas_SetValidator_FirstCommit() public {
+    function test_gas_setValidator_firstCommit() public {
         registry.setValidator(1, HOTKEY);
         vm.snapshotGasLastCall("PlaceholderValidatorRegistry", "setValidator: first commit");
 
         _assertSoleValidator(HOTKEY, 1);
     }
 
-    function test_Gas_SetValidator_Rotation() public {
+    function test_gas_setValidator_rotation() public {
         registry.setValidator(1, HOTKEY);
         registry.setValidator(1, NEXT_HOTKEY);
         vm.snapshotGasLastCall("PlaceholderValidatorRegistry", "setValidator: rotation");
@@ -34,7 +34,7 @@ contract PlaceholderValidatorRegistryGasTest is Test {
         _assertSoleValidator(NEXT_HOTKEY, 2);
     }
 
-    function test_Gas_SetValidator_Refresh() public {
+    function test_gas_setValidator_refresh() public {
         registry.setValidator(1, HOTKEY);
         registry.setValidator(1, HOTKEY);
         vm.snapshotGasLastCall("PlaceholderValidatorRegistry", "setValidator: refresh");
@@ -42,7 +42,7 @@ contract PlaceholderValidatorRegistryGasTest is Test {
         _assertSoleValidator(HOTKEY, 2);
     }
 
-    function test_Gas_GetValidators() public {
+    function test_gas_getValidators() public {
         registry.setValidator(1, HOTKEY);
         registry.getValidators(1);
         vm.snapshotGasLastCall("PlaceholderValidatorRegistry", "getValidators");
@@ -50,7 +50,7 @@ contract PlaceholderValidatorRegistryGasTest is Test {
         _assertSoleValidator(HOTKEY, 1);
     }
 
-    function test_Gas_GetValidators_Unconfigured() public {
+    function test_gas_getValidators_unconfigured() public {
         registry.getValidators(1);
         vm.snapshotGasLastCall("PlaceholderValidatorRegistry", "getValidators: unconfigured");
 

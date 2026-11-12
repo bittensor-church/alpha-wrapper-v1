@@ -1,42 +1,35 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 import { BackingScenarios } from "./helpers/BackingScenarios.sol";
 import { BackingShortfall } from "src/VaultErrors.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract AlphaVaultPublicPropertiesTest is BackingScenarios {
-    uint256 private constant SMALLEST_RECAPITALIZATION_REACHING_9E44_SHARES = 900_000_000;
-    uint256 private constant LARGEST_RECAPITALIZATION_UNDER_THE_1E45_CAP = 999_999_990;
-    uint256 private constant SMALLEST_GIFT_RAO_CLAIMABLE_AFTER_LOSING_ONE_RAO = 2;
-    uint256 private constant QUARTER_BPS = 2_500;
-    uint256 private constant THREE_QUARTERS_BPS = 7_500;
-
     function testFuzz_NearSupplyCap_QuotesExitsAndPreservesTheHoldersDonation(
         uint256 recapitalization,
         uint256 stakePerValidator,
         uint256 gift,
         uint256 exitBps
     ) public {
-        stakePerValidator = bound(stakePerValidator, ALPHA, MAX_SUBNET_ALPHA / MAX_VALIDATORS);
-        gift = bound(gift, SMALLEST_GIFT_RAO_CLAIMABLE_AFTER_LOSING_ONE_RAO, 21_000_000e9) * 1e9;
-        exitBps = bound(exitBps, QUARTER_BPS, THREE_QUARTERS_BPS);
+        stakePerValidator = bound(stakePerValidator, ALPHA, MAX_SUBNET_ALPHA / VALIDATOR_CAP);
+        gift = bound(gift, 2, 21_000_000e9) * 1e9;
+        exitBps = bound(exitBps, 2_500, 7_500);
         uint256 supply = _growSupplyToNearCap(recapitalization);
 
-        bytes32[] memory hotkeys = _setValidatorCount(NETUID1, MAX_VALIDATORS);
+        bytes32[] memory hotkeys = _setValidatorCount(NETUID1, VALIDATOR_CAP);
         vault.rebalance(NETUID1);
         bytes32 coldkey = _subnetColdkey(NETUID1);
         for (uint256 i; i < hotkeys.length; ++i) {
             MockStaking(STAKING_PRECOMPILE).setStake(hotkeys[i], coldkey, NETUID1, stakePerValidator);
         }
-        uint256 backing = 10 * stakePerValidator;
+        uint256 backing = VALIDATOR_CAP * stakePerValidator;
         assertEq(lens.totalStake(TOKEN1), backing);
         address clone = vault.subnetClone(TOKEN1);
         _donateToClone(clone, gift);
 
-        uint256 sharesToExit = supply * exitBps / 10_000;
+        uint256 sharesToExit = supply * exitBps / BPS_BASE;
         uint256 plainShare = sharesToExit * backing / supply;
         (uint256 quote,) = lens.previewUnwrap(TOKEN1, sharesToExit);
         vm.prank(alice);
@@ -123,11 +116,7 @@ contract AlphaVaultPublicPropertiesTest is BackingScenarios {
 
     // Each written-off position recapitalized with about one alpha multiplies supply by about 1e9.
     function _growSupplyToNearCap(uint256 recapitalization) private returns (uint256 supply) {
-        recapitalization = bound(
-            recapitalization,
-            SMALLEST_RECAPITALIZATION_REACHING_9E44_SHARES,
-            LARGEST_RECAPITALIZATION_UNDER_THE_1E45_CAP
-        );
+        recapitalization = bound(recapitalization, 900_000_000, 999_999_990);
         _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
         _setDustThreshold(0);
         _depositAndWrap(alice, NETUID1, ALPHA);
@@ -156,7 +145,7 @@ contract AlphaVaultPublicPropertiesTest is BackingScenarios {
         uint256 supply = _growSupplyToNearCap(recapitalization);
         _dissolveWithPot(pot);
 
-        uint256 exitShares = supply * exitBps / 10_000;
+        uint256 exitShares = supply * exitBps / BPS_BASE;
         (, uint256 quote) = lens.previewUnwrap(TOKEN1, exitShares);
         vm.prank(alice);
         vault.unwrap(TOKEN1, exitShares, bytes32(0), 0);

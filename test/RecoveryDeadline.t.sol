@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 import { BackingScenarios } from "./helpers/BackingScenarios.sol";
 import { BackingNotSecured, BackingUnchanged, NothingToRecover } from "src/VaultErrors.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
@@ -300,7 +299,7 @@ contract RecoveryDeadlineTest is BackingScenarios {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _sweepDuringCrash(NETUID1, hotkey1);
         MockStaking staking = MockStaking(STAKING_PRECOMPILE);
-        staking.setMoveStakeResidual(1_001);
+        staking.setMoveStakeResidual(BACKING_SLACK_RAO + 1);
         vm.expectRevert(BackingNotSecured.selector);
         vault.syncBacking(TOKEN1);
 
@@ -317,7 +316,7 @@ contract RecoveryDeadlineTest is BackingScenarios {
         _simulateOffVaultSwap(NETUID1, first, hotkey1);
         vm.warp(deadline);
         MockStaking staking = MockStaking(STAKING_PRECOMPILE);
-        staking.setMoveStakeResidual(1_001);
+        staking.setMoveStakeResidual(BACKING_SLACK_RAO + 1);
         vm.expectRevert(BackingNotSecured.selector);
         vault.syncBacking(TOKEN1);
 
@@ -329,7 +328,7 @@ contract RecoveryDeadlineTest is BackingScenarios {
     }
 
     function testFuzz_Declaration_ParksTheComplementOfAnyNonemptyLostSubset(uint256 rawCount, uint256 rawMask) public {
-        uint256 count = bound(rawCount, 1, MAX_VALIDATORS);
+        uint256 count = bound(rawCount, 1, VALIDATOR_CAP);
         uint256 expected = count * ALPHA;
         (bytes32[] memory hotkeys, uint256 tokenId) = _wideSetPosition(count, expected);
         uint256 lostMask = bound(rawMask, 1, (uint256(1) << count) - 1);

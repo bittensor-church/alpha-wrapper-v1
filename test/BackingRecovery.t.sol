@@ -150,7 +150,7 @@ contract BackingRecoveryTest is BackingScenarios {
 
         assertTrue(lens.isBackingIntact(TOKEN1), "the sync took it off file");
         assertEq(lens.writeOffDeadline(TOKEN1), 0, "and stopped the clock");
-        _reattestCurrentSet(NETUID1);
+        _reattestValidators(NETUID1);
         vault.rebalance(NETUID1);
         assertEq(_parkedStake(NETUID1), 0, "the next attestation takes the position off the parking hotkey");
         assertEq(_getVaultStake(hotkey1, NETUID1), FIRST_SLOT, "back onto the set by weight");
@@ -165,7 +165,7 @@ contract BackingRecoveryTest is BackingScenarios {
         _strangerReturns(NETUID1, hotkey1, swept);
         vault.syncBacking(TOKEN1);
 
-        _reattestCurrentSet(NETUID1);
+        _reattestValidators(NETUID1);
         vault.rebalance(NETUID1);
         vm.warp(block.timestamp + 2 * RECOVERY_WINDOW);
         _sweepDuringCrash(NETUID1, hotkey1);
@@ -392,7 +392,7 @@ contract BackingRecoveryTest is BackingScenarios {
         vault.recoverStray(TOKEN1, hotkey4);
     }
 
-    function test_RevertWhen_ActingOnAParkedPositionBeforeANewAttestation() public {
+    function test_RevertWhen_DepositingRebalancingOrSyncingAParkedPositionBeforeANewAttestation() public {
         _parkedPosition(PARKED_DEPOSIT);
 
         _simulateAlphaDeposit(bob, NETUID1, ALPHA);
@@ -637,7 +637,7 @@ contract BackingRecoveryTest is BackingScenarios {
     function test_NewAttestation_ReleasesTheParkedPosition() public {
         _parkedPosition(PARKED_DEPOSIT);
 
-        _reattestCurrentSet(NETUID1);
+        _reattestValidators(NETUID1);
         assertFalse(vault.awaitingAttestation(TOKEN1), "the newer nonce lifts the hold");
         vault.rebalance(NETUID1);
 
@@ -653,7 +653,7 @@ contract BackingRecoveryTest is BackingScenarios {
 
     function test_Wrap_ReleasesAParkedPositionAfterANewAttestation() public {
         _parkedPosition(PARKED_DEPOSIT);
-        _reattestCurrentSet(NETUID1);
+        _reattestValidators(NETUID1);
 
         _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
         vm.expectEmit(true, false, false, true, address(vault));
@@ -841,7 +841,7 @@ contract BackingRecoveryTest is BackingScenarios {
         uint256 aliceShares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         _runOutRecoveryWindow(TOKEN1);
-        _reattestCurrentSet(NETUID1);
+        _reattestValidators(NETUID1);
         vault.rebalance(NETUID1);
 
         vm.prank(alice);
@@ -888,7 +888,7 @@ contract BackingRecoveryTest is BackingScenarios {
         cohorts.finalizedWriteOff = cohorts.backingBefore - cohorts.backingAfterWriteOff;
         assertEq(cohorts.finalizedWriteOff, hidden, "the finalized deficit is exactly the hidden principal");
 
-        _reattestCurrentSet(NETUID1);
+        _reattestValidators(NETUID1);
         cohorts.recapitalizationDeposit = cohorts.backingAfterWriteOff == 0
             ? bound(recapitalizationSeed, ALPHA_FLOOR, ALPHA)
             : bound(recapitalizationSeed, cohorts.backingAfterWriteOff / 4, cohorts.backingAfterWriteOff * 4);
@@ -927,7 +927,7 @@ contract BackingRecoveryTest is BackingScenarios {
         assertEq(cohorts.finalizedWriteOff, FIRST_SLOT, "the written-off principal is the first slot");
         _strangerReturns(NETUID1, successor, swept);
 
-        _reattestCurrentSet(NETUID1);
+        _reattestValidators(NETUID1);
         cohorts.recapitalizationDeposit = OTHER_TWO_SLOTS;
         _addRecapitalizer(cohorts);
         assertEq(
@@ -1071,7 +1071,7 @@ contract BackingRecoveryTest is BackingScenarios {
         );
     }
 
-    function test_SquattedHotkeyBehindAFollowedSwap_EveryRailKeepsWorking() public {
+    function test_SquattedHotkeyBehindAFollowedSwap_AllRailsKeepWorking() public {
         uint256 aliceShares = _squattedHotkeyBehindAFollowedSwap();
         vm.prank(alice);
         vault.unwrap(TOKEN1, aliceShares, _toSubstrate(alice), 0);
@@ -1196,7 +1196,7 @@ contract BackingRecoveryTest is BackingScenarios {
     }
 
     function test_RecoverStray_CompletesWhenShortByTheSlack() public {
-        _parkFirstSlotReturnedShortBy(1_000);
+        _parkFirstSlotReturnedShortBy(BACKING_SLACK_RAO);
 
         vault.syncBacking(TOKEN1);
 
@@ -1206,14 +1206,14 @@ contract BackingRecoveryTest is BackingScenarios {
     }
 
     function test_RevertWhen_FinishingARecoveryOneRaoPastTheSlack() public {
-        _parkFirstSlotReturnedShortBy(1_001);
+        _parkFirstSlotReturnedShortBy(BACKING_SLACK_RAO + 1);
 
         vm.expectRevert(BackingUnchanged.selector);
         vault.syncBacking(TOKEN1);
     }
 
     function testFuzz_RecoverStray_CompletesWithinTheSlack(uint256 missing) public {
-        missing = bound(missing, 0, 1_000);
+        missing = bound(missing, 0, BACKING_SLACK_RAO);
         _parkFirstSlotReturnedShortBy(missing);
 
         vault.syncBacking(TOKEN1);
@@ -1223,7 +1223,7 @@ contract BackingRecoveryTest is BackingScenarios {
     }
 
     function testFuzz_RecoverStray_PreservesTheUnrecoveredDeficit(uint256 missing) public {
-        missing = bound(missing, 1_001, 2_000);
+        missing = bound(missing, BACKING_SLACK_RAO + 1, 2 * BACKING_SLACK_RAO);
         _parkFirstSlotReturnedShortBy(missing);
 
         assertFalse(vault.awaitingAttestation(TOKEN1), "completion requires pooled coverage");

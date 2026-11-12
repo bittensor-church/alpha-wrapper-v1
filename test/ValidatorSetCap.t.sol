@@ -5,8 +5,6 @@ import { DepositScenarios } from "./helpers/DepositScenarios.sol";
 import { ValidatorSetTooLarge } from "src/VaultErrors.sol";
 
 contract ValidatorSetCapTest is DepositScenarios {
-    uint256 private constant OVER_CAP = 11;
-
     function _publishSet(uint256 hotkeyCount, uint256 weightCount) private returns (bytes32[] memory hks) {
         hks = _hotkeysFrom("oversized", hotkeyCount);
         _recordHotkeyOwners(hks);
@@ -15,7 +13,7 @@ contract ValidatorSetCapTest is DepositScenarios {
 
     function _fundedPositionThenOversizedSet() private returns (uint256 shares) {
         shares = _depositAndWrap(alice, NETUID1, SPREAD_DEPOSIT);
-        _publishSet(OVER_CAP, OVER_CAP);
+        _publishSet(VALIDATOR_CAP + 1, VALIDATOR_CAP + 1);
     }
 
     function _expectTooLarge(uint256 count) private {
@@ -38,7 +36,7 @@ contract ValidatorSetCapTest is DepositScenarios {
     function test_RevertWhen_RebalanceWithValidatorSetOverCap() public {
         _fundedPositionThenOversizedSet();
 
-        _expectTooLarge(OVER_CAP);
+        _expectTooLarge(VALIDATOR_CAP + 1);
         vault.rebalance(NETUID1);
     }
 
@@ -46,16 +44,16 @@ contract ValidatorSetCapTest is DepositScenarios {
         uint256 shares = _fundedPositionThenOversizedSet();
 
         vm.prank(alice);
-        _expectTooLarge(OVER_CAP);
+        _expectTooLarge(VALIDATOR_CAP + 1);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
     }
 
     function test_RevertWhen_OversizedSetAlsoHasMismatchedLengths() public {
         _simulateAlphaDeposit(alice, NETUID1, SPREAD_DEPOSIT);
-        bytes32[] memory hks = _publishSet(OVER_CAP, VALIDATOR_CAP);
+        bytes32[] memory hks = _publishSet(VALIDATOR_CAP + 1, VALIDATOR_CAP);
 
         vm.prank(alice);
-        _expectTooLarge(OVER_CAP);
+        _expectTooLarge(VALIDATOR_CAP + 1);
         vault.wrap(NETUID1, hks[0], 0);
     }
 
@@ -81,7 +79,7 @@ contract ValidatorSetCapTest is DepositScenarios {
     }
 
     function testFuzz_RevertWhen_WrapWithValidatorSetOverCap(uint256 rawCount) public {
-        uint256 count = bound(rawCount, OVER_CAP, 34);
+        uint256 count = bound(rawCount, VALIDATOR_CAP + 1, 34);
         _simulateAlphaDeposit(alice, NETUID1, SPREAD_DEPOSIT);
         bytes32[] memory hks = _publishSet(count, count);
 

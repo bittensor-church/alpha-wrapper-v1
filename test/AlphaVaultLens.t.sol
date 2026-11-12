@@ -18,7 +18,7 @@ import {
     ZeroAddress
 } from "src/VaultErrors.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
-import { MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract AlphaVaultLensTest is AlphaVaultTestBase {
     uint256 private constant TOKEN_WITHOUT_A_CLONE = 3;
@@ -60,7 +60,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
             _sweepDuringCrash(NETUID1, recorded[i]);
         }
         _runOutRecoveryWindow(TOKEN1);
-        _reattestCurrentSet(NETUID1);
+        _reattestValidators(NETUID1);
         uint256 bobShares = _depositAndWrap(bob, NETUID1, 10 * ALPHA);
 
         // (1e29 + 1e19) * (1e10 + 1) / (1e29 + 2e19 + 1e9): bob's shares hold the whole 1e10 RAO.
@@ -199,7 +199,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         vm.expectRevert(Parked.selector);
         lens.previewWrap(TOKEN1, ALPHA);
 
-        _reattestCurrentSet(NETUID1);
+        _reattestValidators(NETUID1);
         assertFalse(vault.awaitingAttestation(TOKEN1), "a newer attestation releases it");
         assertEq(lens.previewWrap(TOKEN1, ALPHA), 1e18, "and the mint quote answers again");
     }
@@ -393,7 +393,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
 
     function test_StakingListEntries_FollowsAReplacedClone() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _fillListTo(_subnetColdkey(NETUID1), MAX_STAKING_HOTKEYS - 1);
+        _fillListTo(_subnetColdkey(NETUID1), STAKING_LIST_CAP - 1);
         assertEq(lens.stakingListEntries(TOKEN1), 255, "one short of the chain's 256-entry cap");
         vault.replaceClone(TOKEN1, keccak256("successor-uid"));
 

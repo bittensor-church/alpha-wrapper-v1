@@ -9,14 +9,14 @@ import { WithdrawTooSmall } from "src/VaultErrors.sol";
 contract RollerConsolidationTest is DepositScenarios {
     /// @dev The largest pile worth less than the 2e6-RAO minimum stake even at 0.05 TAO/alpha plus the
     ///      price read's 1e9 quantum: 0.04 alpha minus one RAO.
-    uint256 private constant DUST = 39_999_999;
+    uint256 private constant SUB_FLOOR_PILE = 39_999_999;
 
     function _seedDustOnlyVault() private returns (uint256 tokenId) {
         _registerSubnet(99, hotkey4);
         _simulateAlphaDeposit(alice, 99, 10 * ALPHA);
         _wrapHotkey(alice, 99, hotkey4);
         tokenId = vault.currentTokenId(99);
-        _plantVaultStake(hotkey4, 99, DUST);
+        _plantVaultStake(hotkey4, 99, SUB_FLOOR_PILE);
         _setValidators(99, _hotkeys(hotkey1), _weights(BPS_BASE));
     }
 
@@ -46,7 +46,11 @@ contract RollerConsolidationTest is DepositScenarios {
         // 5e9 * (1e19 + 1e9) / (39,999,999 + 1): the dust already backs alice's 1e19 shares.
         assertEq(vault.balanceOf(bob, tokenId), 1_250_000_000_125_000_000_000, "priced against the dust");
         assertEq(_getVaultStake(hotkey4, 99), 0, "rotated-out dust consolidated by the roll");
-        assertEq(lens.totalStake(tokenId), 5 * ALPHA + DUST, "rotated-out stake folded into the current-set backing");
+        assertEq(
+            lens.totalStake(tokenId),
+            5 * ALPHA + SUB_FLOOR_PILE,
+            "rotated-out stake folded into the current-set backing"
+        );
         bytes32[] memory seen = _lastSeen(tokenId);
         assertEq(seen[0], hotkey1, "remembered set refreshed to the current set");
     }
@@ -93,7 +97,7 @@ contract RollerConsolidationTest is DepositScenarios {
         uint256 tokenId = vault.currentTokenId(99);
 
         _plantVaultStake(hotkey1, 99, 300 * ALPHA);
-        _plantVaultStake(hotkey2, 99, DUST);
+        _plantVaultStake(hotkey2, 99, SUB_FLOOR_PILE);
         _setValidators(99, _hotkeys(hotkey4), _weights(BPS_BASE));
         mock.setMoveStakeRoundingLoss(1);
 
@@ -101,8 +105,10 @@ contract RollerConsolidationTest is DepositScenarios {
 
         assertEq(_getVaultStake(hotkey1, 99), 0, "drained validator emptied");
         assertEq(_getVaultStake(hotkey2, 99), 0, "dust folded off the second dropped validator");
-        assertEq(_getVaultStake(hotkey4, 99), 300 * ALPHA + DUST - 2, "each of the two hops credits one RAO short");
-        assertEq(lens.totalStake(tokenId), 300 * ALPHA + DUST - 2, "backing all sits on the current set");
+        assertEq(
+            _getVaultStake(hotkey4, 99), 300 * ALPHA + SUB_FLOOR_PILE - 2, "each of the two hops credits one RAO short"
+        );
+        assertEq(lens.totalStake(tokenId), 300 * ALPHA + SUB_FLOOR_PILE - 2, "backing all sits on the current set");
         assertEq(_lastSeen(tokenId), _hotkeys(hotkey4), "the record holds only the attested hotkey");
     }
 

@@ -15,8 +15,6 @@ contract ClaimableTaoHandler is Test {
     uint256 public totalClaimed;
     uint256 public allocations;
     uint256 public balanceChanges;
-    uint256 public taoExits;
-    uint256 public refusedClaims;
     uint256 public unassigned;
     mapping(address => uint256) public earned;
     mapping(address => uint256) public claimed;
@@ -100,7 +98,6 @@ contract ClaimableTaoHandler is Test {
             expected[0] = ZeroAmount.selector;
             expected[1] = ClaimBelowNativePrecision.selector;
             requireExpectedRevert(reason, expected);
-            ++refusedClaims;
         }
     }
 
@@ -114,7 +111,6 @@ contract ClaimableTaoHandler is Test {
         uint256 holderTao = actor.balance;
         vm.prank(actor);
         try vault.unwrapForTao(tokenId, shares, 0) {
-            ++taoExits;
             balanceChanges += 2;
             assertGt(actor.balance, holderTao, "a TAO exit pays the holder");
             assertEq(clone.balance, cloneTao, "a TAO exit leaves the clone's TAO for its claimants");

@@ -12,7 +12,7 @@ import {
 } from "src/VaultErrors.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
-import { IStaking, MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { IStaking, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract BackingResolutionTest is BackingScenarios {
     uint256 private constant SINGLE_VALIDATOR_NETUID = 5;
@@ -61,7 +61,7 @@ contract BackingResolutionTest is BackingScenarios {
         assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4, "and a priced call records it");
     }
 
-    function test_CutEdge_EveryRailKeepsWorking() public {
+    function test_CutEdge_AllRailsKeepWorking() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _cutTheEdge(hotkey1, hotkey4);
 
@@ -238,8 +238,8 @@ contract BackingResolutionTest is BackingScenarios {
     function testFuzz_CutEdge_ResolvesAtAnyListPosition(uint256 entriesBefore, uint256 entriesAfter, uint256 amount)
         public
     {
-        entriesBefore = bound(entriesBefore, 3, MAX_STAKING_HOTKEYS - 4);
-        entriesAfter = bound(entriesAfter, 0, MAX_STAKING_HOTKEYS - 3 - entriesBefore);
+        entriesBefore = bound(entriesBefore, 3, STAKING_LIST_CAP - 4);
+        entriesAfter = bound(entriesAfter, 0, STAKING_LIST_CAP - 3 - entriesBefore);
         amount = bound(amount, ALPHA, 1_000 * ALPHA);
         _depositAndWrap(alice, NETUID1, amount);
         bytes32 coldkey = _subnetColdkey(NETUID1);
@@ -260,7 +260,7 @@ contract BackingResolutionTest is BackingScenarios {
     }
 
     function test_ListedPileShortByTheSlack_CoversTheSlot() public {
-        _listedPileShortBy(1_000);
+        _listedPileShortBy(BACKING_SLACK_RAO);
 
         assertTrue(lens.isBackingIntact(TOKEN1), "1,000 RAO short is accounting dust");
         vault.syncBacking(TOKEN1);
@@ -270,17 +270,17 @@ contract BackingResolutionTest is BackingScenarios {
     }
 
     function test_RevertWhen_AListedPileIsOneRaoPastTheSlack() public {
-        _listedPileShortBy(1_001);
+        _listedPileShortBy(BACKING_SLACK_RAO + 1);
 
         vm.expectRevert(abi.encodeWithSelector(BackingShortfall.selector, NETUID1, hotkey1, FIRST_SLOT));
         vault.rebalance(NETUID1);
     }
 
     function testFuzz_ListedPile_CoversWithinTheSlack(uint256 missing) public {
-        missing = bound(missing, 0, 2_000);
+        missing = bound(missing, 0, 2 * BACKING_SLACK_RAO);
         _listedPileShortBy(missing);
 
-        assertEq(lens.isBackingIntact(TOKEN1), missing <= 1_000, "a listed pile covers within 1,000 RAO");
+        assertEq(lens.isBackingIntact(TOKEN1), missing <= BACKING_SLACK_RAO, "a listed pile covers within 1,000 RAO");
     }
 
     function test_SelfSuccessorResponse_LeavesBackingAndValidatorsUnchanged() public {
@@ -301,7 +301,7 @@ contract BackingResolutionTest is BackingScenarios {
     function test_SelfSuccessorWithMissingBacking_LeavesTheShortfallUnresolved() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _sweepDuringCrash(NETUID1, hotkey1);
-        _strangerReturns(NETUID1, hotkey1, FIRST_SLOT - 2_000);
+        _strangerReturns(NETUID1, hotkey1, FIRST_SLOT - 2 * BACKING_SLACK_RAO);
         MockStaking(STAKING_PRECOMPILE).setHotkeySuccessor(hotkey1, NETUID1, hotkey1);
 
         vm.expectCall(STAKING_PRECOMPILE, abi.encodeCall(IStaking.getHotkeySuccessor, (hotkey1, uint16(NETUID1))));
@@ -477,40 +477,19 @@ contract BackingResolutionTest is BackingScenarios {
         vault.rebalance(NETUID1);
     }
 
-    function _sweptSingleValidatorPosition(uint256 deposit) private returns (uint256 tokenId) {
+    /// @dev No edge distinguishes a dust sweep from an erased swap trail; neither permits immediate repricing.
+    function testFuzz_RevertWhen_EmptiedWithoutAnEdge_AtAnyPriceOrSize(uint256 deposit, uint256 priceRao) public {
+        // From the 0.04 alpha deposit floor at 0.05 TAO/alpha.
+        deposit = bound(deposit, ALPHA_FLOOR, 100_000 * ALPHA);
         _registerSubnet(SINGLE_VALIDATOR_NETUID, hotkey1);
         _depositAndWrap(alice, SINGLE_VALIDATOR_NETUID, deposit);
-        tokenId = vault.currentTokenId(SINGLE_VALIDATOR_NETUID);
+        uint256 tokenId = vault.currentTokenId(SINGLE_VALIDATOR_NETUID);
         _sweepDuringCrash(SINGLE_VALIDATOR_NETUID, hotkey1);
-    }
+        _setAlphaPrice(SINGLE_VALIDATOR_NETUID, _wholeRaoPrice(priceRao));
 
-    function _assertTheEmptiedSlotBlocksPricing(uint256 tokenId, uint256 deposit) private {
         assertFalse(lens.isBackingIntact(tokenId), "nothing on chain accounts for the emptying");
         vm.expectRevert(abi.encodeWithSelector(BackingShortfall.selector, SINGLE_VALIDATOR_NETUID, hotkey1, deposit));
         vault.rebalance(SINGLE_VALIDATOR_NETUID);
-    }
-
-    /// @dev No edge distinguishes a dust sweep from an erased swap trail; neither permits immediate repricing.
-    function testFuzz_RevertWhen_ASlotIsEmptiedWithoutAnEdge(uint256 deposit) public {
-        // From the 0.04 alpha deposit floor at 0.05 TAO/alpha.
-        deposit = bound(deposit, ALPHA_FLOOR, 100_000 * ALPHA);
-        uint256 tokenId = _sweptSingleValidatorPosition(deposit);
-
-        _assertTheEmptiedSlotBlocksPricing(tokenId, deposit);
-    }
-
-    function test_RevertWhen_ASlotIsEmptiedWithoutAnEdge_AtOneThousandthTaoPerAlpha() public {
-        uint256 tokenId = _sweptSingleValidatorPosition(30 * ALPHA);
-        _setAlphaPrice(SINGLE_VALIDATOR_NETUID, 0.001e18);
-
-        _assertTheEmptiedSlotBlocksPricing(tokenId, 30 * ALPHA);
-    }
-
-    function test_RevertWhen_ASlotIsEmptiedWithoutAnEdge_AtOneFifthTaoPerAlpha() public {
-        uint256 tokenId = _sweptSingleValidatorPosition(30 * ALPHA);
-        _setAlphaPrice(SINGLE_VALIDATOR_NETUID, 0.2e18);
-
-        _assertTheEmptiedSlotBlocksPricing(tokenId, 30 * ALPHA);
     }
 
     function test_SweptPosition_ReopensAfterTheWindow() public {
@@ -524,7 +503,7 @@ contract BackingResolutionTest is BackingScenarios {
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 0);
         assertEq(vault.totalSupply(TOKEN1), 0, "the shares retire against what is left");
 
-        _reattestCurrentSet(NETUID1);
+        _reattestValidators(NETUID1);
         _depositAndWrap(bob, NETUID1, 30 * ALPHA);
         assertEq(vault.balanceOf(bob, TOKEN1), 3e19, "the token recapitalizes at 1e9 shares per RAO");
     }

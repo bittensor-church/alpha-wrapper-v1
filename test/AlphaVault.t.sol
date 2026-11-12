@@ -37,7 +37,7 @@ contract AlphaVaultTest is BackingScenarios {
     uint256 private constant SPARE_NETUID = 91;
     uint256 private constant ONE_PAST_THE_LARGEST_NETUID = 65_536;
 
-    uint256 private constant BPS_OF_100_ALPHA = 10_000_000;
+    uint256 private constant RAO_PER_BPS_OF_100_ALPHA = 10_000_000;
 
     function test_RevertWhen_ConstructorZeroMailboxLogic() public {
         vm.expectRevert(ZeroAddress.selector);
@@ -137,7 +137,7 @@ contract AlphaVaultTest is BackingScenarios {
         assertEq(abi.decode(entry.data, (address)), mailbox);
     }
 
-    function test_Wrap_MintsABillionSharesPerRaoForAFirstDeposit() public {
+    function test_Wrap() public {
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
 
         vm.expectEmit(true, true, true, true, address(vault));
@@ -157,20 +157,7 @@ contract AlphaVaultTest is BackingScenarios {
         assertEq(lens.totalStake(TOKEN2), 5 * ALPHA);
     }
 
-    function test_Wrap_SecondDepositMintsAtTheSameRate() public {
-        assertEq(_depositAndWrap(alice, NETUID1, 5 * ALPHA), 5e18);
-
-        _simulateAlphaDeposit(alice, NETUID1, 5 * ALPHA);
-        // 5e9 * (5e18 + 1e9) / (5e9 + 1) = 5e18 exactly.
-        vm.expectEmit(true, true, true, true, address(vault));
-        emit Deposited(alice, TOKEN1, hotkey1, 5 * ALPHA, 5e18);
-        _wrapHotkey(alice, NETUID1, hotkey1);
-
-        assertEq(vault.balanceOf(alice, TOKEN1), 1e19);
-        assertEq(lens.totalStake(TOKEN1), 10 * ALPHA);
-    }
-
-    function test_RevertWhen_WrapWithAnEmptyMailbox() public {
+    function test_RevertWhen_WrapZero() public {
         _prepareMailbox(alice, NETUID1);
         vm.prank(alice);
         vm.expectRevert(ZeroAmount.selector);
@@ -197,7 +184,7 @@ contract AlphaVaultTest is BackingScenarios {
         assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 1, "alice's rounding RAO stays behind");
     }
 
-    function test_Unwrap_AllSharesReturnTheWholeDeposit() public {
+    function test_Unwrap() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
 
         vm.prank(alice);
@@ -248,7 +235,7 @@ contract AlphaVaultTest is BackingScenarios {
         assertEq(lens.totalStake(TOKEN1), 10 * ALPHA - 2, "the two weight moves lost one RAO each");
     }
 
-    function test_RevertWhen_UnwrapZeroShares() public {
+    function test_RevertWhen_UnwrapOnZero() public {
         bytes32 aliceSub = _toSubstrate(alice);
         vm.prank(alice);
         vm.expectRevert(ZeroAmount.selector);
@@ -263,7 +250,7 @@ contract AlphaVaultTest is BackingScenarios {
         vault.unwrap(TOKEN1, shares, bytes32(0), 0);
     }
 
-    function test_Unwrap_HalfTheSharesLeaveTheOtherHalfStaked() public {
+    function test_UnwrapPartialShares() public {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
 
         vm.prank(alice);
@@ -275,7 +262,7 @@ contract AlphaVaultTest is BackingScenarios {
         assertEq(lens.totalStake(TOKEN1), 5 * ALPHA);
     }
 
-    function test_Unwrap_EachHolderGetsTheirOwnDepositBack() public {
+    function test_InterleavedWrapsUnwraps() public {
         uint256 aliceShares = _depositAndWrap(alice, NETUID1, 10 * ALPHA);
         uint256 bobShares = _depositAndWrap(bob, NETUID1, 20 * ALPHA);
         assertEq(aliceShares, 1e19);
@@ -313,37 +300,37 @@ contract AlphaVaultTest is BackingScenarios {
         assertEq(_userStakeAcrossHotkeys(bob, NETUID1), 1_000 * ALPHA - 1, "the gift costs bob one RAO");
     }
 
-    function _holdAHundredAlphaOnTheFirstHotkey(bytes32[] memory hotkeys, uint16[] memory weights) private {
+    function _attestAndHoldAHundredAlphaOnTheFirstHotkey(bytes32[] memory hotkeys, uint16[] memory weights) private {
         _setValidators(NETUID1, hotkeys, weights);
         _depositAndWrap(alice, NETUID1, 100 * ALPHA);
         _plantVaultStakes(NETUID1, 100 * ALPHA, 0, 0);
     }
 
     function testFuzz_Rebalance_SplitsAPileBetweenTwoValidatorsByWeight(uint256 secondWeight) public {
-        secondWeight = bound(secondWeight, ALPHA_FLOOR / BPS_OF_100_ALPHA, 9_999);
+        secondWeight = bound(secondWeight, ALPHA_FLOOR / RAO_PER_BPS_OF_100_ALPHA, 9_999);
         uint256 firstWeight = 10_000 - secondWeight;
-        _holdAHundredAlphaOnTheFirstHotkey(
+        _attestAndHoldAHundredAlphaOnTheFirstHotkey(
             _hotkeys(hotkey1, hotkey2), _weights(uint16(firstWeight), uint16(secondWeight))
         );
 
         vm.recordLogs();
         vm.expectEmit(true, true, true, true, address(vault));
-        emit Rebalanced(TOKEN1, hotkey1, hotkey2, secondWeight * BPS_OF_100_ALPHA);
+        emit Rebalanced(TOKEN1, hotkey1, hotkey2, secondWeight * RAO_PER_BPS_OF_100_ALPHA);
         vault.rebalance(NETUID1);
 
         assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 1, "one move settles two validators");
-        assertEq(_getVaultStake(hotkey1, NETUID1), firstWeight * BPS_OF_100_ALPHA);
-        assertEq(_getVaultStake(hotkey2, NETUID1), secondWeight * BPS_OF_100_ALPHA);
+        assertEq(_getVaultStake(hotkey1, NETUID1), firstWeight * RAO_PER_BPS_OF_100_ALPHA);
+        assertEq(_getVaultStake(hotkey2, NETUID1), secondWeight * RAO_PER_BPS_OF_100_ALPHA);
     }
 
     function testFuzz_Rebalance_SplitsAPileAcrossThreeValidatorsLargestDeficitFirst(
         uint256 secondWeight,
         uint256 thirdWeight
     ) public {
-        secondWeight = bound(secondWeight, ALPHA_FLOOR / BPS_OF_100_ALPHA, 9_995);
-        thirdWeight = bound(thirdWeight, ALPHA_FLOOR / BPS_OF_100_ALPHA, 9_999 - secondWeight);
+        secondWeight = bound(secondWeight, ALPHA_FLOOR / RAO_PER_BPS_OF_100_ALPHA, 9_995);
+        thirdWeight = bound(thirdWeight, ALPHA_FLOOR / RAO_PER_BPS_OF_100_ALPHA, 9_999 - secondWeight);
         uint256 firstWeight = 10_000 - secondWeight - thirdWeight;
-        _holdAHundredAlphaOnTheFirstHotkey(
+        _attestAndHoldAHundredAlphaOnTheFirstHotkey(
             _hotkeys(hotkey1, hotkey2, hotkey3),
             _weights(uint16(firstWeight), uint16(secondWeight), uint16(thirdWeight))
         );
@@ -355,21 +342,21 @@ contract AlphaVaultTest is BackingScenarios {
             TOKEN1,
             hotkey1,
             thirdIsShortest ? hotkey3 : hotkey2,
-            (thirdIsShortest ? thirdWeight : secondWeight) * BPS_OF_100_ALPHA
+            (thirdIsShortest ? thirdWeight : secondWeight) * RAO_PER_BPS_OF_100_ALPHA
         );
         vm.expectEmit(true, true, true, true, address(vault));
         emit Rebalanced(
             TOKEN1,
             hotkey1,
             thirdIsShortest ? hotkey2 : hotkey3,
-            (thirdIsShortest ? secondWeight : thirdWeight) * BPS_OF_100_ALPHA
+            (thirdIsShortest ? secondWeight : thirdWeight) * RAO_PER_BPS_OF_100_ALPHA
         );
         vault.rebalance(NETUID1);
 
         assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 2, "one move per deficit");
-        assertEq(_getVaultStake(hotkey1, NETUID1), firstWeight * BPS_OF_100_ALPHA);
-        assertEq(_getVaultStake(hotkey2, NETUID1), secondWeight * BPS_OF_100_ALPHA);
-        assertEq(_getVaultStake(hotkey3, NETUID1), thirdWeight * BPS_OF_100_ALPHA);
+        assertEq(_getVaultStake(hotkey1, NETUID1), firstWeight * RAO_PER_BPS_OF_100_ALPHA);
+        assertEq(_getVaultStake(hotkey2, NETUID1), secondWeight * RAO_PER_BPS_OF_100_ALPHA);
+        assertEq(_getVaultStake(hotkey3, NETUID1), thirdWeight * RAO_PER_BPS_OF_100_ALPHA);
     }
 
     function test_Rebalance_MovesNothingWhenEveryHotkeyIsOnTarget() public {
@@ -416,7 +403,7 @@ contract AlphaVaultTest is BackingScenarios {
         assertEq(_countLogs(vm.getRecordedLogs(), Rebalanced.selector), 0);
     }
 
-    function test_RevertWhen_WrapWithNoAttestedValidators() public {
+    function test_RevertWhen_RegistryWhenNoValidatorsSet() public {
         (AlphaVault freshVault,) = _deployVaultAndLens(address(new MockValidatorRegistry()));
 
         vm.prank(alice);
@@ -491,7 +478,7 @@ contract AlphaVaultTest is BackingScenarios {
         assertEq(mailbox.balance, 0);
     }
 
-    function test_ReclaimAlphaFromMailbox_MovesTheDepositToTheGivenColdkey() public {
+    function test_ReclaimAlphaFromMailbox() public {
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         bytes32 aliceSub = _toSubstrate(alice);
         bytes32 mailboxColdkey = _mailboxColdkey(alice, NETUID1);
@@ -536,6 +523,18 @@ contract AlphaVaultTest is BackingScenarios {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(AlphaTransfersDisabled.selector, uint16(NETUID1)));
         vault.reclaimAlphaFromMailbox(NETUID1, _toSubstrate(alice));
+    }
+
+    function test_Rebalance_AlignsWhileTransfersAreDisabled() public {
+        _depositAndWrap(alice, NETUID1, 100 * ALPHA);
+        _plantVaultStakes(NETUID1, 100 * ALPHA, 0, 0);
+        _setTransfersEnabled(NETUID1, false);
+
+        vault.rebalance(NETUID1);
+
+        assertEq(_getVaultStake(hotkey1, NETUID1), 33_340_000_000, "alignment moves stake without transfers");
+        assertEq(_getVaultStake(hotkey2, NETUID1), 33_330_000_000);
+        assertEq(_getVaultStake(hotkey3, NETUID1), 33_330_000_000);
     }
 
     function test_Wrap_LeavesAStrayOnASupersededAttestedHotkeyForRecovery() public {
@@ -651,10 +650,17 @@ contract AlphaVaultTest is BackingScenarios {
         vault.createMailbox(UNREGISTERED_NETUID, keccak256("fixture-creation"));
     }
 
-    function test_Wrap_SecondDepositorMintsInProportionToTheDeposit() public {
+    function test_WrapTwoUsersProportionalShares() public {
         assertEq(_depositAndWrap(alice, NETUID1, 10 * ALPHA), 1e19);
+
+        _simulateAlphaDeposit(bob, NETUID1, 30 * ALPHA);
         // 3e10 * (1e19 + 1e9) / (1e10 + 1) = 3e19 exactly.
-        assertEq(_depositAndWrap(bob, NETUID1, 30 * ALPHA), 3e19);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit Deposited(bob, TOKEN1, hotkey1, 30 * ALPHA, 3e19);
+        _wrapHotkey(bob, NETUID1, hotkey1);
+
+        assertEq(vault.balanceOf(bob, TOKEN1), 3e19);
+        assertEq(lens.totalStake(TOKEN1), 40 * ALPHA);
     }
 
     function test_RevertWhen_WrapSubnetNotRegistered() public {
@@ -839,7 +845,7 @@ contract AlphaVaultTest is BackingScenarios {
         vault.unwrapForTao(TOKEN1, shares, 0);
     }
 
-    function test_Unwrap_LeavesAForceSentWeiBehindAfterDissolution() public {
+    function test_UnwrapSucceedsAfterCleanupCompletesAfterForceSend() public {
         uint256 shares = _depositAndWrap(alice, NETUID1, 100 * ALPHA);
 
         _reregisterSubnet(NETUID1);
@@ -1249,9 +1255,9 @@ contract AlphaVaultTest is BackingScenarios {
         _wrapHotkey(bob, NETUID1, hotkey1);
 
         assertEq(lens.totalStake(TOKEN1), 100 * ALPHA, "totalStake synced to on-chain total");
-        assertEq(_getVaultStake(hotkey1, NETUID1), 3334 * BPS_OF_100_ALPHA);
-        assertEq(_getVaultStake(hotkey2, NETUID1), 3333 * BPS_OF_100_ALPHA);
-        assertEq(_getVaultStake(hotkey3, NETUID1), 3333 * BPS_OF_100_ALPHA);
+        assertEq(_getVaultStake(hotkey1, NETUID1), 3334 * RAO_PER_BPS_OF_100_ALPHA);
+        assertEq(_getVaultStake(hotkey2, NETUID1), 3333 * RAO_PER_BPS_OF_100_ALPHA);
+        assertEq(_getVaultStake(hotkey3, NETUID1), 3333 * RAO_PER_BPS_OF_100_ALPHA);
     }
 
     function test_WrapAutoRebalancesTwoValidatorSet() public {
