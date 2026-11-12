@@ -48,8 +48,8 @@ The vault keeps locked alpha out of backing:
   ownership roles or staking-list entries (`CloneContaminated`; retry with a
   fresh UID), then makes each accepted account a hotkey, a mailbox its own and
   a subnet clone its owner contract's, because the chain refuses coldkey swaps into
-  existing hotkeys even at zero stake, and has both, and the owner contract,
-  refuse staking-list growth by others.
+  existing hotkeys even at zero stake, and has the mailbox, the clone and its
+  owner contract refuse staking-list growth by others.
 - `wrap` reverts `LockedDeposit` while the caller's mailbox holds a lock.
 - Priced operations and quotes revert `LockedBacking` while the subnet clone
   holds a lock. The lock blocks the clone as a whole, because the locked stake
