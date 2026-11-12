@@ -2,9 +2,7 @@
 pragma solidity 0.8.36;
 
 import { IValidatorRegistry, MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
-import { VaultMath } from "src/libraries/VaultMath.sol";
-import { VaultReads } from "src/libraries/VaultReads.sol";
-import { NetuidOutOfRange, ValidatorSetMalformed } from "src/VaultErrors.sol";
+import { IStaking, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract MockValidatorRegistry is IValidatorRegistry {
     struct Slot {
@@ -16,21 +14,24 @@ contract MockValidatorRegistry is IValidatorRegistry {
     mapping(uint256 => uint256) public override nonces;
 
     error OwnerlessHotkey(bytes32 hotkey);
+    error FixtureNetuidOutOfRange();
+    error FixtureSetMalformed();
 
     function setValidators(uint256 netuid, bytes32[] memory hotkeys, uint16[] memory weights) external {
-        if (netuid > type(uint16).max) revert NetuidOutOfRange();
+        if (netuid > type(uint16).max) revert FixtureNetuidOutOfRange();
         uint256 count = hotkeys.length;
-        if (count == 0 || count > MAX_VALIDATORS || count != weights.length) revert ValidatorSetMalformed();
+        if (count == 0 || count > MAX_VALIDATORS || count != weights.length) revert FixtureSetMalformed();
         uint256 sum;
         for (uint256 i; i < count; ++i) {
-            if (hotkeys[i] == bytes32(0) || weights[i] == 0) revert ValidatorSetMalformed();
+            if (hotkeys[i] == bytes32(0) || weights[i] == 0) revert FixtureSetMalformed();
             for (uint256 j; j < i; ++j) {
-                if (hotkeys[j] == hotkeys[i]) revert ValidatorSetMalformed();
+                if (hotkeys[j] == hotkeys[i]) revert FixtureSetMalformed();
             }
-            if (!VaultReads.hasOwner(hotkeys[i])) revert OwnerlessHotkey(hotkeys[i]);
+            (bool owned,) = IStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkeys[i]);
+            if (!owned) revert OwnerlessHotkey(hotkeys[i]);
             sum += weights[i];
         }
-        if (sum != VaultMath.BPS_BASE) revert ValidatorSetMalformed();
+        if (sum != 10_000) revert FixtureSetMalformed();
         _slots[netuid] = Slot(hotkeys, weights);
         ++nonces[netuid];
     }

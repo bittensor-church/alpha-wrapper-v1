@@ -38,20 +38,21 @@ chain is unsupported. CI gives each scenario its own container.
 
 - `config.py`: localnet constants, dev keys, amounts and rounding allowances.
 - `substrate.py`: address derivation and wallet-file readers.
-- `chain.py`: cast/forge/btcli wrappers and block waits.
+- `chain.py`: cast/forge/btcli wrappers, block waits and the revert-data probe.
 - `extrinsics.py`: Substrate extrinsics and storage reads.
 - `validators.py`: Placeholder registry updates.
 - `environment.py`: the deployed-localnet handle with getters and vault actions.
-- `checks.py`: shared assertions (payouts, gas, CSV output).
+- `checks.py`: shared assertions (pro-rata amounts, alpha per share, payouts, gas, CSV rows).
 - `exits.py`: exits measured against the chain: what a holder receives must match
   what the clone gave up in the same block.
-- `incidents.py`: staged hotkey incidents for the recovery scenarios.
+- `rails.py`: every holder rail run against a slot that resolves away from its attested hotkey.
+- `incidents.py`: staged hotkey incidents and write-offs for the recovery scenarios.
 - `bootstrap.py`: one-time localnet setup.
 - `fixtures.py`: the `env` and `recovery_window` fixtures; a scenario overrides
   `recovery_window` to deploy with a different window.
 
 `conftest.py` switches to the repository root and registers the fixtures;
-`pytest.ini` configures imports and the `scenario` marker.
+`pytest.ini` configures imports and registers the `scenario` marker, which `--strict-markers` enforces.
 
 Scenario files in `tests/` cover:
 
@@ -79,13 +80,13 @@ Scenario files in `tests/` cover:
   moves to the successor once the registry names it.
 - `test_split_position_follows_swap.py`: a stranger splits the clone's position across subnets
   under the attested hotkey; the validator's all-subnet swap carries both parts to the successor,
-  renames the clone's list entry in place and leaves nothing under the ownerless hotkey, so the
+  swaps the clone's list entry to it in place and leaves nothing under the ownerless hotkey, so the
   vault follows the edge and deposits, exits and the rotation work.
 - `test_subnet_dissolved.py`: refunds and mailbox recovery.
 - `test_min_stake_floor.py`, `test_dust_dos.py`, `test_min_stake_liveness.py`:
   minimums, top-ups, dust and repeated position changes.
-- `test_claimable_tao.py`: forced-sale proceeds become claimable, and the swept
-  position's loss is written off once a short recovery window expires.
+- `test_claimable_tao.py`: forced-sale proceeds become claimable pro rata by two holders,
+  and the swept position's loss is written off once a short recovery window expires.
 - `test_parked_stake.py`: a hotkey swap that leaves the stake and the owner record
   behind, where exits keep paying from the old hotkey and follow the successor once the
   owner attests it; and a swap that carries the stake, which exits follow before the
@@ -115,4 +116,5 @@ recovery conditions, not an unconditional exit guarantee; see the
 [design](../docs/hotkey-swaps.md).
 
 Bootstrap creates three subnets, nine validators, the contracts and funded test
-accounts once per scenario process.
+accounts once per scenario process. On fast blocks it stretches each subnet's epoch to
+about 25 seconds, so a call timed clear of an epoch lands well before the next one.

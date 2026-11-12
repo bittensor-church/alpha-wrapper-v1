@@ -2,7 +2,7 @@
 pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
-import { AlphaVaultTestBase } from "../AlphaVaultTestBase.sol";
+import { CampaignHarness, requireExpectedRevert } from "./CampaignHarness.sol";
 import { CHAIN_MIN_STAKE, CHAIN_MIN_TRANSFER, MockStaking } from "../mocks/MockStaking.sol";
 import { MockAlpha } from "../mocks/MockAlpha.sol";
 import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
@@ -22,18 +22,6 @@ import {
     WithdrawTooSmall,
     ZeroAmount
 } from "src/VaultErrors.sol";
-
-/// @dev A campaign call may fail only with an error its entry point is documented to raise; a panic, a refused chain
-///      call (empty revert data) or any other error fails the campaign.
-function requireExpectedRevert(bytes memory reason, bytes4[] memory expected) pure {
-    bytes4 selector = bytes4(reason);
-    for (uint256 i; i < expected.length; ++i) {
-        if (selector == expected[i]) return;
-    }
-    assembly {
-        revert(add(reason, 32), mload(reason))
-    }
-}
 
 /// @dev Errors any call that opens the backing record and assigns the attested set can raise.
 function backingErrors(uint256 extra) pure returns (bytes4[] memory errors, uint256 next) {
@@ -154,9 +142,15 @@ abstract contract BackingCampaignHandler is Test {
         bytes32 hotkey = _attested(hotkeySeed);
         harness.depositTo(actor, bound(amount, 10, 1_000) * 1e9);
         uint256 deposit = harness.mailboxStake(actor);
+        uint256 holdings = harness.chainHoldings();
+        uint256 shares = vault.balanceOf(actor, tokenId);
         vm.prank(actor);
         try vault.wrap(netuid, hotkey, 0) {
             ++wraps;
+            assertEq(harness.mailboxStake(actor), 0, "a wrap empties the mailbox");
+            assertEq(harness.chainHoldings(), holdings + deposit, "a wrap moves exactly the deposit into the clone");
+            harness.assertRecordMatchesChain();
+            assertGt(vault.balanceOf(actor, tokenId), shares, "a wrap mints shares");
             _afterAllocation();
         } catch (bytes memory reason) {
             _requireJustifiedRevert(reason, wrapErrors(), Attempt(deposit, 0, 0, bytes32(0), false));
@@ -176,8 +170,17 @@ abstract contract BackingCampaignHandler is Test {
         try vault.unwrap(tokenId, shares, coldkey, 0) {
             ++alphaExits;
             lastAlphaPaid = harness.stakeOf(coldkey) - before;
-            assertLe(
-                lastAlphaPaid * supply, shares * holdings + supply * harness.slack(), "an exit paid more than its share"
+            assertEq(vault.balanceOf(actor, tokenId), balance - shares, "an alpha exit burns exactly the shares asked");
+            assertEq(
+                harness.chainHoldings(),
+                holdings - lastAlphaPaid,
+                "an alpha exit moves exactly the payout out of the clone"
+            );
+            uint256 backing = harness.assertRecordMatchesChain() + lastAlphaPaid;
+            assertLt(
+                lastAlphaPaid * supply,
+                shares * backing + supply,
+                "an alpha exit paid more than one RAO above its share"
             );
             if (shares != supply) _afterAllocation();
         } catch (bytes memory reason) {
@@ -189,19 +192,33 @@ abstract contract BackingCampaignHandler is Test {
         address actor = _actor(actorSeed);
         uint256 balance = vault.balanceOf(actor, tokenId);
         if (balance == 0) return;
-        uint256 shares = bound(shareSeed, 1, balance);
-        uint256 excluded = harness.zeroPaySlots();
+        _sellForTao(actor, bound(shareSeed, 1, balance), harness.zeroPaySlots());
+    }
+
+    function _sellForTao(address actor, uint256 shares, uint256 excluded) internal returns (bool sold) {
+        address clone = vault.subnetClone(tokenId);
+        uint256 cloneTao = clone.balance;
+        uint256 holderTao = actor.balance;
+        uint256 holdings = harness.chainHoldings();
         vm.prank(actor);
         try vault.unwrapForTao(tokenId, shares, 0, excluded) {
             ++taoExits;
+            assertGt(actor.balance, holderTao, "a TAO exit pays the holder");
+            assertEq(clone.balance, cloneTao, "a TAO exit passes every sale proceed to the holder");
+            assertLt(harness.chainHoldings(), holdings, "a TAO exit sells backing");
+            harness.assertRecordMatchesChain();
+            sold = true;
         } catch (bytes memory reason) {
             _requireJustifiedRevert(reason, unwrapForTaoErrors(), Attempt(0, shares, excluded, bytes32(0), true));
         }
     }
 
     function rebalance() external {
+        uint256 holdings = harness.chainHoldings();
         try vault.rebalance(netuid) {
             ++rebalances;
+            assertEq(harness.chainHoldings(), holdings, "a rebalance conserves the clone's holdings");
+            harness.assertRecordMatchesChain();
             _afterAllocation();
         } catch (bytes memory reason) {
             _requireJustifiedRevert(reason, rebalanceErrors(), Attempt(0, 0, 0, bytes32(0), false));
@@ -210,13 +227,45 @@ abstract contract BackingCampaignHandler is Test {
 
     function syncBacking() external {
         (uint256 shortSinceBefore,) = vault.recovery(tokenId);
+        bool shortBefore = shortSinceBefore == 0 && harness.anySlotShort();
+        uint256 owedBefore = harness.trackedBacking();
+        uint256 parkedBefore = harness.parkedStake();
+        uint256 holdings = harness.chainHoldings();
         try vault.syncBacking(tokenId) {
             ++syncs;
             (uint256 shortSinceAfter,) = vault.recovery(tokenId);
-            if (shortSinceBefore != 0 && shortSinceAfter == 0) ++recoveriesClosed;
+            assertEq(harness.chainHoldings(), holdings, "a sync only moves backing within the clone");
+            if (shortSinceAfter == 0) {
+                if (shortSinceBefore != 0) {
+                    ++recoveriesClosed;
+                    _assertWriteOffAfterTheDeadline(shortSinceBefore, owedBefore);
+                }
+                harness.assertRecordMatchesChain();
+            } else if (shortSinceBefore == 0) {
+                _assertDeclaredShortfall(shortBefore, shortSinceAfter, owedBefore);
+            } else {
+                assertEq(shortSinceAfter, shortSinceBefore, "a collection keeps the recovery clock");
+                assertEq(harness.trackedBacking(), owedBefore, "a collection keeps the obligation");
+                assertGt(harness.parkedStake(), parkedBefore, "a collection moves backing onto the parking hotkey");
+            }
         } catch (bytes memory reason) {
             _requireJustifiedRevert(reason, syncErrors(), Attempt(0, 0, 0, bytes32(0), false));
         }
+    }
+
+    function _assertWriteOffAfterTheDeadline(uint256 shortSince, uint256 owedBefore) private view {
+        if (harness.trackedBacking() + harness.slack() < owedBefore) {
+            assertGe(block.timestamp, shortSince + vault.recoveryWindow(), "wrote off a shortfall before its deadline");
+        }
+    }
+
+    function _assertDeclaredShortfall(bool shortBefore, uint256 shortSince, uint256 owedBefore) private view {
+        assertTrue(shortBefore, "declared a shortfall without a short slot");
+        assertEq(shortSince, block.timestamp, "the recovery clock starts at the declaration");
+        assertEq(harness.trackedBacking(), owedBefore, "the declaration keeps the obligation");
+        assertLt(
+            harness.parkedStake() + harness.slack(), owedBefore, "a declared shortfall leaves the parking hotkey short"
+        );
     }
 
     function passTime(uint256 seconds_) external {
@@ -231,7 +280,6 @@ abstract contract BackingCampaignHandler is Test {
         harness.accrueEmissions(bound(amount, 1, 300) * 1e9);
     }
 
-    /// @dev Runs after a wrap, rebalance or partial alpha exit succeeded, so every attested entry was live.
     function _afterAllocation() internal virtual { }
 
     /// @dev A refusal must be documented for the entry point and justified by the state it met: each check below
@@ -263,7 +311,7 @@ abstract contract BackingCampaignHandler is Test {
             bool belowFloor = attempt.source == bytes32(0)
                 ? harness.consolidationBelowFloor(attempt.deposit)
                 : harness.annexBelowFloor(attempt.source);
-            assertTrue(belowFloor, "refused to consolidate piles that clear the floor");
+            assertTrue(shortSince == 0 && belowFloor, "refused to consolidate piles that clear the floor");
         } else if (selector == IAlphaVaultAbi.GatherBelowFloor.selector) {
             assertTrue(harness.gatherBelowFloor(), "refused to gather piles that clear the floor");
         } else if (selector == NothingToRecover.selector) {
@@ -272,7 +320,7 @@ abstract contract BackingCampaignHandler is Test {
             assertEq(harness.resolvedBacking(), 0, "refused an exit from funded backing");
         } else if (selector == BackingUnchanged.selector) {
             if (shortSince == 0) {
-                assertTrue(harness.everySlotOnItsRecordedHotkey(), "refused to record a followed swap");
+                assertTrue(harness.everySlotOnItsRecordedHotkey(), "refused to record a followed hotkey swap");
             } else {
                 assertLt(block.timestamp, shortSince + vault.recoveryWindow(), "refused an expired write-off");
                 assertTrue(harness.recoveryCannotAdvance(), "refused a sync that collects or closes the recovery");
@@ -327,7 +375,7 @@ abstract contract BackingCampaignHandler is Test {
     }
 }
 
-abstract contract BackingCampaignHarness is AlphaVaultTestBase {
+abstract contract BackingCampaignHarness is CampaignHarness {
     bytes32[] internal attestedHotkeys;
 
     function _campaign() internal view virtual returns (BackingCampaignHandler);
@@ -338,10 +386,6 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
 
     function slack() external pure returns (uint256) {
         return BACKING_SLACK_RAO;
-    }
-
-    function movePrice(uint256 priceSeed) external {
-        _setAlphaPrice(NETUID1, _wholeRaoPrice(priceSeed));
     }
 
     function resolvedSlots()
@@ -609,10 +653,10 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
     /// @dev An open recovery stays unchanged only while parking does not cover the obligation and the sync has nothing
     ///      to collect: no other recorded hotkey holds stake, or the richest recorded pile is below the floor.
     function recoveryCannotAdvance() external view returns (bool) {
-        uint256 parkedStake = _parkedStake(NETUID1);
-        if (parkedStake + BACKING_SLACK_RAO >= trackedBacking()) return false;
+        uint256 parkingStake = _parkedStake(NETUID1);
+        if (parkingStake + BACKING_SLACK_RAO >= trackedBacking()) return false;
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
-        uint256 richest = parkedStake;
+        uint256 richest = parkingStake;
         bool exposed;
         for (uint256 i; i < slots.length; ++i) {
             if (slots[i].stakedUnder == vault.parkingHotkey()) continue;
@@ -625,9 +669,12 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
 
     function nothingToCollectFrom(bytes32 source) external view returns (bool) {
         uint256 held = _getVaultStake(source, NETUID1);
+        (uint256 shortSince,) = vault.recovery(TOKEN1);
+        if (shortSince == 0) {
+            (bytes32[] memory hotkeys,,) = resolvedSlots();
+            return held == 0 || _contains(hotkeys, source);
+        }
         if (source == vault.parkingHotkey() || held == 0) return true;
-        (bytes32[] memory hotkeys,,) = resolvedSlots();
-        if (_contains(hotkeys, source)) return true;
         uint256 parkedHeld = _parkedStake(NETUID1);
         return _belowFloorAtAnyPrice(held > parkedHeld ? held : parkedHeld);
     }
@@ -661,7 +708,7 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         return _contains(attested, slots[holder].attested);
     }
 
-    function _hasOwner(bytes32 hotkey) private view returns (bool exists) {
+    function _hasOwner(bytes32 hotkey) internal view returns (bool exists) {
         (exists,) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey);
     }
 
@@ -683,14 +730,66 @@ abstract contract BackingCampaignHarness is AlphaVaultTestBase {
         }
     }
 
-    /// @dev Every hotkey the campaign touched plus the parking hotkey, where recoveries and write-offs land.
-    function chainHoldings() public view returns (uint256) {
-        return _vaultStakeAcross(_campaign().knownHotkeys(), NETUID1) + _parkedStake(NETUID1);
+    function assertRecordMatchesChain() external view returns (uint256 tracked) {
+        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
+        for (uint256 i; i < slots.length; ++i) {
+            assertEq(
+                slots[i].tracked,
+                _getVaultStake(slots[i].stakedUnder, NETUID1),
+                "the rewritten record tracks the clone's stake"
+            );
+            tracked += slots[i].tracked;
+        }
     }
 
-    function stakeOf(bytes32 coldkey) external view returns (uint256) {
-        return _stakeAcross(_campaign().knownHotkeys(), coldkey, NETUID1)
-            + _getStakeForColdkey(vault.parkingHotkey(), coldkey, NETUID1);
+    /// @dev Every hotkey the campaign touched plus the parking hotkey, where recoveries and write-offs land.
+    function watchedHotkeys() public view returns (bytes32[] memory watched) {
+        bytes32[] memory known = _campaign().knownHotkeys();
+        watched = new bytes32[](known.length + 1);
+        for (uint256 i; i < known.length; ++i) {
+            watched[i] = known[i];
+        }
+        watched[known.length] = vault.parkingHotkey();
+    }
+
+    function vaultStakeAt(bytes32 hotkey) external view returns (uint256) {
+        return _getVaultStake(hotkey, NETUID1);
+    }
+
+    function vaultStakesAt(bytes32[] memory hotkeys) external view returns (uint256[] memory stakes) {
+        stakes = new uint256[](hotkeys.length);
+        for (uint256 i; i < hotkeys.length; ++i) {
+            stakes[i] = _getVaultStake(hotkeys[i], NETUID1);
+        }
+    }
+
+    function recordedStakeAmong(bytes32[] memory watched, uint256[] memory stakes)
+        external
+        view
+        returns (uint256 total)
+    {
+        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
+        for (uint256 i; i < slots.length; ++i) {
+            uint256 index = _indexOf(watched, slots[i].stakedUnder);
+            assertTrue(index != type(uint256).max, "the record names a hotkey the campaign never touched");
+            total += stakes[index];
+        }
+    }
+
+    function chainHoldings() public view returns (uint256) {
+        return stakeOf(_subnetColdkey(NETUID1));
+    }
+
+    function stakeOf(bytes32 coldkey) public view returns (uint256) {
+        return _stakeAcross(watchedHotkeys(), coldkey, NETUID1);
+    }
+
+    function parkedStake() external view returns (uint256) {
+        return _parkedStake(NETUID1);
+    }
+
+    function cloneColdkey() external view returns (bytes32) {
+        return _subnetColdkey(NETUID1);
     }
 
     function depositTo(address user, uint256 amount) external {

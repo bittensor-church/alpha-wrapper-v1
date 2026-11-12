@@ -1,18 +1,18 @@
-"""A stranger claims a vacated validator hotkey, takes a fresh token's deposit and swaps it away (L-06).
+"""A stranger claims a vacated validator hotkey, takes a fresh token's deposit and swaps it away.
 
 A validator swaps its hotkey across all subnets before the token holds anything, so the
 vault has no slot to follow. A stranger claims the vacated hotkey, the first deposit lands
 under it, and the stranger swaps it across all subnets onto a hotkey of their own. The
 vacated hotkey holds no seat, so the chain writes no edge for that swap; the validator's
 edge still points at its successor, which holds nothing for the clone, so the vault searches
-the clone's staking list, where the chain renamed the entry. It finds its alpha there with
-no watcher: quotes answer, no shortfall is declared, wraps, both exits and rebalances work
-before the registry acts and never touch the claimed hotkey, and once the registry names the
-successor the position moves off the stranger's hotkey.
+the clone's staking list, where the chain moved the entry to the stranger's hotkey. It finds
+its alpha there with no watcher: quotes answer, no shortfall is declared, wraps, both exits and
+rebalances work before the registry acts and never touch the claimed hotkey, and once the
+registry names the successor the position moves off the stranger's hotkey.
 """
 import pytest
 
-from alpha_e2e import chain, config, exits, extrinsics
+from alpha_e2e import chain, config, exits, extrinsics, rails
 
 STRANGER = "//ClaimStranger"
 STRANGER_FUNDING_RAO = 2 * config.RAO_PER_TAO
@@ -23,7 +23,7 @@ def test_a_claimed_hotkey_swapped_away_keeps_every_rail_open(env):
     netuid = env.netuids[0]
     token_id = env.token_ids[0]
     hotkeys = env.subnet_hotkey_pubkeys(0)
-    vacated_pubkey, vacated_ss58 = env.hotkey_pubkeys[0], env.hotkey_ss58s[0]
+    vacated_pubkey, vacated_ss58 = hotkeys[0], env.subnet_hotkey_ss58s(0)[0]
     clone_coldkey = env.clone_coldkey(token_id)
 
     successor_ss58 = extrinsics.keypair_ss58("//ClaimSuccessor")
@@ -41,10 +41,10 @@ def test_a_claimed_hotkey_swapped_away_keeps_every_rail_open(env):
         "Claimed hotkey: the first deposit failed", label="wrap [claimed hotkey, fresh token]",
     )
     collected = env.deposited(receipt, netuid)
-    assert collected >= config.DEPOSIT_RAO - config.ROUNDING_DUST_SLOT_RAO, (
+    assert config.DEPOSIT_RAO - config.ROUNDING_DUST_SLOT_RAO <= collected <= config.DEPOSIT_RAO, (
         f"the wrap collected {collected} RAO of a {config.DEPOSIT_RAO} RAO deposit"
     )
-    deposited = env.stake(vacated_pubkey, clone_coldkey, netuid)
+    deposited = env.stake(vacated_pubkey, clone_coldkey, netuid, chain.receipt_block_number(receipt, "first deposit"))
     assert abs(deposited - collected) <= config.ROUNDING_DUST_SLOT_RAO, (
         f"a fresh token's deposit should land on the claimed hotkey: {deposited} RAO of {collected}"
     )
@@ -64,54 +64,26 @@ def test_a_claimed_hotkey_swapped_away_keeps_every_rail_open(env):
         "the vault should resolve the slot to the stranger's hotkey on the clone's staking list"
     )
     assert env.backing_intact(token_id), "the vault should find its alpha on the clone's staking list"
-    assert env.vault_total_stake(token_id) == swapped_away_rao, "the quote prices the alpha found on the list"
+    read_block = chain.cast_block_number()
+    found = env.stake(stranger_hotkey_pubkey, clone_coldkey, netuid, read_block)
+    quoted = env.vault_total_stake(token_id, block=read_block)
+    assert quoted == found, f"the quote prices {quoted} alpha RAO; the stranger's hotkey holds {found}"
     assert env.write_off_deadline(token_id) == 0, "a found slot is not a loss"
 
     located = hotkeys + [successor_pubkey, stranger_hotkey_pubkey]
-    shares = env.vault_shares(token_id)
-    deposit = config.DEPOSIT_RAO // 10
-    receipt = env.deposit_and_wrap(
-        netuid, vacated_pubkey, successor_ss58, deposit, 1_500_000,
-        "Claimed hotkey: a deposit after the swap away failed", label="wrap [swapped away]",
-        min_shares_out=env.preview_wrap(token_id, deposit) * 95 // 100,
+    run = rails.assert_rails_skip_hotkey(
+        env, 0, vacated_pubkey, successor_ss58, located, "swapped away", "Claimed hotkey",
     )
-    minted = env.vault_shares(token_id) - shares
-    quoted_shares = env.preview_wrap(
-        token_id, deposit, block=chain.receipt_block_number(receipt, "Claimed hotkey: wrap after the swap away") - 1,
+    wrap_block = chain.receipt_block_number(run.wrap_receipt, "Claimed hotkey: deposit after the swap away")
+    joined = env.stake_change(clone_coldkey, netuid, [stranger_hotkey_pubkey], wrap_block)
+    assert abs(joined - run.deposited) <= config.ROUNDING_DUST_SLOT_RAO, (
+        f"the deposit should join the found alpha: {joined} RAO of {run.deposited}"
     )
-    assert quoted_shares * 99 // 100 <= minted <= quoted_shares, (
-        f"Claimed hotkey: previewWrap quoted {quoted_shares} shares, the wrap minted {minted}"
-    )
-    joined = env.stake(stranger_hotkey_pubkey, clone_coldkey, netuid) - swapped_away_rao
-    collected = env.deposited(receipt, netuid)
-    assert abs(joined - collected) <= config.ROUNDING_DUST_SLOT_RAO, (
-        f"the deposit should join the found alpha: {joined} RAO of {collected}"
-    )
-    assert env.stake(vacated_pubkey, clone_coldkey, netuid) == 0, "the claimed hotkey must receive nothing"
-    assert env.hotkey_in_last_seen(token_id, stranger_hotkey_pubkey), "the wrap records the found hotkey"
-    assert not env.hotkey_in_last_seen(token_id, vacated_pubkey), "the record leaves the claimed hotkey"
-
-    shares = env.vault_shares(token_id)
-    quoted_alpha, _ = env.preview_unwrap(token_id, shares // 2)
-    _, delivered = exits.unwrap(
-        env, token_id, shares // 2, "Claimed hotkey: the partial exit failed", hotkeys=located,
-        label="unwrap [swapped away]",
-    )
-    assert delivered + config.ROUNDING_DUST_TOTAL_RAO >= quoted_alpha, (
-        f"Claimed hotkey: previewUnwrap quoted {quoted_alpha} RAO but the exit paid {delivered}"
-    )
-    exits.unwrap_for_tao(
-        env, token_id, shares // 4, "Claimed hotkey: the TAO exit failed", hotkeys=located,
-        label="unwrapForTao [swapped away]",
-    )
-    assert env.stake(vacated_pubkey, clone_coldkey, netuid) == 0, "exits must not touch the claimed hotkey"
-
-    position = env.stake(stranger_hotkey_pubkey, clone_coldkey, netuid)
-    env.vault_send(4_000_000, "Claimed hotkey: rebalance failed", "rebalance(uint256)", netuid, label="rebalance [swapped away]")
-    assert env.stake(vacated_pubkey, clone_coldkey, netuid) == 0, "a rebalance must not move stake onto the claimed hotkey"
-    assert abs(env.stake(stranger_hotkey_pubkey, clone_coldkey, netuid) - position) <= config.ROUNDING_DUST_SLOT_RAO, (
-        "a rebalance before the registry acts keeps the position where it was found"
-    )
+    assert env.hotkey_in_last_seen(token_id, stranger_hotkey_pubkey, block=wrap_block), "the wrap records the found hotkey"
+    assert not env.hotkey_in_last_seen(token_id, vacated_pubkey, block=wrap_block), "the record leaves the claimed hotkey"
+    rebalance_block = chain.receipt_block_number(run.rebalance_receipt, "Claimed hotkey: rebalance")
+    moved = env.stake_change(clone_coldkey, netuid, [stranger_hotkey_pubkey], rebalance_block)
+    assert moved == 0, f"a rebalance before the registry acts keeps the position where it was found, moved {moved}"
     assert env.backing_intact(token_id), "every rail keeps the position whole"
     assert env.write_off_deadline(token_id) == 0, "no rail declares a shortfall"
 

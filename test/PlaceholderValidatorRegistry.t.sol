@@ -3,12 +3,13 @@ pragma solidity 0.8.36;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { NetuidOutOfRange, ZeroHotkey } from "src/VaultErrors.sol";
-import { Test } from "forge-std/Test.sol";
+import { RegistryTestHelper } from "./helpers/RegistryTestHelper.sol";
+import { MockStaking } from "./mocks/MockStaking.sol";
 import { PlaceholderValidatorRegistry } from "src/PlaceholderValidatorRegistry.sol";
 import { IValidatorRegistry } from "src/interfaces/IValidatorRegistry.sol";
 import { IStaking, STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
-contract PlaceholderValidatorRegistryTest is Test {
+contract PlaceholderValidatorRegistryTest is RegistryTestHelper {
     PlaceholderValidatorRegistry internal registry;
     address internal registryOwner = makeAddr("registryOwner");
     bytes32 internal constant HOTKEY = keccak256("hotkey");
@@ -17,11 +18,15 @@ contract PlaceholderValidatorRegistryTest is Test {
 
     function setUp() public {
         registry = new PlaceholderValidatorRegistry(registryOwner);
-        vm.etch(STAKING_PRECOMPILE, hex"00");
-        _mockHotkeyOwner(HOTKEY, true, HOTKEY_COLDKEY);
+        _etchStakingMock();
+        _ownedBy(HOTKEY, HOTKEY_COLDKEY);
     }
 
-    function _mockHotkeyOwner(bytes32 hotkey, bool exists, bytes32 owner) internal {
+    function _ownedBy(bytes32 hotkey, bytes32 owner) internal {
+        MockStaking(STAKING_PRECOMPILE).setHotkeyOwner(hotkey, owner);
+    }
+
+    function _mockOwnerRecord(bytes32 hotkey, bool exists, bytes32 owner) internal {
         vm.mockCall(STAKING_PRECOMPILE, abi.encodeCall(IStaking.getHotkeyOwner, (hotkey)), abi.encode(exists, owner));
     }
 
@@ -32,24 +37,24 @@ contract PlaceholderValidatorRegistryTest is Test {
 
     function _assertValidator(uint256 netuid, bytes32 hotkey, uint256 nonce) internal view {
         IValidatorRegistry asInterface = IValidatorRegistry(address(registry));
-        (bytes32[] memory keys, uint16[] memory weights) = asInterface.getValidators(netuid);
-        assertEq(keys.length, 1);
+        (bytes32[] memory hotkeys, uint16[] memory weights) = asInterface.getValidators(netuid);
+        assertEq(hotkeys.length, 1);
         assertEq(weights.length, 1);
-        assertEq(keys[0], hotkey);
+        assertEq(hotkeys[0], hotkey);
         assertEq(weights[0], 10_000);
         assertEq(asInterface.nonces(netuid), nonce);
     }
 
     function _assertUnconfigured(uint256 netuid) internal view {
-        (bytes32[] memory keys, uint16[] memory weights) = registry.getValidators(netuid);
-        assertEq(keys.length, 0);
+        (bytes32[] memory hotkeys, uint16[] memory weights) = registry.getValidators(netuid);
+        assertEq(hotkeys.length, 0);
         assertEq(weights.length, 0);
         assertEq(registry.nonces(netuid), 0);
     }
 
     function test_SetValidator_UsesOwnerExistenceFlag() public {
         // Subtensor returns the stored AccountId independently of the existence flag.
-        _mockHotkeyOwner(HOTKEY, true, 0);
+        _mockOwnerRecord(HOTKEY, true, 0);
         _setValidatorAsOwner(NETUID, HOTKEY);
         _assertValidator(NETUID, HOTKEY, 1);
     }
@@ -69,7 +74,7 @@ contract PlaceholderValidatorRegistryTest is Test {
     function test_SetValidator_ReplacesHotkey() public {
         _setValidatorAsOwner(NETUID, HOTKEY);
         bytes32 nextHotkey = keccak256("next");
-        _mockHotkeyOwner(nextHotkey, true, keccak256("nextOwner"));
+        _ownedBy(nextHotkey, keccak256("nextOwner"));
         vm.expectEmit(true, true, false, true, address(registry));
         emit PlaceholderValidatorRegistry.ValidatorUpdated(NETUID, 2, nextHotkey);
         _setValidatorAsOwner(NETUID, nextHotkey);
@@ -80,14 +85,14 @@ contract PlaceholderValidatorRegistryTest is Test {
         _setValidatorAsOwner(NETUID, HOTKEY);
         _setValidatorAsOwner(NETUID, HOTKEY);
         _assertValidator(NETUID, HOTKEY, 2);
-        _mockHotkeyOwner(HOTKEY, true, keccak256("nextOwner"));
+        _ownedBy(HOTKEY, keccak256("nextOwner"));
         _setValidatorAsOwner(NETUID, HOTKEY);
         _assertValidator(NETUID, HOTKEY, 3);
     }
 
     function test_GetValidators_KeepsAnAttestedHotkeyThatLostItsOwner() public {
         _setValidatorAsOwner(NETUID, HOTKEY);
-        _mockHotkeyOwner(HOTKEY, false, 0);
+        MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(HOTKEY, true);
         _assertValidator(NETUID, HOTKEY, 1);
     }
 
@@ -95,7 +100,7 @@ contract PlaceholderValidatorRegistryTest is Test {
         _setValidatorAsOwner(NETUID, HOTKEY);
         _setValidatorAsOwner(2, HOTKEY);
         bytes32 nextHotkey = keccak256("next");
-        _mockHotkeyOwner(nextHotkey, true, HOTKEY_COLDKEY);
+        _ownedBy(nextHotkey, HOTKEY_COLDKEY);
         _setValidatorAsOwner(NETUID, nextHotkey);
         _assertValidator(NETUID, nextHotkey, 2);
         _assertValidator(2, HOTKEY, 1);
@@ -120,7 +125,7 @@ contract PlaceholderValidatorRegistryTest is Test {
     }
 
     function test_RevertWhen_HotkeyHasNoOwner() public {
-        _mockHotkeyOwner(HOTKEY, false, HOTKEY_COLDKEY);
+        _mockOwnerRecord(HOTKEY, false, HOTKEY_COLDKEY);
         vm.expectRevert(abi.encodeWithSelector(PlaceholderValidatorRegistry.OwnerlessHotkey.selector, HOTKEY));
         _setValidatorAsOwner(NETUID, HOTKEY);
     }
@@ -144,7 +149,7 @@ contract PlaceholderValidatorRegistryTest is Test {
 
     function testFuzz_SetValidator_ValidSingleValidator(uint16 netuid, bytes32 hotkey, bytes32 owner) public {
         hotkey = bytes32(bound(uint256(hotkey), 1, type(uint256).max));
-        _mockHotkeyOwner(hotkey, true, owner);
+        _ownedBy(hotkey, owner);
         _setValidatorAsOwner(netuid, hotkey);
         _assertValidator(netuid, hotkey, 1);
     }

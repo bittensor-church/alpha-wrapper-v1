@@ -2,11 +2,12 @@
 pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
-import { VaultMath } from "src/libraries/VaultMath.sol";
 import { MockStaking } from "../mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 abstract contract RegistryTestHelper is Test {
+    uint16 public constant BPS_BASE = 10_000;
+
     function _etchStakingMock() internal {
         vm.etch(STAKING_PRECOMPILE, address(new MockStaking()).code);
     }
@@ -31,11 +32,11 @@ abstract contract RegistryTestHelper is Test {
     function _evenWeights(uint256 count) internal pure returns (uint16[] memory weights) {
         weights = new uint16[](count);
         uint16 slots = uint16(count);
-        uint16 share = VaultMath.BPS_BASE / slots;
+        uint16 share = BPS_BASE / slots;
         for (uint16 i; i + 1 < slots; ++i) {
             weights[i] = share;
         }
-        weights[slots - 1] = VaultMath.BPS_BASE - share * (slots - 1);
+        weights[slots - 1] = BPS_BASE - share * (slots - 1);
     }
 
     /// @dev Every hotkey but the last holds `eachStake` under `coldkey`; the last holds `lastStake`.

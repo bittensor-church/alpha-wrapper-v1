@@ -22,28 +22,48 @@ contract PlaceholderValidatorRegistryGasTest is Test {
     function test_gas_setValidator_firstCommit() public {
         registry.setValidator(1, HOTKEY);
         vm.snapshotGasLastCall("PlaceholderValidatorRegistry", "setValidator: first commit");
+
+        _assertSoleValidator(HOTKEY, 1);
     }
 
     function test_gas_setValidator_rotation() public {
         registry.setValidator(1, HOTKEY);
         registry.setValidator(1, NEXT_HOTKEY);
         vm.snapshotGasLastCall("PlaceholderValidatorRegistry", "setValidator: rotation");
+
+        _assertSoleValidator(NEXT_HOTKEY, 2);
     }
 
     function test_gas_setValidator_refresh() public {
         registry.setValidator(1, HOTKEY);
         registry.setValidator(1, HOTKEY);
         vm.snapshotGasLastCall("PlaceholderValidatorRegistry", "setValidator: refresh");
+
+        _assertSoleValidator(HOTKEY, 2);
     }
 
     function test_gas_getValidators() public {
         registry.setValidator(1, HOTKEY);
         registry.getValidators(1);
         vm.snapshotGasLastCall("PlaceholderValidatorRegistry", "getValidators");
+
+        _assertSoleValidator(HOTKEY, 1);
     }
 
     function test_gas_getValidators_unconfigured() public {
         registry.getValidators(1);
         vm.snapshotGasLastCall("PlaceholderValidatorRegistry", "getValidators: unconfigured");
+
+        (bytes32[] memory hotkeys, uint16[] memory weights) = registry.getValidators(1);
+        assertEq(hotkeys.length, 0);
+        assertEq(weights.length, 0);
+    }
+
+    function _assertSoleValidator(bytes32 hotkey, uint256 nonce) private view {
+        (bytes32[] memory hotkeys, uint16[] memory weights) = registry.getValidators(1);
+        assertEq(hotkeys.length, 1);
+        assertEq(hotkeys[0], hotkey);
+        assertEq(weights[0], 10_000);
+        assertEq(registry.nonces(1), nonce);
     }
 }

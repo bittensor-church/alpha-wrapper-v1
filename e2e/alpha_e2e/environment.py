@@ -15,8 +15,9 @@ from typing import List, Optional, Tuple
 from . import chain, config, extrinsics, substrate, validators
 
 
-def netuid_of(token_id: int) -> int:
-    return token_id & ((1 << config.NETUID_BITS) - 1)
+def random_bytes32() -> str:
+    """A fresh 32-byte value, hex-encoded: a creation UID or an unused hotkey."""
+    return "0x" + secrets.token_hex(32)
 
 
 def read_stake(hotkey_pubkey: str, coldkey_pubkey: str, netuid: int, block: Optional[int] = None) -> int:
@@ -42,11 +43,21 @@ class Environment:
     observation_block_start: int
     registry_block_start: int
     registry_block_end: int
+    registry_update_receipts: List[dict]
+
+    def netuid_of(self, token_id: int) -> int:
+        """The subnet a token of the bootstrap generation belongs to."""
+        return self.netuids[self.token_ids.index(token_id)]
 
     def subnet_hotkey_pubkeys(self, subnet_index: int) -> List[str]:
         """The three validator hotkeys registered on the subnet at `subnet_index`."""
         start = subnet_index * config.VALIDATORS_PER_SUBNET
         return self.hotkey_pubkeys[start:start + config.VALIDATORS_PER_SUBNET]
+
+    def subnet_hotkey_ss58s(self, subnet_index: int) -> List[str]:
+        """The ss58 addresses of `subnet_hotkey_pubkeys(subnet_index)`, in the same order."""
+        start = subnet_index * config.VALIDATORS_PER_SUBNET
+        return self.hotkey_ss58s[start:start + config.VALIDATORS_PER_SUBNET]
 
     def stake(self, hotkey_pubkey: str, coldkey_pubkey: str, netuid: int, block: Optional[int] = None) -> int:
         """Alpha stake (RAO) for a single (hotkey, coldkey, netuid) from the
@@ -70,6 +81,20 @@ class Environment:
             - self.total_stake_across(coldkey_pubkey, netuid, hotkey_pubkeys, block - 1)
         )
 
+    def wait_for_stake_above(
+        self, baseline: int, coldkey_pubkey: str, netuid: int, hotkey_pubkeys: List[str], timeout: float,
+    ) -> int:
+        """Block until the coldkey's stake across `hotkey_pubkeys` exceeds `baseline`, as an epoch's
+        emission makes it; returns the stake reached."""
+        deadline = time.monotonic() + timeout
+        while (stake := self.total_stake_across(coldkey_pubkey, netuid, hotkey_pubkeys)) <= baseline:
+            if time.monotonic() > deadline:
+                raise AssertionError(
+                    f"stake on netuid {netuid} is {stake} RAO after {timeout}s, not above {baseline}"
+                )
+            chain.wait_for_blocks(1, timeout=config.BLOCK_TIMEOUT_SECONDS)
+        return stake
+
     def vault_shares(
         self, token_id: int, holder: Optional[str] = None, block: Optional[int] = None,
     ) -> int:
@@ -86,17 +111,10 @@ class Environment:
             self.vault_address, "totalSupply(uint256)(uint256)", token_id, block=block,
         ))
 
-    def vault_total_stake(self, token_id: int) -> int:
-        """The lens's count of the alpha (RAO) backing a token id."""
+    def vault_total_stake(self, token_id: int, block: Optional[int] = None) -> int:
+        """The lens's count of the alpha (RAO) backing a token id, live or as of `block`."""
         return int(chain.cast_call(
-            self.lens_address, "totalStake(uint256)(uint256)", token_id,
-        ))
-
-    def vault_located_stake(self, token_id: int) -> int:
-        """Alpha (RAO) the vault can find for a token id, whether or not that is all of it.
-        Answers where `vault_total_stake` refuses."""
-        return int(chain.cast_call(
-            self.lens_address, "locatedStake(uint256)(uint256)", token_id,
+            self.lens_address, "totalStake(uint256)(uint256)", token_id, block=block,
         ))
 
     def backing_intact(self, token_id: int) -> bool:
@@ -130,6 +148,10 @@ class Environment:
     def parking_hotkey(self) -> str:
         return chain.cast_call(self.vault_address, "parkingHotkey()(bytes32)")
 
+    def registry_nonce(self, netuid: int) -> int:
+        """Validator updates the registry has landed for the subnet."""
+        return int(chain.cast_call(self.validator_registry_address, "nonces(uint256)(uint256)", netuid))
+
     def mailbox_address(self, netuid: int, user: Optional[str] = None) -> str:
         """Accepted mailbox address for `user`; zero until explicit preparation."""
         return chain.cast_call(
@@ -141,10 +163,11 @@ class Environment:
         """Substrate coldkey a user's mailbox stakes under, also the id of its own hotkey."""
         return substrate.h160_to_substrate_b32(self.mailbox_address(netuid, user))
 
-    def mailbox_deposit(self, netuid: int, user: Optional[str] = None) -> int:
-        """Alpha (RAO) on the mailbox's own hotkey, which is what a wrap collects."""
+    def mailbox_deposit(self, netuid: int, user: Optional[str] = None, block: Optional[int] = None) -> int:
+        """Alpha (RAO) on the mailbox's own hotkey, which is what a wrap collects, live or as
+        of `block`."""
         coldkey = self.mailbox_coldkey(netuid, user)
-        return self.stake(coldkey, coldkey, netuid)
+        return self.stake(coldkey, coldkey, netuid, block)
 
     def candidate_addresses(
         self, token_id: int, netuid: int, uid: str, user: Optional[str] = None,
@@ -180,11 +203,12 @@ class Environment:
             self.lens_address, "previewWrap(uint256,uint256)(uint256)", token_id, assets, block=block,
         ))
 
-    def preview_unwrap(self, token_id: int, shares: int) -> Tuple[int, int]:
-        """(alpha RAO, native-TAO wei) legs an unwrap of `shares` would pay out."""
+    def preview_unwrap(self, token_id: int, shares: int, block: Optional[int] = None) -> Tuple[int, int]:
+        """(alpha RAO, native-TAO wei) legs an unwrap of `shares` would pay out, live or as
+        of `block`."""
         lines = chain.cast_call_lines(
             self.lens_address, "previewUnwrap(uint256,uint256)(uint256,uint256)",
-            token_id, shares,
+            token_id, shares, block=block,
         )
         return int(lines[0]), int(lines[1])
 
@@ -200,10 +224,10 @@ class Environment:
         )
         return int(constants[6]) // config.WEI_PER_RAO
 
-    def hotkey_in_last_seen(self, token_id: int, hotkey_pubkey: str) -> bool:
-        """Whether the vault's remembered validator set still references `hotkey_pubkey`."""
+    def hotkey_in_last_seen(self, token_id: int, hotkey_pubkey: str, block: Optional[int] = None) -> bool:
+        """Whether the vault's record still references `hotkey_pubkey`, live or as of `block`."""
         remembered = chain.cast_call_raw(
-            self.lens_address, "lastSeenHotkeys(uint256)(bytes32[])", token_id,
+            self.lens_address, "lastSeenHotkeys(uint256)(bytes32[])", token_id, block=block,
         )
         return hotkey_pubkey.removeprefix("0x").lower() in remembered.lower()
 
@@ -214,10 +238,10 @@ class Environment:
         )
         return [hotkey.lower() for hotkey in re.findall(r"0x[0-9a-fA-F]{64}", resolved)]
 
-    def alpha_price(self, netuid: int) -> int:
-        """Current alpha price for a subnet (TAO per alpha, e18 scale)."""
+    def alpha_price(self, netuid: int, block: Optional[int] = None) -> int:
+        """Alpha price for a subnet (TAO per alpha, e18 scale), live or as of `block`."""
         return int(chain.cast_call(
-            config.ALPHA_PRECOMPILE, "getAlphaPrice(uint16)(uint256)", netuid,
+            config.ALPHA_PRECOMPILE, "getAlphaPrice(uint16)(uint256)", netuid, block=block,
         ))
 
     def alpha_in_pool(self, netuid: int) -> int:
@@ -267,9 +291,9 @@ class Environment:
                 )
             chain.wait_for_blocks(1, timeout=config.BLOCK_TIMEOUT_SECONDS)
 
-    def alpha_value_tao(self, netuid: int, alpha_rao: int) -> int:
-        """Spot TAO value (RAO) of an alpha amount at the current oracle price."""
-        return alpha_rao * self.alpha_price(netuid) // config.ALPHA_PRICE_SCALE
+    def alpha_value_tao(self, netuid: int, alpha_rao: int, block: Optional[int] = None) -> int:
+        """Spot TAO value (RAO) of an alpha amount at the oracle price, live or as of `block`."""
+        return alpha_rao * self.alpha_price(netuid, block) // config.ALPHA_PRICE_SCALE
 
     def floor_boundary(self, netuid: int, floor_rao: int) -> Tuple[int, int]:
         """(alpha price, boundary): the smallest alpha-RAO deposit whose TAO value
@@ -278,13 +302,6 @@ class Environment:
         assert price != 0, f"netuid {netuid}: alpha price reads 0 (oracle unavailable)"
         boundary = (floor_rao * config.ALPHA_PRICE_SCALE + price - 1) // price
         return price, boundary
-
-    def holder_assets(self, token_id: int, holder: str) -> int:
-        """A holder's pro-rata alpha backing (RAO) by the lens's count."""
-        shares = self.vault_shares(token_id, holder)
-        supply = self.vault_total_supply(token_id)
-        total = self.vault_total_stake(token_id)
-        return 0 if supply == 0 else shares * total // supply
 
     def user_tao_wei(self) -> int:
         """The wrapper user's native TAO balance, in wei."""
@@ -353,28 +370,34 @@ class Environment:
     def assert_vault_reverts_with(
         self, error_signature: str, gas_limit: int, message: str,
         signature: str, *args,
+        error_args: Optional[tuple] = None,
         private_key: Optional[str] = None, sender: Optional[str] = None,
         label: Optional[str] = None,
     ) -> dict:
-        """Assert a vault call reverts with a SPECIFIC custom error: an eth_call
-        must surface the error (decoded name, or its selector in the revert
-        data), then the broadcast must also fail on-chain. A bare status check
-        would also pass on gas exhaustion or the wrong revert. Returns the
-        broadcast receipt so callers can bound its gas."""
-        error_name = error_signature.split("(")[0]
-        selector = chain.cast_sig(error_signature)
-        probe = chain.probe_call(
+        """Assert a vault call fails with one designed custom error. An eth_call must revert
+        with exactly that error, carrying `error_args` when the test knows them (an error that
+        takes arguments matches on its selector alone without them). The broadcast must then be
+        mined as failed within `config.REVERT_GAS_BOUND`, which a burned precompile dispatch or an
+        out-of-gas run exceeds. Returns the broadcast receipt."""
+        expected = chain.encoded_call(error_signature, *(error_args or ()))
+        reverted = chain.revert_data(
             self.vault_address, signature, *args, sender=sender or config.WRAPPER_USER_ADDRESS,
         )
-        probe_output = (probe.stdout + probe.stderr).lower()
-        assert error_name.lower() in probe_output or selector.lower() in probe_output, (
-            f"{message} (missing {error_signature} in: {probe.stdout + probe.stderr})"
+        assert reverted is not None, f"{message}: the call goes through instead of reverting {error_signature}"
+        selector_only = error_args is None and not error_signature.endswith("()")
+        assert reverted.startswith(expected) if selector_only else reverted == expected, (
+            f"{message}: expected {error_signature} as {expected}, the call reverts with {reverted}"
         )
         receipt = self.vault_broadcast(
             gas_limit, signature, *args,
             private_key=private_key, label=self._gas_label(signature, message, label),
         )
         assert receipt.get("status") == "0x0", f"{message}: {receipt}"
+        gas_used = chain.receipt_gas_used(receipt)
+        assert gas_used <= config.REVERT_GAS_BOUND, (
+            f"{message}: the mined revert used {gas_used} gas (bound {config.REVERT_GAS_BOUND}), "
+            "as a burned precompile dispatch or an out-of-gas run would"
+        )
         return receipt
 
     def create_mailbox(self, netuid: int, private_key: Optional[str] = None) -> dict:
@@ -382,7 +405,7 @@ class Environment:
         under a fresh random UID."""
         return self.vault_send(
             2_000_000, f"createMailbox failed for netuid {netuid}", "createMailbox(uint256,bytes32)",
-            netuid, "0x" + secrets.token_hex(32), private_key=private_key,
+            netuid, random_bytes32(), private_key=private_key,
         )
 
     def transfer_shares(
@@ -445,9 +468,10 @@ class Environment:
         extrinsics.transfer_stake_and_hotkey(mailbox_ss58, hotkey_ss58, mailbox_ss58, netuid, amount_rao)
 
     def replace_clone(self, token_id: int, uid: str, message: str, private_key: Optional[str] = None) -> dict:
-        """Move the token's position to a fresh clone once the old one's staking list holds 128 entries."""
-        return self.vault_send(
-            4_000_000, message, "replaceClone(uint256,bytes32)", token_id, uid,
+        """Move the token's position to a fresh clone once the old one's staking list holds 128
+        entries, in a block that stake reads either side of it can measure."""
+        return self.vault_send_between_epochs(
+            self.netuid_of(token_id), 4_000_000, message, "replaceClone(uint256,bytes32)", token_id, uid,
             private_key=private_key, label="replaceClone",
         )
 

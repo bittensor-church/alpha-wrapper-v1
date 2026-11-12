@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { VaultMath } from "src/libraries/VaultMath.sol";
 import { ClaimBelowNativePrecision, NothingToUnwrap, ZeroAmount } from "src/VaultErrors.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 
@@ -11,10 +10,15 @@ contract AlphaVaultRoundingTest is AlphaVaultTestBase {
     function testFuzz_Wrap_MintsSharesForEveryDepositAboveTheFloor(uint256 emissions, uint256 deposit) public {
         emissions = bound(emissions, 0, MAX_SUBNET_ALPHA / 2);
         deposit = bound(deposit, ALPHA_FLOOR, MAX_SUBNET_ALPHA / 2);
-        _depositAndWrap(alice, NETUID1, ALPHA);
+        uint256 supply = _depositAndWrap(alice, NETUID1, ALPHA);
         _simulateEmissions(NETUID1, emissions);
+        uint256 plainShares = deposit * supply / (ALPHA + emissions);
 
-        assertGt(_depositAndWrap(bob, NETUID1, deposit), 0);
+        uint256 minted = _depositAndWrap(bob, NETUID1, deposit);
+
+        assertGt(minted, 0);
+        assertGe(minted, plainShares, "never below the plain pro-rata shares");
+        assertLe(minted, plainShares + plainShares / 1e9 + 1, "at most one share per 1e9 above them, plus one");
     }
 
     /// @dev At 0.2 TAO/alpha the deposit floor is 0.01 alpha. With one share left over 11M alpha of emissions,
@@ -59,7 +63,7 @@ contract AlphaVaultRoundingTest is AlphaVaultTestBase {
     ) public {
         aliceDeposit = bound(aliceDeposit, ALPHA, 100_000 * ALPHA);
         bobDeposit = bound(bobDeposit, ALPHA, 100_000 * ALPHA);
-        uint256 pot = bound(potRao, 0.01e9, 21_000_000e9) * VaultMath.TAO_NATIVE_QUANTUM;
+        uint256 pot = bound(potRao, 0.01e9, 21_000_000e9) * 1e9;
         uint256 aliceShares = _depositAndWrap(alice, NETUID1, aliceDeposit);
         uint256 bobShares = _depositAndWrap(bob, NETUID1, bobDeposit);
         uint256 supply = aliceShares + bobShares;
@@ -75,9 +79,9 @@ contract AlphaVaultRoundingTest is AlphaVaultTestBase {
         vault.unwrap(TOKEN1, bobShares, bytes32(0), 0);
 
         uint256 alicePaid = alice.balance;
-        assertEq(alicePaid % VaultMath.TAO_NATIVE_QUANTUM, 0, "native delivery is in whole RAO");
+        assertEq(alicePaid % 1e9, 0, "native delivery is in whole RAO");
         assertLe(alicePaid * supply, pot * aliceShares, "never above the pro-rata share");
-        assertGt((alicePaid + VaultMath.TAO_NATIVE_QUANTUM) * supply, pot * aliceShares, "less than one RAO below it");
+        assertGt((alicePaid + 1e9) * supply, pot * aliceShares, "less than one RAO below it");
         assertEq(alicePaid + bob.balance, pot, "the last holder takes the rest");
         assertEq(clone.balance, 0);
     }
@@ -87,7 +91,7 @@ contract AlphaVaultRoundingTest is AlphaVaultTestBase {
         uint256 bobShares = _depositAndWrap(bob, NETUID1, ALPHA);
         _simulateDissolutionStarted(NETUID1);
         // Bob's 1/100,000 of one RAO is 1e4 wei.
-        _simulateTaoAwardedOnDissolution(TOKEN1, VaultMath.TAO_NATIVE_QUANTUM);
+        _simulateTaoAwardedOnDissolution(TOKEN1, 1e9);
         _simulateDissolutionCompleted(NETUID1);
 
         vm.prank(bob);
@@ -97,7 +101,7 @@ contract AlphaVaultRoundingTest is AlphaVaultTestBase {
 
     function testFuzz_PreviewUnwrap_MatchesDissolvedPayout(uint256 deposit, uint256 potRao, uint256 shares) public {
         deposit = bound(deposit, ALPHA, MAX_SUBNET_ALPHA);
-        uint256 pot = bound(potRao, 1, 21_000_000e9) * VaultMath.TAO_NATIVE_QUANTUM;
+        uint256 pot = bound(potRao, 1, 21_000_000e9) * 1e9;
         shares = bound(shares, 1, _depositAndWrap(alice, NETUID1, deposit));
 
         _simulateDissolutionStarted(NETUID1);
@@ -108,16 +112,13 @@ contract AlphaVaultRoundingTest is AlphaVaultTestBase {
         assertEq(alphaQuote, 0);
         // A first deposit mints 1e9 shares per RAO; dissolved exits pay a plain pro-rata share in whole RAO.
         uint256 owed = pot * shares / (deposit * 1e9);
-        assertEq(taoQuote, owed - owed % VaultMath.TAO_NATIVE_QUANTUM, "the quote is the burn's share of the pot");
+        assertEq(taoQuote, owed - owed % 1e9, "the quote is the burn's share of the pot in whole RAO");
 
         vm.prank(alice);
-        if (taoQuote == 0) {
-            vm.expectRevert(ClaimBelowNativePrecision.selector);
-            vault.unwrap(TOKEN1, shares, bytes32(0), 0);
-            return;
-        }
+        if (taoQuote == 0) vm.expectRevert(ClaimBelowNativePrecision.selector);
         vault.unwrap(TOKEN1, shares, bytes32(0), 0);
-        assertEq(alice.balance, taoQuote);
+
+        assertEq(alice.balance, taoQuote, "the exit pays the quote, or nothing when it reverts");
     }
 
     function test_RevertWhen_DissolvedCloneHoldsNoTao() public {

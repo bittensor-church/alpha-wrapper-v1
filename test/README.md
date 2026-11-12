@@ -23,7 +23,7 @@ The invariant suites prove different things:
   bounded rounding.
 - **Backing:** recovery and coverage under hotkey swaps, strays and write-offs, and
   the lens never reporting more backing than the chain holds.
-- **Hotkey swap:** stake follows renamed, reused and coldkey-swapped validator keys.
+- **Hotkey swap:** stake follows swapped, reused and coldkey-swapped validator hotkeys.
 
 Handlers fail on any revert outside the business errors their entry point documents,
 including panics and refused chain calls. In the backing campaigns each allowed error

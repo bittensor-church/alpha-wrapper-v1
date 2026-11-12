@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { VaultMath } from "src/libraries/VaultMath.sol";
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { ClaimBelowNativePrecision, SupplyCapExceeded, ZeroAddress, ZeroAmount } from "src/VaultErrors.sol";
 import { ClaimDuringTransferReceiver, RevertingReceiver, ReentrantReceiver } from "./helpers/TaoRailReceivers.sol";
@@ -117,7 +116,7 @@ contract ClaimableTaoTest is AlphaVaultTestBase {
         _depositAndWrap(alice, NETUID1, DEPOSIT);
         _depositAndWrap(bob, NETUID1, DEPOSIT);
         // Half of one RAO is 5e8 wei, below what a native transfer can carry.
-        _donateToTokenClone(TOKEN1, VaultMath.TAO_NATIVE_QUANTUM);
+        _donateToTokenClone(TOKEN1, 1e9);
 
         assertEq(lens.claimableTaoOf(alice, TOKEN1), 0);
         vm.expectRevert(ClaimBelowNativePrecision.selector);
@@ -215,6 +214,7 @@ contract ClaimableTaoTest is AlphaVaultTestBase {
         vault.safeTransferFrom(alice, address(receiver), TOKEN1, shares, "");
 
         assertFalse(receiver.claimSucceeded());
+        assertEq(receiver.claimError(), abi.encodeWithSelector(ZeroAmount.selector), "the receiver earned nothing yet");
         assertEq(address(receiver).balance, 0);
         assertEq(lens.claimableTaoOf(alice, TOKEN1), 5 * TAO);
     }
@@ -245,27 +245,56 @@ contract ClaimableTaoTest is AlphaVaultTestBase {
 
         _depositAndWrap(alice, NETUID1, aliceDeposit);
         _depositAndWrap(bob, NETUID1, bobDeposit);
-        uint256 donation = donationRao * VaultMath.TAO_NATIVE_QUANTUM;
+        uint256 donation = donationRao * 1e9;
         _donateToTokenClone(TOKEN1, donation);
 
         // Exercise both checkpointed entitlement and still-unindexed TAO.
         uint256 aliceShares = vault.balanceOf(alice, TOKEN1);
         vm.prank(alice);
         vault.safeTransferFrom(alice, bob, TOKEN1, aliceShares / 2, "");
-        uint256 secondDonation = (donationRao / 3 + 1) * VaultMath.TAO_NATIVE_QUANTUM;
+        uint256 secondDonation = (donationRao / 3 + 1) * 1e9;
         _donateToTokenClone(TOKEN1, secondDonation);
 
         uint256 arrived = donation + secondDonation;
         uint256 paid = _claimQuotedAmount(alice, TOKEN1) + _claimQuotedAmount(bob, TOKEN1);
         assertLe(paid, arrived);
         // At most one sub-RAO remainder per holder, plus index flooring.
-        assertApproxEqAbs(paid, arrived, 2 * VaultMath.TAO_NATIVE_QUANTUM + 8);
+        assertApproxEqAbs(paid, arrived, 2e9 + 8);
         assertGe(vault.subnetClone(TOKEN1).balance, vault.taoLiability(TOKEN1));
+    }
+
+    function testFuzz_ClaimsAcrossHolders_PayEachHolderTheirExactShare(
+        uint256 aliceThousands,
+        uint256 bobThousands,
+        uint256 firstGiftRaoPerThousandAlpha,
+        uint256 secondGiftRaoPerThousandAlpha
+    ) public {
+        aliceThousands = bound(aliceThousands, 1, 50);
+        bobThousands = bound(bobThousands, 1, 50);
+        firstGiftRaoPerThousandAlpha = bound(firstGiftRaoPerThousandAlpha, 1, 1e9);
+        secondGiftRaoPerThousandAlpha = bound(secondGiftRaoPerThousandAlpha, 1, 1e9);
+        uint256 thousands = aliceThousands + bobThousands;
+        uint256 aliceShares = _depositAndWrap(alice, NETUID1, aliceThousands * DEPOSIT);
+        assertEq(_depositAndWrap(bob, NETUID1, bobThousands * DEPOSIT), bobThousands * 1e21, "1e21 per thousand");
+        _donateToTokenClone(TOKEN1, firstGiftRaoPerThousandAlpha * thousands * 1e9);
+
+        vm.prank(alice);
+        vault.safeTransferFrom(alice, bob, TOKEN1, aliceShares / 2, "");
+        _donateToTokenClone(TOKEN1, secondGiftRaoPerThousandAlpha * thousands * 1e9);
+
+        uint256 aliceEntitlement =
+            aliceThousands * firstGiftRaoPerThousandAlpha * 1e9 + aliceThousands * secondGiftRaoPerThousandAlpha * 5e8;
+        uint256 bobEntitlement = bobThousands * firstGiftRaoPerThousandAlpha * 1e9
+            + (bobThousands * 1e9 + aliceThousands * 5e8) * secondGiftRaoPerThousandAlpha;
+        assertEq(_claimQuotedAmount(alice, TOKEN1), aliceEntitlement - aliceEntitlement % 1e9, "alice, in whole RAO");
+        assertEq(_claimQuotedAmount(bob, TOKEN1), bobEntitlement - bobEntitlement % 1e9, "bob, in whole RAO");
+        assertEq(vault.claimableTao(TOKEN1, alice), aliceEntitlement % 1e9, "alice's sub-RAO rest stays recorded");
+        assertEq(vault.claimableTao(TOKEN1, bob), bobEntitlement % 1e9, "bob's sub-RAO rest stays recorded");
     }
 
     function test_DissolutionRefund_NotIndexedToHolders() public {
         _depositAndWrap(alice, NETUID1, DEPOSIT);
-        uint256 indexBefore = vault.cumulativeTaoPerShare(TOKEN1);
+        assertEq(vault.cumulativeTaoPerShare(TOKEN1), 0, "nothing indexed before dissolution");
 
         _simulateDissolutionStarted(NETUID1);
         _donateToTokenClone(TOKEN1, 5 * TAO);
@@ -274,13 +303,13 @@ contract ClaimableTaoTest is AlphaVaultTestBase {
         vm.prank(alice);
         vault.safeTransferFrom(alice, bob, TOKEN1, shares / 2, "");
 
-        assertEq(vault.cumulativeTaoPerShare(TOKEN1), indexBefore);
+        assertEq(vault.cumulativeTaoPerShare(TOKEN1), 0);
         assertEq(vault.taoLiability(TOKEN1), 0);
 
         _simulateDissolutionCompleted(NETUID1);
         _touch(bob, TOKEN1);
 
-        assertEq(vault.cumulativeTaoPerShare(TOKEN1), indexBefore);
+        assertEq(vault.cumulativeTaoPerShare(TOKEN1), 0);
         assertEq(vault.taoLiability(TOKEN1), 0);
         assertEq(lens.claimableTaoOf(alice, TOKEN1), 0);
         assertEq(lens.claimableTaoOf(bob, TOKEN1), 0);
@@ -341,22 +370,23 @@ contract ClaimableTaoTest is AlphaVaultTestBase {
         // 1e10 * (1e19 + 1e9) / (0 + 1): alice's 1e19 shares are backed by no alpha.
         assertEq(bobShares, 100_000_000_010_000_000_000_000_000_000);
 
-        uint256 liabilityBefore = vault.taoLiability(TOKEN1);
-        _donateToTokenClone(TOKEN1, 100 * VaultMath.TAO_NATIVE_QUANTUM);
+        assertEq(vault.taoLiability(TOKEN1), 5 * TAO, "alice's swept proceeds stay reserved for her");
+        _donateToTokenClone(TOKEN1, 100e9);
         _touch(bob, TOKEN1);
-        assertEq(vault.taoLiability(TOKEN1) - liabilityBefore, 100 * VaultMath.TAO_NATIVE_QUANTUM);
+        assertEq(vault.taoLiability(TOKEN1), 5 * TAO + 100e9, "the whole 100-RAO gift is reserved");
 
         // Bob's 1e29 + 1e19 of 1e29 + 2e19 shares earn 99,999,999,989 wei of the gift; claims pay whole RAO.
-        assertEq(_claimQuotedAmount(bob, TOKEN1), 99 * VaultMath.TAO_NATIVE_QUANTUM);
+        assertEq(_claimQuotedAmount(bob, TOKEN1), 99e9);
     }
 
     function test_RevertWhen_RecapitalizationWouldBreachClaimIndexBound() public {
+        uint256 oneAlphaAtTheDefaultPrice = TAO / 20;
         _depositAndWrap(alice, NETUID1, ALPHA);
         for (uint256 i; i < 2; ++i) {
-            _sweepAndWriteOff(TAO / 20);
+            _sweepAndWriteOff(oneAlphaAtTheDefaultPrice);
             _depositAndWrap(alice, NETUID1, ALPHA);
         }
-        _sweepAndWriteOff(TAO / 20);
+        _sweepAndWriteOff(oneAlphaAtTheDefaultPrice);
 
         // Each recapitalization of written-off shares multiplies supply by about 1e9 (1e18, then 1e27 + 2e18 and
         // 1e36 + 3e27 + 3e18); one more alpha would mint 1e45 + 3e36 + 3e27 + 1e18 shares, past the 1e45 cap.
@@ -389,7 +419,7 @@ contract ClaimableTaoTest is AlphaVaultTestBase {
 
         // Half the shares take 5e20 * (1,010e9 + 1) / (1e21 + 1e9) = 504,999,999,999 RAO of alpha, sold at
         // 0.05 TAO as a whole 343.4-alpha slot and a 161.599999999-alpha slice, each rounded down to the RAO.
-        assertEq(alice.balance, 25_249_999_999 * VaultMath.TAO_NATIVE_QUANTUM, "sale proceeds");
+        assertEq(alice.balance, 25_249_999_999e9, "sale proceeds");
         assertEq(lens.totalStake(TOKEN1), 505_000_000_001, "the kept half carries half the emissions");
         assertEq(_claimQuotedAmount(alice, TOKEN1), TAO, "she held every share when the TAO arrived");
     }

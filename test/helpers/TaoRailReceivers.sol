@@ -62,6 +62,7 @@ contract ReentrantReceiver {
 contract ClaimDuringTransferReceiver {
     AlphaVault public immutable vault;
     bool public claimSucceeded;
+    bytes public claimError;
 
     constructor(AlphaVault _vault) {
         vault = _vault;
@@ -70,7 +71,9 @@ contract ClaimDuringTransferReceiver {
     function onERC1155Received(address, address, uint256 id, uint256, bytes calldata) external returns (bytes4) {
         try vault.claimTao(id, payable(address(this))) {
             claimSucceeded = true;
-        } catch { }
+        } catch (bytes memory reason) {
+            claimError = reason;
+        }
         return this.onERC1155Received.selector;
     }
 

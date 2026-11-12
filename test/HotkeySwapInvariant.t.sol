@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import {
-    Attempt,
-    BackingCampaignHandler,
-    BackingCampaignHarness,
-    unwrapForTaoErrors
-} from "./helpers/BackingCampaign.sol";
+import { BackingCampaignHandler, BackingCampaignHarness } from "./helpers/BackingCampaign.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
@@ -16,7 +11,7 @@ contract HotkeySwapHandler is BackingCampaignHandler {
     /// @dev Covers the virtual-share rounding in the share quote so the asked amount clears the slot.
     uint256 private constant DRAIN_MARGIN_RAO = 1e6;
 
-    bytes32[] public liveHotkeys;
+    bytes32[] public validatorHotkeys;
 
     uint256 public drains;
     uint256 public freshSwaps;
@@ -32,7 +27,7 @@ contract HotkeySwapHandler is BackingCampaignHandler {
         address[] memory _actors,
         bytes32[] memory _validators
     ) BackingCampaignHandler(_vault, _harness, _tokenId, _netuid, _actors, _validators) {
-        liveHotkeys = _validators;
+        validatorHotkeys = _validators;
     }
 
     function drainSlot(uint256 actorSeed, uint256 slotSeed) external {
@@ -41,52 +36,53 @@ contract HotkeySwapHandler is BackingCampaignHandler {
         VaultReads.Slot[] memory slots = vault.recordedSlots(tokenId);
         if (balance == 0 || slots.length == 0) return;
         uint256 slot = bound(slotSeed, 0, slots.length - 1);
-        uint256 held = _swaps().vaultStakeAt(slots[slot].stakedUnder);
+        uint256 held = harness.vaultStakeAt(slots[slot].stakedUnder);
         uint256 located = _swaps().locatedStake();
         // The pool refuses a sale that would pay nothing.
         if (located == 0 || MockStaking(STAKING_PRECOMPILE).quoteTaoOut(uint16(netuid), held) == 0) return;
         uint256 shares = (vault.totalSupply(tokenId) * (held + DRAIN_MARGIN_RAO)) / located + 1;
         if (shares > balance) return;
         uint256 keepOthers = ((1 << slots.length) - 1) ^ (1 << slot);
-        vm.prank(actor);
-        try vault.unwrapForTao(tokenId, shares, 0, keepOthers) {
-            if (_swaps().vaultStakeAt(slots[slot].stakedUnder) == 0) ++drains;
-        } catch (bytes memory reason) {
-            _requireJustifiedRevert(reason, unwrapForTaoErrors(), Attempt(0, shares, keepOthers, bytes32(0), true));
-        }
+        if (_sellForTao(actor, shares, keepOthers) && harness.vaultStakeAt(slots[slot].stakedUnder) == 0) ++drains;
     }
 
-    function swapToFreshHotkey(uint256 validatorSeed, uint256 keySeed, bool allSubnets) external {
+    function swapToFreshHotkey(uint256 validatorSeed, uint256 hotkeySeed, bool allSubnets) external {
         uint256 validator = _validator(validatorSeed);
-        bytes32 to = keccak256(abi.encode("fresh", keySeed));
+        bytes32 to = keccak256(abi.encode("fresh", hotkeySeed));
         if (touched[to]) return;
         _remember(to);
-        _swaps().simulateSwap(liveHotkeys[validator], to, allSubnets);
-        liveHotkeys[validator] = to;
+        _swaps().simulateSwap(validatorHotkeys[validator], to, allSubnets);
+        validatorHotkeys[validator] = to;
         ++freshSwaps;
     }
 
-    function swapOntoVacatedHotkey(uint256 validatorSeed, uint256 keySeed, bool allSubnets) external {
+    function swapOntoVacatedHotkey(uint256 validatorSeed, uint256 hotkeySeed, bool allSubnets) external {
         uint256 validator = _validator(validatorSeed);
         bytes32[] memory vacated = _swaps().ownerlessHotkeys();
         if (vacated.length == 0) return;
-        bytes32 to = vacated[bound(keySeed, 0, vacated.length - 1)];
-        _swaps().simulateSwap(liveHotkeys[validator], to, allSubnets);
-        liveHotkeys[validator] = to;
+        bytes32 to = vacated[bound(hotkeySeed, 0, vacated.length - 1)];
+        _swaps().simulateSwap(validatorHotkeys[validator], to, allSubnets);
+        validatorHotkeys[validator] = to;
         ++reuseSwaps;
     }
 
     function swapColdkey(uint256 validatorSeed, uint256 coldkeySeed) external {
         bytes32 destination = keccak256(abi.encode("coldkey", coldkeySeed));
-        if (_swaps().simulateColdkeySwap(liveHotkeys[_validator(validatorSeed)], destination)) ++coldkeySwaps;
+        bytes32 validatorHotkey = validatorHotkeys[_validator(validatorSeed)];
+        uint256 located = _swaps().locatedStake();
+        bool intact = _swaps().backingIntact();
+        if (!_swaps().simulateColdkeySwap(validatorHotkey, destination)) return;
+        ++coldkeySwaps;
+        assertEq(_swaps().locatedStake(), located, "a validator's coldkey swap leaves the located backing");
+        assertEq(_swaps().backingIntact(), intact, "a validator's coldkey swap leaves the backing's coverage");
     }
 
     function republish(uint256 seed) external {
-        uint256 count = bound(seed, 1, liveHotkeys.length);
-        uint256 start = bound(uint256(keccak256(abi.encode(seed))), 0, liveHotkeys.length - 1);
+        uint256 count = bound(seed, 1, validatorHotkeys.length);
+        uint256 start = bound(uint256(keccak256(abi.encode(seed))), 0, validatorHotkeys.length - 1);
         bytes32[] memory set = new bytes32[](count);
         for (uint256 i; i < count; ++i) {
-            set[i] = liveHotkeys[(start + i) % liveHotkeys.length];
+            set[i] = validatorHotkeys[(start + i) % validatorHotkeys.length];
         }
         harness.attest(set);
         ++republishes;
@@ -97,7 +93,7 @@ contract HotkeySwapHandler is BackingCampaignHandler {
     }
 
     function _validator(uint256 seed) private view returns (uint256) {
-        return bound(seed, 0, liveHotkeys.length - 1);
+        return bound(seed, 0, validatorHotkeys.length - 1);
     }
 
     function _swaps() private view returns (HotkeySwapCampaignSetup) {
@@ -132,17 +128,16 @@ abstract contract HotkeySwapCampaignSetup is BackingCampaignHarness {
         return lens.locatedStake(TOKEN1);
     }
 
-    function vaultStakeAt(bytes32 hotkey) external view returns (uint256) {
-        return _getVaultStake(hotkey, NETUID1);
+    function backingIntact() external view returns (bool) {
+        return lens.isBackingIntact(TOKEN1);
     }
 
     function ownerlessHotkeys() external view returns (bytes32[] memory vacated) {
-        bytes32[] memory keys = handler.knownHotkeys();
+        bytes32[] memory known = handler.knownHotkeys();
         uint256 count;
-        vacated = new bytes32[](keys.length);
-        for (uint256 i; i < keys.length; ++i) {
-            (bool owned,) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(keys[i]);
-            if (!owned) vacated[count++] = keys[i];
+        vacated = new bytes32[](known.length);
+        for (uint256 i; i < known.length; ++i) {
+            if (!_hasOwner(known[i])) vacated[count++] = known[i];
         }
         assembly {
             mstore(vacated, count)
@@ -155,22 +150,20 @@ abstract contract HotkeySwapCampaignSetup is BackingCampaignHarness {
     }
 
     /// @dev A validator's coldkey swap, which the chain only allows onto a coldkey holding nothing yet.
-    function simulateColdkeySwap(bytes32 liveHotkey, bytes32 destination) external returns (bool) {
+    function simulateColdkeySwap(bytes32 validatorHotkey, bytes32 destination) external returns (bool) {
         MockStaking staking = MockStaking(STAKING_PRECOMPILE);
-        (bool exists,) = staking.getHotkeyOwner(destination);
-        if (exists || staking.ownerOf(liveHotkey) == destination) return false;
-        staking.simulateColdkeySwap(staking.ownerOf(liveHotkey), destination, NETUID1, handler.knownHotkeys());
+        if (_hasOwner(destination) || staking.ownerOf(validatorHotkey) == destination) return false;
+        staking.simulateColdkeySwap(staking.ownerOf(validatorHotkey), destination, NETUID1, handler.knownHotkeys());
         return true;
     }
 
     function assertAttestedStakeRestsOnOwnedHotkeys() external view {
-        (bytes32[] memory names,) = registry.getValidators(NETUID1);
+        (bytes32[] memory attested,) = registry.getValidators(NETUID1);
         VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
-        for (uint256 j; j < names.length; ++j) {
+        for (uint256 j; j < attested.length; ++j) {
             for (uint256 i; i < slots.length; ++i) {
-                if (slots[i].attested != names[j] || slots[i].tracked == 0) continue;
-                (bool exists,) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(slots[i].stakedUnder);
-                assertTrue(exists, "attested stake rests on an ownerless key");
+                if (slots[i].attested != attested[j] || slots[i].tracked == 0) continue;
+                assertTrue(_hasOwner(slots[i].stakedUnder), "attested stake rests on an ownerless hotkey");
             }
         }
     }
@@ -200,13 +193,13 @@ contract HotkeySwapCampaignPathsTest is HotkeySwapCampaignSetup {
         _assertSharedInvariants();
         handler.drainSlot(0, 0);
         _assertSharedInvariants();
-        assertEq(handler.drains(), 1, "the first slot is emptied on its followed key");
+        assertEq(handler.drains(), 1, "the first slot is emptied on its successor hotkey");
         handler.swapToFreshHotkey(0, 2, true);
         _assertSharedInvariants();
         handler.swapOntoVacatedHotkey(1, 0, true);
         _assertSharedInvariants();
-        assertEq(handler.reuseSwaps(), 1, "the second validator takes the vacated first name");
-        assertEq(handler.liveHotkeys(1), hotkey1, "which is the first validator's attested name");
+        assertEq(handler.reuseSwaps(), 1, "the second validator takes the vacated first hotkey");
+        assertEq(handler.validatorHotkeys(1), hotkey1, "which is the first validator's attested hotkey");
 
         handler.rebalance();
         _assertSharedInvariants();
@@ -214,8 +207,8 @@ contract HotkeySwapCampaignPathsTest is HotkeySwapCampaignSetup {
         assertEq(handler.rebalances(), 2, "the rebalance succeeds without a new attestation");
         assertEq(
             vault.recordedSlots(TOKEN1)[0].stakedUnder,
-            handler.liveHotkeys(0),
-            "the emptied slot follows to the live key"
+            handler.validatorHotkeys(0),
+            "the emptied slot follows the validator's current hotkey"
         );
         _assertSharedInvariants();
     }
@@ -225,14 +218,14 @@ contract HotkeySwapCampaignPathsTest is HotkeySwapCampaignSetup {
         _assertSharedInvariants();
         handler.swapToFreshHotkey(0, 2, true);
         _assertSharedInvariants();
-        assertTrue(lens.isBackingIntact(TOKEN1), "two unobserved swaps resolve on the staking list");
-        _sweepDuringCrash(NETUID1, handler.liveHotkeys(0));
+        assertTrue(lens.isBackingIntact(TOKEN1), "two unobserved hotkey swaps resolve on the staking list");
+        _sweepDuringCrash(NETUID1, handler.validatorHotkeys(0));
         handler.syncBacking();
         vm.warp(lens.writeOffDeadline(TOKEN1));
         handler.syncBacking();
         _assertSharedInvariants();
         assertTrue(vault.awaitingAttestation(TOKEN1), "a swept slot's write-off parks the position");
-        assertGt(_parkedStake(NETUID1), 0, "with the located backing on the parking hotkey");
+        assertEq(_parkedStake(NETUID1), 33_335_000_000, "with the unswept 3333- and 3334-bps slots of 50 alpha parked");
         bytes32 recipient = keccak256(abi.encode(alice));
         uint256 before = _getStakeForColdkey(vault.parkingHotkey(), recipient, NETUID1);
 
@@ -240,7 +233,7 @@ contract HotkeySwapCampaignPathsTest is HotkeySwapCampaignSetup {
         _assertSharedInvariants();
 
         assertEq(handler.alphaExits(), 1, "the parked position pays the alpha exit");
-        assertGt(handler.lastAlphaPaid(), 0, "and the payout is measured");
+        assertEq(handler.lastAlphaPaid(), 8_333_750_000, "a quarter of the 33.335 parked alpha");
         assertEq(
             handler.lastAlphaPaid(),
             _getStakeForColdkey(vault.parkingHotkey(), recipient, NETUID1) - before,
@@ -271,16 +264,20 @@ contract HotkeySwapCampaignPathsTest is HotkeySwapCampaignSetup {
         _assertSharedInvariants();
         handler.rebalance();
         _assertSharedInvariants();
+        uint256 owed = trackedBacking();
+        handler.accrueEmissions(3);
+        _assertSharedInvariants();
+        assertEq(lens.locatedStake(TOKEN1), owed + 3e9, "emissions raise the located backing by 3 alpha");
 
         assertEq(handler.wraps(), 1, "a deposit wraps");
         assertEq(handler.alphaExits(), 1, "an alpha exit pays");
-        assertEq(handler.taoExits(), 1, "a TAO exit pays");
+        assertEq(handler.taoExits(), 2, "a TAO exit and the masked drain both pay");
         assertEq(handler.drains(), 1, "a masked TAO exit empties one slot");
-        assertEq(handler.freshSwaps(), 2, "a validator renames per subnet and across subnets");
-        assertEq(handler.reuseSwaps(), 1, "a validator takes a vacated key");
-        assertEq(handler.syncs(), 1, "a sync records the unobserved rename");
+        assertEq(handler.freshSwaps(), 2, "a validator's hotkey swaps per subnet and across subnets");
+        assertEq(handler.reuseSwaps(), 1, "a validator takes a vacated hotkey");
+        assertEq(handler.syncs(), 1, "a sync records the unobserved hotkey swap");
         assertEq(handler.coldkeySwaps(), 1, "an operator moves to a fresh coldkey");
-        assertEq(handler.republishes(), 1, "the registry publishes the live keys");
+        assertEq(handler.republishes(), 1, "the registry publishes the validators' current hotkeys");
         assertEq(handler.rebalances(), 1, "the rebalance lands the new set");
         _assertSharedInvariants();
     }

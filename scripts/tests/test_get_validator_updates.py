@@ -1,23 +1,21 @@
-import sys
-from types import SimpleNamespace
-
+"""Chainless tests for the registry-update reader's CSV rows."""
 import get_validator_updates as script
+from fake_events import BLOCK_TIMESTAMP, fake_log
 
 
-def test_observability_decodes_basic_validator_updates(monkeypatch, capsys):
-    monkeypatch.setattr(sys, "argv", ["get_validator_updates", "--registry-address", "registry",
-                        "--rpc-url", "http://unused",
-                        "--block-start", "1", "--block-end", "42"])
-    connection = SimpleNamespace(eth=SimpleNamespace(get_block=lambda number: SimpleNamespace(timestamp=123)))
-    monkeypatch.setattr(script, "get_web3_connection", lambda url: connection)
-    calls = []
-    def logs(*args, **kwargs):
-        calls.append(args)
-        event = {"netuid": 7, "nonce": 2}
-        event.update(hotkey="A")
-        return [({"transactionHash": SimpleNamespace(to_0x_hex=lambda: "0x01"), "blockNumber": 42}, event)]
-    monkeypatch.setattr(script, "fetch_event_logs", logs)
-    script.main()
-    contract, event = "PlaceholderValidatorRegistry", "ValidatorUpdated"
-    assert calls[0][2:4] == (contract, event)
-    assert "0x01,7,2,1,123" in capsys.readouterr().out
+def test_validator_update_rows_carry_the_netuid_nonce_and_block_time(run_event_reader):
+    events = {("PlaceholderValidatorRegistry", "ValidatorUpdated"): [
+        (fake_log("0x01", 42), {"netuid": 7, "nonce": 2, "hotkey": bytes(32)}),
+        (fake_log("0x02", 43), {"netuid": 9, "nonce": 1, "hotkey": bytes(32)}),
+    ]}
+
+    rows = run_event_reader(script, ["--registry-address", "registry"], events, 1, 42)
+
+    assert rows == [
+        {"tx_hash": "0x01", "netuid": "7", "nonce": "2", "count": "1", "timestamp": str(BLOCK_TIMESTAMP)},
+        {"tx_hash": "0x02", "netuid": "9", "nonce": "1", "count": "1", "timestamp": str(BLOCK_TIMESTAMP)},
+    ]
+
+
+def test_validator_updates_of_an_empty_range_print_no_rows(run_event_reader):
+    assert run_event_reader(script, ["--registry-address", "registry"], {}, 1, 42) == []

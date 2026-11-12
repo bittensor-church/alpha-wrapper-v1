@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
-import { MockStaking } from "./mocks/MockStaking.sol";
-import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { BackingScenarios } from "./helpers/BackingScenarios.sol";
+import { VaultReads } from "src/libraries/VaultReads.sol";
 
-contract VaultEventsTest is AlphaVaultTestBase {
+contract VaultEventsTest is BackingScenarios {
     uint256 private constant DEPOSIT = 30 * ALPHA;
 
     function test_Wrap_RecordsEachOpenedSlotAndTheChosenHotkey() public {
@@ -94,11 +93,10 @@ contract VaultEventsTest is AlphaVaultTestBase {
     function test_SyncBacking_RecordsTheRecoveryMovesAndClosesCollectionSlots() public {
         _depositAndWrap(alice, NETUID1, DEPOSIT);
         uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
-        bytes32 parking = vault.parkingHotkey();
 
         vm.recordLogs();
         vm.expectEmit(true, true, true, true, address(vault));
-        emit SlotRelocated(TOKEN1, 0, hotkey1, parking);
+        emit SlotRelocated(TOKEN1, 0, hotkey1, PARKING_HOTKEY);
         vm.expectEmit(true, true, true, true, address(vault));
         emit SlotRelocated(TOKEN1, 1, hotkey2, hotkey1);
         vm.expectEmit(true, true, true, true, address(vault));
@@ -122,12 +120,40 @@ contract VaultEventsTest is AlphaVaultTestBase {
         assertEq(vault.recordedSlots(TOKEN1).length, 1);
     }
 
+    function test_SyncBacking_KeepsASwappedAwayHotkeyAsACollectionSlot() public {
+        _depositAndWrap(alice, NETUID1, DEPOSIT);
+        _simulatePerSubnetSwap(NETUID1, hotkey1, hotkey4);
+        _sweepDuringCrash(NETUID1, hotkey2);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit SlotRelocated(TOKEN1, 0, hotkey1, PARKING_HOTKEY);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit SlotRelocated(TOKEN1, 1, hotkey2, hotkey4);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit SlotRelocated(TOKEN1, 2, hotkey3, hotkey2);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit SlotRelocated(TOKEN1, 3, bytes32(0), hotkey3);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit SlotRelocated(TOKEN1, 4, bytes32(0), hotkey1);
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit BackingShortfallDeclared(TOKEN1, DEPOSIT, 20.001e9);
+        vault.syncBacking(TOKEN1);
+
+        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
+        assertEq(slots.length, 5, "parking, the three resolved hotkeys and the swapped-away one, each once");
+        assertEq(slots[0].tracked, DEPOSIT, "parking carries the whole obligation");
+        assertEq(slots[4].stakedUnder, hotkey1, "the swapped-away hotkey stays a collection slot");
+        assertEq(slots[4].tracked, 0);
+        assertEq(_parkedStake(NETUID1), 20.001e9, "the successor's and hotkey3's alpha are parked");
+    }
+
     function test_SyncBacking_ReleasesParkingBeforeDeclaringANewShortfall() public {
         (, uint256 parkedAtNonce) = _parkedPosition(DEPOSIT);
-        MockStaking(STAKING_PRECOMPILE).setStake(vault.parkingHotkey(), _subnetColdkey(NETUID1), NETUID1, 10 * ALPHA);
+        assertEq(parkedAtNonce, SETUP_NONCE, "parked at the only attestation so far");
+        _sweepDuringCrash(NETUID1, PARKING_HOTKEY);
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit ParkingReleased(TOKEN1, parkedAtNonce);
+        emit ParkingReleased(TOKEN1, SETUP_NONCE);
         vault.syncBacking(TOKEN1);
 
         (uint256 shortSince, uint256 nonceAfter) = vault.recovery(TOKEN1);
@@ -136,11 +162,11 @@ contract VaultEventsTest is AlphaVaultTestBase {
     }
 
     function test_Rebalance_ReleasesParkingAfterANewerAttestation() public {
-        (, uint256 parkedAtNonce) = _parkedPosition(DEPOSIT);
-        _reattestCurrentSet(NETUID1);
+        _parkedPosition(DEPOSIT);
+        _reattestValidators(NETUID1);
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit ParkingReleased(TOKEN1, parkedAtNonce);
+        emit ParkingReleased(TOKEN1, SETUP_NONCE);
         vault.rebalance(NETUID1);
 
         assertFalse(vault.awaitingAttestation(TOKEN1));
@@ -158,10 +184,10 @@ contract VaultEventsTest is AlphaVaultTestBase {
     }
 
     function test_Unwrap_ReleasesParkingWhenNoSharesRemain() public {
-        (uint256 shares, uint256 parkedAtNonce) = _parkedPosition(DEPOSIT);
+        (uint256 shares,) = _parkedPosition(DEPOSIT);
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit ParkingReleased(TOKEN1, parkedAtNonce);
+        emit ParkingReleased(TOKEN1, SETUP_NONCE);
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 1);
 
@@ -170,10 +196,10 @@ contract VaultEventsTest is AlphaVaultTestBase {
     }
 
     function test_UnwrapForTao_ReleasesParkingWhenNoSharesRemain() public {
-        (uint256 shares, uint256 parkedAtNonce) = _parkedPosition(DEPOSIT);
+        (uint256 shares,) = _parkedPosition(DEPOSIT);
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit ParkingReleased(TOKEN1, parkedAtNonce);
+        emit ParkingReleased(TOKEN1, SETUP_NONCE);
         vm.prank(alice);
         vault.unwrapForTao(TOKEN1, shares, 0);
 

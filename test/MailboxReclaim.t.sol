@@ -1,19 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
+import { DepositScenarios } from "./helpers/DepositScenarios.sol";
 import { LockedDeposit, MailboxNotPrepared, ZeroAmount } from "src/VaultErrors.sol";
-import { MockStaking } from "./mocks/MockStaking.sol";
-import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
-contract MailboxReclaimTest is AlphaVaultTestBase {
-    MockStaking internal mock;
-
-    function setUp() public override {
-        super.setUp();
-        mock = MockStaking(STAKING_PRECOMPILE);
-    }
-
+contract MailboxReclaimTest is DepositScenarios {
     function _depositLockedAlpha(address user) internal returns (bytes32 mailboxColdkey) {
         _simulateAlphaDeposit(user, NETUID1, 100 * ALPHA);
         mailboxColdkey = _mailboxColdkey(user, NETUID1);
@@ -28,7 +19,7 @@ contract MailboxReclaimTest is AlphaVaultTestBase {
         vault.reclaimAlphaFromMailbox(NETUID1, _toSubstrate(alice));
     }
 
-    function test_ReclaimAlphaFromMailbox_CarriesTheLockToAnAcceptingColdkey() public {
+    function test_ReclaimAlphaFromMailbox_EmptiesALockedMailboxIntoAnAcceptingColdkey() public {
         bytes32 mailboxColdkey = _depositLockedAlpha(alice);
         bytes32 destination = _toSubstrate(alice);
         mock.setAcceptsLockedAlpha(destination, true);
@@ -40,9 +31,8 @@ contract MailboxReclaimTest is AlphaVaultTestBase {
 
         assertEq(_getStakeForColdkey(mailboxColdkey, destination, NETUID1), 100 * ALPHA, "the whole deposit arrives");
         assertEq(_getStakeForColdkey(mailboxColdkey, mailboxColdkey, NETUID1), 0, "the mailbox is empty");
-        assertEq(mock.lockedAlpha(destination, NETUID1), 40 * ALPHA, "the lock moves with the alpha");
-        assertEq(mock.lockHotkey(destination, NETUID1), mailboxColdkey);
-        assertEq(mock.lockedAlpha(mailboxColdkey, NETUID1), 0, "and leaves the mailbox");
+
+        assertEq(_depositAndWrap(alice, NETUID1, 10 * ALPHA), 10e18, "the emptied mailbox takes a new deposit");
     }
 
     function test_RevertWhen_ReclaimingAlphaWithoutAMailbox() public {

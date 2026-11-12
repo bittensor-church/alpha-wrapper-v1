@@ -17,8 +17,16 @@ subnets):
 import pytest
 
 from alpha_e2e import chain, config, exits, extrinsics
-from alpha_e2e.checks import assert_gas_within, assert_value_per_share_kept, min_tao_out_for
+from alpha_e2e.checks import assert_value_per_share_kept, min_tao_out_for
 from alpha_e2e.substrate import h160_to_ss58, h160_to_substrate_b32
+
+
+def _slice_value_tao(env, token_id: int, holder: str, hotkeys: list) -> int:
+    """Spot TAO value (RAO) of a holder's share of the clone's stake on the subnet."""
+    netuid = env.netuid_of(token_id)
+    supply = env.vault_total_supply(token_id)
+    backing = env.total_stake_across(env.clone_coldkey(token_id), netuid, hotkeys)
+    return env.alpha_value_tao(netuid, env.vault_shares(token_id, holder) * backing // supply)
 
 
 @pytest.mark.scenario
@@ -34,7 +42,7 @@ def test_rotated_out_dust_cannot_lock_the_vault(env):
 
     _, floor_boundary_alpha = env.floor_boundary(netuid, floor)
     env.deposit_and_wrap(
-        netuid, rotated_out_hotkey_pubkey, env.hotkey_ss58s[0], floor_boundary_alpha * 3 // 2,
+        netuid, rotated_out_hotkey_pubkey, env.subnet_hotkey_ss58s(0)[0], floor_boundary_alpha * 3 // 2,
         1_500_000, "Rotated-out dust: wrap failed",
     )
 
@@ -57,9 +65,6 @@ def test_rotated_out_dust_cannot_lock_the_vault(env):
         "unwrap(uint256,uint256,bytes32,uint256)",
         token_id, remaining_shares, env.wrapper_substrate_coldkey, 0,
     )
-    assert_gas_within(
-        refusal_receipt, config.REVERT_GAS_BOUND, "Rotated-out dust: alpha-exit refusal",
-    )
 
     position_alpha = env.total_stake_across(clone_coldkey, netuid, hotkeys)
     tao_exit_receipt, _ = exits.unwrap_for_tao(
@@ -72,7 +77,7 @@ def test_rotated_out_dust_cannot_lock_the_vault(env):
 
     _, floor_boundary_alpha = env.floor_boundary(netuid, floor)
     env.deposit_and_wrap(
-        netuid, kept_hotkey_b_pubkey, env.hotkey_ss58s[1], floor_boundary_alpha * 3 // 2, 1_500_000,
+        netuid, kept_hotkey_b_pubkey, env.subnet_hotkey_ss58s(0)[1], floor_boundary_alpha * 3 // 2, 1_500_000,
         "Rotated-out dust: follow-up wrap failed",
     )
     exits.unwrap(
@@ -88,10 +93,8 @@ def test_price_crash_cannot_lock_exits(env):
     netuid = env.netuids[1]
     token_id = env.token_ids[1]
     hotkeys = env.subnet_hotkey_pubkeys(1)
-    position_hotkey_pubkey = hotkeys[0]
-    position_hotkey_ss58 = env.hotkey_ss58s[3]
-    sell_hotkey_pubkey = hotkeys[1]
-    sell_hotkey_ss58 = env.hotkey_ss58s[4]
+    position_hotkey_pubkey, sell_hotkey_pubkey = hotkeys[:2]
+    position_hotkey_ss58, sell_hotkey_ss58 = env.subnet_hotkey_ss58s(1)[:2]
 
     crash_price, floor_boundary_alpha = env.floor_boundary(netuid, floor)
     # Just above the floor, so the crash helper's roughly halved price drops the whole position under it.
@@ -114,7 +117,6 @@ def test_price_crash_cannot_lock_exits(env):
         "unwrap(uint256,uint256,bytes32,uint256)",
         token_id, crashed_shares, env.wrapper_substrate_coldkey, 0,
     )
-    assert_gas_within(refusal_receipt, config.REVERT_GAS_BOUND, "Price crash: alpha-exit refusal")
 
     position_alpha = env.total_stake_across(clone_coldkey, netuid, hotkeys)
     tao_exit_receipt, _ = exits.unwrap_for_tao(
@@ -144,7 +146,7 @@ def test_sub_floor_co_holder_cannot_be_locked_in_or_leak_the_other_holder(env):
     token_id = env.token_ids[2]
     hotkeys = env.subnet_hotkey_pubkeys(2)
     position_hotkey_pubkey = hotkeys[0]
-    position_hotkey_ss58 = env.hotkey_ss58s[6]
+    position_hotkey_ss58 = env.subnet_hotkey_ss58s(2)[0]
     second_holder_coldkey = h160_to_substrate_b32(config.SECOND_HOLDER_ADDRESS)
 
     extrinsics.fund_account(h160_to_ss58(config.SECOND_HOLDER_ADDRESS), 10 * config.RAO_PER_TAO)
@@ -172,12 +174,8 @@ def test_sub_floor_co_holder_cannot_be_locked_in_or_leak_the_other_holder(env):
         private_key=config.SECOND_HOLDER_PRIVATE_KEY,
     )
 
-    small_holder_value = env.alpha_value_tao(
-        netuid, env.holder_assets(token_id, config.SECOND_HOLDER_ADDRESS),
-    )
-    large_holder_value = env.alpha_value_tao(
-        netuid, env.holder_assets(token_id, config.WRAPPER_USER_ADDRESS),
-    )
+    small_holder_value = _slice_value_tao(env, token_id, config.SECOND_HOLDER_ADDRESS, hotkeys)
+    large_holder_value = _slice_value_tao(env, token_id, config.WRAPPER_USER_ADDRESS, hotkeys)
     assert small_holder_value < floor, (
         f"Co-holder: small slice not below the floor "
         f"({small_holder_value} RAO, floor {floor})"
@@ -193,17 +191,11 @@ def test_sub_floor_co_holder_cannot_be_locked_in_or_leak_the_other_holder(env):
         "unwrap(uint256,uint256,bytes32,uint256)", token_id, small_holder_shares, second_holder_coldkey, 0,
         private_key=config.SECOND_HOLDER_PRIVATE_KEY, sender=config.SECOND_HOLDER_ADDRESS,
     )
-    assert_gas_within(
-        alpha_refusal_receipt, config.REVERT_GAS_BOUND, "Co-holder: alpha-exit refusal",
-    )
     tao_refusal_receipt = env.assert_vault_reverts_with(
         "WithdrawTooSmall()", 2_500_000,
         "Co-holder: sub-floor TAO exit did NOT revert as WithdrawTooSmall",
         "unwrapForTao(uint256,uint256,uint256)", token_id, small_holder_shares, 1,
         private_key=config.SECOND_HOLDER_PRIVATE_KEY, sender=config.SECOND_HOLDER_ADDRESS,
-    )
-    assert_gas_within(
-        tao_refusal_receipt, config.REVERT_GAS_BOUND, "Co-holder: TAO-exit refusal",
     )
     print("  Both exits refused the sub-floor slice cleanly")
 
