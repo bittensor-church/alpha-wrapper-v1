@@ -152,8 +152,11 @@ even while backing is intact.
    128 entries, half the chain's cap, anyone can call `replaceClone(tokenId, uid)`
    with a fresh random UID; `StakingListFull` on any call means the same. The
    position, its TAO and the token id move to a fresh clone; piles below the
-   floor stay on the old clone. Run `scripts/find_strays.py --recover` first:
-   everything left on the old clone, written-off alpha included, is lost for good.
+   floor stay on the old clone. Everything left on the old clone, written-off
+   alpha included, is lost for good. Before the list reaches 128 entries, run
+   `scripts/find_strays.py`, which prints each stray pile, and recover the ones
+   worth their gas: a recovery is two stake moves, and each pays the chain's walk
+   of the whole list.
 
 `syncBacking` and `recoverStray` are permissionless. Declaration cost grows with
 the number of located hotkeys: simulate the call and budget above the estimate.
