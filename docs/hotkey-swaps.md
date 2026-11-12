@@ -57,13 +57,10 @@ operations without one. An attested hotkey with no usable hotkey reports
 `AttestedHotkeyRetired`; the registry owner replaces the target.
 
 A slot the vault has followed a swap from stays on that hotkey while it keeps its
-owner record and no outgoing swap edge, whoever claims the vacated attested hotkey.
-Both checks pass for any holder: an all-subnet swap that carries the stake
-from the followed hotkey removes its owner record, and a stranger who claims it
-and clears its swap edge, by a per-subnet swap into it or by registering it on
-the subnet, receives an emptied slot's allocation ahead of the attested hotkey.
-An attested hotkey
-with no followed record receives an empty slot's allocation while it has an
+owner record and no outgoing swap edge, whoever claims the vacated hotkey. If the
+validator swaps on from the followed hotkey while the slot is empty, a stranger
+can claim that hotkey, clear its swap edge and receive the slot's allocation.
+An attested hotkey with no followed record receives an empty slot's allocation while it has an
 owner record, whoever holds it. Alpha moved off either without a trail is
 missing backing: every priced call reverts `BackingShortfall` until a watcher
 parks the position, which earns again once the registry publishes a new set.
@@ -125,11 +122,9 @@ even while backing is intact.
    status and `awaitingAttestation`. Include empty entries and newly attested
    hotkeys with no recorded slot. If the vault resolves a successor after a swap,
    call `syncBacking(tokenId)` before the old hotkey is re-registered to record it.
-   Watch the chain's hotkey swap events for attested hotkeys and recorded
-   `stakedUnder` hotkeys. After any swap from either, publish the successor at
-   once: until then an emptied slot stays on the followed hotkey, or with no
-   record re-stakes under the old hotkey, and a stranger can claim either one
-   after an all-subnet swap that carries the stake from it.
+   Watch the chain's hotkey swap events for attested and recorded hotkeys. After
+   a swap from either, publish the successor at once: until then an emptied slot
+   stays on the followed hotkey, or with no record re-stakes under the old hotkey.
 2. For missing backing, call `syncBacking(tokenId)`. It secures all located
    backing on `parkingHotkey` before starting one fixed recovery window, except
    below-floor piles. Other collection failures revert.
