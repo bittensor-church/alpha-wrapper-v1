@@ -74,10 +74,10 @@ The followed hotkey keeps the slot after its validator registers the attested
 hotkey again; a swap from the followed hotkey onto it, or publishing the
 followed hotkey, moves the slot.
 
-The chain refuses to move stake through a hotkey with no owner record. When the
-vault has to move stake off such a hotkey, the clone's owner contract claims the
-hotkey first, then the clone moves; the entry lands on the owner contract's own
-staking list. The claim is permanent, and while the hotkey stays attested
+When the vault has to move stake off a hotkey with no owner record, the clone's
+owner contract claims the hotkey first, then the clone moves; the entry lands on
+the owner contract's own staking list.
+The claim is permanent, and while the hotkey stays attested
 the claimed hotkey counts as a receiving hotkey for an emptied slot, which stays
 idle there until the registry owner publishes the successor. Anyone paying the
 chain's hotkey-swap fee can block the claim by reserving the ownerless hotkey as a
@@ -146,12 +146,11 @@ even while backing is intact.
    Finds reduce the pooled deficit without validator attribution.
    `missingStake(tokenId)` reports unlocated alpha;
    dust at recorded hotkeys reduces that amount and is written off when it is too small to park.
-4. While recovery is open, priced calls refuse. Further syncs collect
-   returns at recorded locations. The deadline stays fixed through partial recovery.
+4. While recovery is open, further syncs collect returns at recorded locations.
+   The deadline stays fixed through partial recovery.
    At expiry, sync collects returns before writing off the remaining deficit.
    After collecting full coverage, call sync again to finalize recovery.
-   Full recovery or write-off leaves the position parked unless no shares remain. Alpha recovered later
-   belongs to the holders at that time.
+   Full recovery or write-off leaves the position parked unless no shares remain.
 5. After completion with shares outstanding, registry governance publishes a newer set even if all backing returned.
    Remove any lost or captured hotkey and publish the intended successor. The next wrap,
    alpha exit or `rebalance(netuid)` releases the parked position onto it.
@@ -181,11 +180,6 @@ an acceptable payout. Partial sales face post-fee minimums and dust protections.
 On a live subnet, a shortfall blocks wraps, rebalances, both exits and value
 quotes until the position parks or the loss is written off. Share transfers,
 claimable TAO and mailbox recovery stay available.
-
-A parked position pays exits; deposits and emissions resume once a newer
-registry attestation arrives. A cut or redirected successor edge is resolved
-through the clone's staking list. If backing goes short, call `syncBacking(tokenId)`, run
-`scripts/find_strays.py --recover`, then `syncBacking(tokenId)` before write-off.
 
 A revert preserves shares and stake, but costs gas. A finalized write-off really
 reduces holders' accounted backing; alpha recovered later belongs to holders at
