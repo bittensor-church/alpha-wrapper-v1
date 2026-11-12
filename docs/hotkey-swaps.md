@@ -158,9 +158,9 @@ even while backing is intact.
 6. The lens's `stakingListEntries(tokenId)` reports the clone's staking list. From
    128 entries anyone can call `replaceClone(tokenId, uid)` with a fresh random
    UID; `StakingListFull` on any call means the same. The position, its TAO and
-   the token id move to a fresh clone; piles below the floor stay on the old
-   clone. Everything left on the old clone, written-off alpha included, is lost
-   for good. Before the list reaches 128 entries, collect strays with
+   the token id move to a fresh clone; piles below the floor and uncollected
+   strays stay on the old clone, an [accepted risk](security-model.md#other-accepted-risks).
+   Before the list reaches 128 entries, collect strays with
    `scripts/find_strays.py --recover`.
 
 `syncBacking` and `recoverStray` are permissionless. Declaration cost grows with
