@@ -4,7 +4,7 @@ pragma solidity 0.8.36;
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { ClaimBelowNativePrecision, SupplyCapExceeded, ZeroAddress, ZeroAmount } from "src/VaultErrors.sol";
 import { ClaimDuringTransferReceiver, RevertingReceiver, ReentrantReceiver } from "./helpers/TaoRailReceivers.sol";
-import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @dev A first deposit of 1,000 alpha mints 1e21 shares, so a gift of g wei moves the index by exactly g * 1e15.
 contract ClaimableTaoTest is AlphaVaultTestBase {
@@ -164,10 +164,7 @@ contract ClaimableTaoTest is AlphaVaultTestBase {
         vm.prank(alice);
         vault.claimTao(TOKEN1, payable(address(receiver)));
 
-        assertEq(
-            receiver.reentryError(),
-            abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector)
-        );
+        assertEq(receiver.reentryError(), abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector));
         assertFalse(receiver.reentrySucceeded());
         assertEq(address(receiver).balance, 5 * TAO);
     }

@@ -19,7 +19,7 @@ import {
     ReentrantReceiver,
     RevertingReceiver
 } from "./helpers/TaoRailReceivers.sol";
-import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @dev Unless a test says otherwise, every layout sums to the deposits, so `k * 1e9` shares back `k`
 ///      RAO and a burn of `assets * 1e9` shares is worth exactly `assets`. Sales pay 0.05 TAO per alpha.
@@ -506,10 +506,7 @@ contract UnwrapForTaoTest is DepositScenarios {
         vm.prank(address(receiver));
         vault.unwrapForTao(TOKEN1, shares, 0);
 
-        assertEq(
-            receiver.reentryError(),
-            abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector)
-        );
+        assertEq(receiver.reentryError(), abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector));
         assertEq(vault.balanceOf(address(receiver), TOKEN1), 0);
     }
 
