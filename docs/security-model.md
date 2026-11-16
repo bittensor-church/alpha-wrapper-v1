@@ -22,8 +22,9 @@ Holders rely on:
   [runtime compatibility](deployment.md#runtime-compatibility).
 - Registry governance publishing distinct hotkeys; a hotkey counted twice can
   overpay an exit.
-- A funded, responsive watcher to repair validator hotkey swaps, and an
-  authorized registry update to release a parked position.
+- A funded, responsive watcher to park
+  [missing backing](recovery.md#missing-backing), and an authorized registry
+  update to release a parked position.
 - Trusted vault and lens builds and addresses.
 
 ## Safeguards
@@ -55,18 +56,20 @@ public UID only forces a retry.
 
 ## Recovery-window tradeoff and late-recovery attack
 
-When a validator hotkey swap leaves vault alpha unlocated, the watcher parks the
-located backing and starts one fixed recovery window. Alpha still missing at
-expiry is written off: a real loss for holders at that time, and anything
-recovered later belongs to whoever holds shares then. Balances too small to move
-can be written off as well.
+When alpha the record expects is still missing after `syncBacking` collects the
+located backing, the sync parks that backing and starts one fixed recovery window.
+Alpha still missing at expiry is written off: a real loss for holders at that
+time, and anything recovered later belongs to whoever holds shares then. Balances
+too small to move can be written off as well.
 
-A validator can exploit that policy:
+Anyone able to keep vault alpha
+[where the vault does not locate it](recovery.md#missing-backing) and return
+it later can exploit that policy:
 
-1. Swap its hotkey, carrying vault alpha, and erase the trail the vault follows.
+1. Leave vault alpha where the vault does not locate it.
 2. Let the write-off finalize if watchers miss the window.
 3. Deposit against the reduced backing to acquire a larger share of the supply.
-4. Reveal the hidden alpha, so the new shares take part in its recovery.
+4. Return the hidden alpha, so the new shares take part in its recovery.
 
 The original holders lose at most the hidden alpha and what it earned
 meanwhile. Parking before write-off defeats the attack, which makes watcher
@@ -77,6 +80,8 @@ later recovery until the clone is replaced.
 ## Other accepted risks
 
 - Exits can fail temporarily while the watcher repairs chain state.
+- A validator that swaps one attested hotkey onto another it owns merges two
+  slots; the position reads short until one `syncBacking` parks it whole.
 - Chain minimums and rounding can require top-ups or combining shares, and a
   full TAO exit may discard a small unsold residue.
 - A TAO exit's price impact falls partly on remaining holders.
@@ -84,10 +89,23 @@ later recovery until the clone is replaced.
   published and the next wrap, rebalance or alpha exit releases it.
 - After a validator swap, stake can sit idle under the old hotkey until the
   registry publishes the successor.
-- A stranger who claims a vacated validator hotkey, attested or followed, can
-  receive an empty slot's allocations until the registry replaces the slot's
-  attested hotkey. The stranger cannot take the principal; see
-  [receiving hotkeys](hotkey-swaps.md#receiving-hotkeys).
+- A stranger who claims a vacated validator hotkey, attested or one the vault
+  followed a swap onto, can receive an empty slot's allocations until the
+  registry replaces the slot's attested hotkey. The stranger cannot take the
+  principal.
+- A slot whose alpha the vault finds on the clone's staking list stays under that
+  hotkey, even a rotated-out validator, until a later registry set moves it.
+- A hotkey the vault followed a swap onto keeps the slot after its validator
+  registers the attested hotkey again; publishing that hotkey, or a swap from it
+  onto the attested one, moves the slot.
+- Two validators of one set that swap their hotkeys together can leave each slot
+  on the other's pile: the total stays exact, and each validator holds the
+  other's weight until the registry names both successors.
+- Stake under a hotkey with no owner record moves only after the clone's owner
+  contract claims that hotkey. Anyone paying the chain's hotkey-swap fee can
+  block the claim by reserving the hotkey as a coldkey-swap destination, and a
+  hotkey under the chain's hashed or post-quantum account schemes refuses it
+  until an account of that scheme claims the hotkey.
 - Alpha a clone holds on another subnet stays outside the backing.
 - Whatever a clone replacement leaves on the old clone is lost for good: piles
   below the floor, strays and written-off alpha. Anyone holding enough alpha can

@@ -44,6 +44,7 @@ class Environment:
     registry_block_start: int
     registry_block_end: int
     registry_update_receipts: List[dict]
+    weighted_registry: bool = False
 
     def netuid_of(self, token_id: int) -> int:
         """The subnet a token of the bootstrap generation belongs to."""
@@ -502,7 +503,14 @@ class Environment:
         return chain.cast_call(factory, "cloneOwnerOf(bytes32)(address)", self.clone_coldkey(token_id))
 
     def set_validator(self, netuid: int, hotkey: str) -> None:
-        validators.set_basic_validator(self.validator_registry_address, netuid, hotkey)
+        validators.set_sole_validator(
+            self.validator_registry_address, netuid, hotkey, weighted=self.weighted_registry,
+        )
+
+    def set_validators(self, netuid: int, hotkeys: List[str], weights: List[int]) -> None:
+        """Publish a weighted set; the deployment must use the weighted registry."""
+        assert self.weighted_registry, "the Placeholder registry attests one hotkey per subnet"
+        validators.set_weighted_validators(self.validator_registry_address, netuid, hotkeys, weights)
 
     def crash_price_until_below(
         self, netuid: int, hotkey_pubkey: str, hotkey_ss58: str,

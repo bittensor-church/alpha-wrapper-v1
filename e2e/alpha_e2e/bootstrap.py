@@ -222,9 +222,13 @@ def _stake_validators(
             print(f"  netuid {netuid} {hotkey_pubkey[:18]}...: {amount_tao} TAO -> {stake} RAO")
 
 
-def _deploy_registry() -> str:
+def _deploy_registry(weighted: bool) -> str:
+    if weighted:
+        address = chain.forge_create(validators.WEIGHTED_REGISTRY, private_key=config.DEPLOYER_PRIVATE_KEY)
+        print(f"  MockValidatorRegistry: {address}")
+        return address
     address = chain.forge_create(
-        "src/PlaceholderValidatorRegistry.sol:PlaceholderValidatorRegistry",
+        validators.PLACEHOLDER_REGISTRY,
         private_key=config.DEPLOYER_PRIVATE_KEY,
         constructor_args=[config.DEPLOYER_ADDRESS],
     )
@@ -233,9 +237,10 @@ def _deploy_registry() -> str:
 
 
 def deploy_contracts(
-    netuids: List[int], hotkey_pubkeys: List[str], *, recovery_window: int,
+    netuids: List[int], hotkey_pubkeys: List[str], *, recovery_window: int, weighted_registry: bool = False,
 ) -> Deployment:
-    """Deploy the vault, its lens and a Placeholder registry naming each subnet's first hotkey."""
+    """Deploy the vault, its lens and a registry naming each subnet's first hotkey: the Placeholder
+    registry, or with `weighted_registry` the one that takes weighted sets."""
     _log("Deploy")
 
     observation_block_start = chain.cast_block_number()
@@ -254,7 +259,7 @@ def deploy_contracts(
     )
     print(f"  SubnetClone: {subnet_clone_implementation_address}")
 
-    validator_registry_address = _deploy_registry()
+    validator_registry_address = _deploy_registry(weighted_registry)
 
     clones_library = "src/libraries/VaultClones.sol:VaultClones"
     clones_address = chain.forge_create(clones_library, private_key=config.DEPLOYER_PRIVATE_KEY)
@@ -299,8 +304,9 @@ def deploy_contracts(
 
     registry_block_start = chain.cast_block_number()
     registry_update_receipts = [
-        validators.set_basic_validator(
+        validators.set_sole_validator(
             validator_registry_address, netuid, hotkey_pubkeys[subnet_index * config.VALIDATORS_PER_SUBNET],
+            weighted=weighted_registry,
         )
         for subnet_index, netuid in enumerate(netuids)
     ]
@@ -318,12 +324,16 @@ def deploy_contracts(
     )
 
 
-def redeploy(env: Environment, subnet_index: int, recovery_window: int) -> Environment:
+def redeploy(
+    env: Environment, subnet_index: int, recovery_window: int, *, weighted_registry: bool = False,
+) -> Environment:
     """A fresh vault, lens and registry for the subnet at `subnet_index`, attesting its first hotkey,
     so a scenario can stage the chain before any clone or mailbox exists. The other subnets are
-    not attested on the returned deployment."""
+    not attested on the returned deployment. With `weighted_registry` the registry takes weighted
+    sets through `Environment.set_validators`."""
     deployment = deploy_contracts(
-        [env.netuids[subnet_index]], env.subnet_hotkey_pubkeys(subnet_index), recovery_window=recovery_window,
+        [env.netuids[subnet_index]], env.subnet_hotkey_pubkeys(subnet_index),
+        recovery_window=recovery_window, weighted_registry=weighted_registry,
     )
     return replace(
         env, vault_address=deployment.vault_address, lens_address=deployment.lens_address,
@@ -332,6 +342,7 @@ def redeploy(env: Environment, subnet_index: int, recovery_window: int) -> Envir
         registry_block_start=deployment.registry_block_start,
         registry_block_end=deployment.registry_block_end,
         registry_update_receipts=deployment.registry_update_receipts,
+        weighted_registry=weighted_registry,
     )
 
 

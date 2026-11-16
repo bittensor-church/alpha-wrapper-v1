@@ -10,7 +10,7 @@ from the parking hotkey throughout.
 """
 import pytest
 
-from alpha_e2e import chain, checks, config, exits, incidents
+from alpha_e2e import checks, config, exits, incidents
 
 
 @pytest.mark.scenario
@@ -30,10 +30,8 @@ def test_watcher_parks_a_swept_position_returned_under_a_listed_hotkey(env):
 
     swept = incidents.sweep(env, 0, "Parked recovery")
     assert not env.backing_intact(token_id), "a swept position must read short"
-    env.assert_vault_reverts_with(
-        "BackingShortfall(uint16,bytes32,uint256)", 1_500_000,
-        "Parked recovery: a priced operation should refuse while the alpha is gone",
-        "rebalance(uint256)", netuid, error_args=(netuid, swept.attested_pubkey, swept.swept_rao),
+    incidents.assert_shortfall_blocks_priced_calls(
+        env, token_id, swept.attested_pubkey, swept.swept_rao, "Parked recovery",
     )
 
     parking = incidents.park(env, token_id, swept, "Parked recovery")
@@ -43,36 +41,13 @@ def test_watcher_parks_a_swept_position_returned_under_a_listed_hotkey(env):
     )
     assert env.vault_total_stake(token_id) == parking.parked, "the quote prices the parked alpha"
 
-    env.assert_vault_reverts_with(
-        "Parked()", 1_500_000,
-        "Parked recovery: a deposit should be refused while parked",
-        "wrap(uint256,bytes32,uint256)", netuid, swept.attested_pubkey, 0,
+    incidents.assert_parked_refuses_allocation_and_pays_exits(
+        env, token_id, swept.attested_pubkey, shares // 4, "Parked recovery",
     )
-    exits.unwrap(
-        env, token_id, shares // 4, "Parked recovery: the exit should pay from the parking hotkey",
-        hotkeys=[parking_hotkey],
-    )
-    assert env.awaiting_attestation(token_id), "an exit does not release the position"
 
     env.set_validator(netuid, swept.attested_pubkey)
-    assert not env.awaiting_attestation(token_id), "a newer attestation lifts the hold"
-    receipt = env.vault_send_between_epochs(
-        netuid, 4_000_000, "Parked recovery: the release rebalance failed", "rebalance(uint256)", netuid,
-        label="rebalance [release parked]",
-    )
-
-    assert env.stake(parking_hotkey, clone_coldkey, netuid) <= config.ROUNDING_DUST_SLOT_RAO, (
-        "the parking hotkey should be empty after the release"
-    )
+    incidents.release_parked(env, token_id, [swept.attested_pubkey], "Parked recovery", "rebalance [release parked]")
     assert env.stake(swept.listed_pubkey, clone_coldkey, netuid) == 0, "nothing goes back to the rotated-out validator"
-    release_block = chain.receipt_block_number(receipt, "Parked recovery: release")
-    parked_before = env.stake(parking_hotkey, clone_coldkey, netuid, release_block - 1)
-    landed = env.stake_change(clone_coldkey, netuid, [swept.attested_pubkey], release_block)
-    assert abs(landed - parked_before) <= config.ROUNDING_DUST_SLOT_RAO, (
-        f"the attested validator should take the {parked_before} alpha RAO parked, took {landed}"
-    )
-    assert env.backing_intact(token_id), "the record follows the set"
-    assert not env.awaiting_attestation(token_id), "and the position is ordinary again"
     env.deposit_and_wrap(
         netuid, swept.attested_pubkey, swept.attested_ss58,
         config.DEPOSIT_RAO // 10, 1_500_000, "Parked recovery: deposits should resume",
