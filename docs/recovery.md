@@ -13,9 +13,9 @@ until then.
 
 The vault cannot account for a slot after a sweep, a pile split across hotkeys, a
 pile under hotkey 0x0, two slots merged onto one hotkey, or a pile found under a
-hotkey the registry attests for another slot. Priced calls then revert
-`BackingShortfall` until a watcher follows the [runbook](#watcher-runbook) or the
-registry is updated. One shortfall clock covers the whole token.
+hotkey the registry attests for another slot. Wraps, rebalances, exits and quotes
+then revert `BackingShortfall` until `syncBacking` runs; see the
+[runbook](#watcher-runbook). One shortfall clock covers the whole token.
 
 ## Parked positions
 
@@ -46,8 +46,9 @@ serves every subnet, and each position parks and releases on its own.
    partial alpha exits until the registry publishes a set without that attested
    hotkey.
 2. For missing backing, call `syncBacking(tokenId)`. It secures all located
-   backing on `parkingHotkey` before starting one fixed recovery window, except
-   below-floor piles. Other collection failures revert.
+   backing on `parkingHotkey`, except below-floor piles. If that covers the
+   record, the position parks in the same call; otherwise one fixed recovery
+   window starts. Other collection failures revert.
 3. After sync declares the loss, run `scripts/find_strays.py`: it lists every
    hotkey the clone stakes under that the record does not name, largest pile
    first, and with `--recover` calls `recoverStray(tokenId, source)` for each in

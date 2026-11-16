@@ -87,7 +87,7 @@ def test_one_sync_parks_two_slots_merged_onto_one_hotkey(env, recovery_window):
     assert env.awaiting_attestation(token_id), "the position should wait for the registry owner"
     assert checks.find_strays(env, token_id) == [], "nothing should be left outside the record"
 
-    incidents.assert_parked_refuses_deposits_and_pays_exits(env, token_id, successor, shares // 4, "Merged slots")
+    incidents.assert_parked_refuses_allocation_and_pays_exits(env, token_id, successor, shares // 4, "Merged slots")
 
     released_onto = [successor, other_hotkey]
     env.set_validators(netuid, released_onto, EQUAL_WEIGHTS)

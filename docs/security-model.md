@@ -89,9 +89,15 @@ later recovery until the clone is replaced.
   published and the next wrap, rebalance or alpha exit releases it.
 - After a validator swap, stake can sit idle under the old hotkey until the
   registry publishes the successor.
-- A stranger who claims a vacated validator hotkey, attested or followed, can
-  receive an empty slot's allocations until the registry replaces the slot's
-  attested hotkey. The stranger cannot take the principal.
+- A stranger who claims a vacated validator hotkey, attested or one the vault
+  followed a swap onto, can receive an empty slot's allocations until the
+  registry replaces the slot's attested hotkey. The stranger cannot take the
+  principal.
+- A slot whose alpha the vault finds on the clone's staking list stays under that
+  hotkey, even a rotated-out validator, until a later registry set moves it.
+- A hotkey the vault followed a swap onto keeps the slot after its validator
+  registers the attested hotkey again; publishing that hotkey, or a swap from it
+  onto the attested one, moves the slot.
 - Two validators of one set that swap their hotkeys together can leave each slot
   on the other's pile: the total stays exact, and each validator holds the
   other's weight until the registry names both successors.

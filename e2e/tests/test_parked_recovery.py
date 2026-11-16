@@ -30,10 +30,8 @@ def test_watcher_parks_a_swept_position_returned_under_a_listed_hotkey(env):
 
     swept = incidents.sweep(env, 0, "Parked recovery")
     assert not env.backing_intact(token_id), "a swept position must read short"
-    env.assert_vault_reverts_with(
-        "BackingShortfall(uint16,bytes32,uint256)", 1_500_000,
-        "Parked recovery: a priced operation should refuse while the alpha is gone",
-        "rebalance(uint256)", netuid, error_args=(netuid, swept.attested_pubkey, swept.swept_rao),
+    incidents.assert_shortfall_blocks_priced_calls(
+        env, token_id, swept.attested_pubkey, swept.swept_rao, "Parked recovery",
     )
 
     parking = incidents.park(env, token_id, swept, "Parked recovery")
@@ -43,7 +41,7 @@ def test_watcher_parks_a_swept_position_returned_under_a_listed_hotkey(env):
     )
     assert env.vault_total_stake(token_id) == parking.parked, "the quote prices the parked alpha"
 
-    incidents.assert_parked_refuses_deposits_and_pays_exits(
+    incidents.assert_parked_refuses_allocation_and_pays_exits(
         env, token_id, swept.attested_pubkey, shares // 4, "Parked recovery",
     )
 

@@ -31,7 +31,7 @@ import {
 } from "./VaultErrors.sol";
 
 /// @notice ERC-1155 shares of staked alpha, isolated by subnet registration in vault-controlled clones.
-/// @dev Registry signers choose weights; watchers handle unresolved swaps. Missing backing parks a position with
+/// @dev Registry signers choose weights; watchers sync missing backing, which parks a position with
 ///      shares outstanding on the vault's own hotkey until the registry publishes a newer set.
 contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuardTransient, IAlphaVaultAbi {
     /// @dev One shortfall clock per token. A parked position rests on `parkingHotkey` until the

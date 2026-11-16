@@ -1,7 +1,8 @@
 """Chain-side incidents the recovery scenarios stage against a vault position.
 
-The staging helpers return what they observed and assert only that their own staging took;
-the scenarios assert the vault's answer, the shared ones through `assert_watcher_parked`.
+The staging helpers return what they observed and assert only that their own staging took.
+The vault's answer is asserted by the scenarios, and by the `assert_*` helpers and
+`release_parked` where scenarios share it.
 """
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -242,6 +243,7 @@ def assert_watcher_parked(env: Environment, token_id: int, swept: Sweep, parking
 
 
 SHORTFALL_ERROR = "BackingShortfall(uint16,bytes32,uint256)"
+PARKED_ERROR = "Parked()"
 
 
 def assert_shortfall_blocks_priced_calls(
@@ -274,16 +276,24 @@ def assert_shortfall_blocks_priced_calls(
         )
 
 
-def assert_parked_refuses_deposits_and_pays_exits(
+def assert_parked_refuses_allocation_and_pays_exits(
     env: Environment, token_id: int, attested_hotkey: str, shares: int, context: str,
 ) -> None:
-    """Assert a parked position refuses a deposit, pays an alpha exit and a TAO exit of `shares` each
-    from the parking hotkey, and stays parked."""
+    """Assert a parked position refuses a deposit, its quote and a rebalance, pays an alpha exit and a
+    TAO exit of `shares` each from the parking hotkey, and stays parked."""
     netuid = env.netuid_of(token_id)
     parking = [env.parking_hotkey()]
-    env.assert_vault_reverts_with(
-        "Parked()", 1_500_000, f"{context}: a deposit should be refused while parked",
-        "wrap(uint256,bytes32,uint256)", netuid, attested_hotkey, 0,
+    for signature, args in (
+        ("wrap(uint256,bytes32,uint256)", (netuid, attested_hotkey, 0)),
+        ("rebalance(uint256)", (netuid,)),
+    ):
+        env.assert_vault_reverts_with(
+            PARKED_ERROR, 1_500_000, f"{context}: {signature.split('(')[0]} should be refused while parked",
+            signature, *args,
+        )
+    quote_revert = chain.revert_data(env.lens_address, "previewWrap(uint256,uint256)", token_id, config.DEPOSIT_RAO)
+    assert quote_revert == chain.encoded_call(PARKED_ERROR), (
+        f"{context}: previewWrap should revert {PARKED_ERROR} while parked, got {quote_revert}"
     )
     exits.unwrap(env, token_id, shares, f"{context}: the exit should pay from the parking hotkey", hotkeys=parking)
     exits.unwrap_for_tao(

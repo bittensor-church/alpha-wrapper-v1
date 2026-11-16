@@ -100,9 +100,10 @@ Scenario files in `tests/` cover:
   recovers through `scripts/find_strays.py --recover`, parks the position, both exits
   pay from the parking hotkey, an owner update releases.
 - `test_merged_slots.py`: under a two-validator registry, a validator swaps one attested
-  hotkey onto the other, which holds no subnet seat, so two slots share one pile; every
-  priced call and `recoverStray` refuse, one `syncBacking` parks the position whole,
-  both exits pay from the parking hotkey and a new set releases it.
+  hotkey onto the other, which holds no subnet seat, so two slots share one pile; the
+  deposit, both exits, the rebalance, the quotes and `recoverStray` refuse, one
+  `syncBacking` parks the position whole, both exits pay from the parking hotkey and
+  a new set releases it.
 - `test_parking_isolation.py`: two subnets park on the one parking hotkey; each keeps
   its own balance, the other keeps trading, and each releases on its own owner update.
 - `test_subnet_generation.py`: a rewritten registration block leaves the token and its
