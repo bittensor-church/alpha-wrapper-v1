@@ -429,6 +429,15 @@ def set_network_registration_block(
     return block_hash
 
 
+def set_subnet_alpha_in(
+    netuid: int, alpha_rao: int, *, chain_endpoint: str = config.CHAIN_ENDPOINT,
+) -> str:
+    """Rewrite the alpha side of a subnet's pool through Sudo, the state emissions into the pool
+    build up over time. Read the result back through the alpha precompile: emissions keep adding
+    to it every block."""
+    return _set_subnet_u64(b"SubnetAlphaIn", netuid, alpha_rao, chain_endpoint)
+
+
 def keypair_pubkey(uri: str) -> str:
     """The 32-byte public key of a dev URI, hex-encoded, as the vault and precompiles take it."""
     return "0x" + bytes(_sdk().sp_core.Keypair.create_from_uri(uri).public_key).hex()

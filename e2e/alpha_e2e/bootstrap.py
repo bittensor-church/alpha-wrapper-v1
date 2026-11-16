@@ -19,7 +19,7 @@ not carry the --network flag. Keys live under config.WALLET_PATH.
 import math
 import os
 from dataclasses import replace
-from typing import List, NamedTuple, Tuple
+from typing import List, NamedTuple, Optional, Tuple
 
 from . import chain, config, extrinsics, substrate, validators
 from .environment import Environment, random_bytes32, read_stake
@@ -334,10 +334,14 @@ def redeploy(env: Environment, subnet_index: int, recovery_window: int) -> Envir
     )
 
 
-def build_environment(*, recovery_window: int) -> Environment:
+def build_environment(*, recovery_window: int, alpha_price: Optional[int] = None) -> Environment:
+    """`alpha_price` lowers every subnet's alpha price to it (TAO per alpha, e18 scale); None keeps
+    the price the localnet's pools settle at."""
     _check_repo_root()
     _check_chain_reachable()
     _ensure_alice_wallet()
+    _log("Set the nominator minimum")
+    extrinsics.set_nominator_min_required_stake(config.NOMINATOR_MIN_REQUIRED_STAKE_FACTOR)
     _log("Fund deployer")
     _ensure_evm_account_funded(
         "Deployer", config.DEPLOYER_ADDRESS, config.DEPLOYER_SS58,
@@ -365,6 +369,10 @@ def build_environment(*, recovery_window: int) -> Environment:
         registry_block_end=deployment.registry_block_end,
         registry_update_receipts=deployment.registry_update_receipts,
     )
+    if alpha_price is not None:
+        _log("Lower alpha prices")
+        for netuid in netuids:
+            env.lower_alpha_price(netuid, alpha_price)
     for netuid in netuids:
         env.create_mailbox(netuid)
         print(f"  Protected mailbox and subnet clone prepared for netuid {netuid}")

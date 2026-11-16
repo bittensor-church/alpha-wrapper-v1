@@ -9,5 +9,10 @@ def recovery_window():
 
 
 @pytest.fixture(scope="session")
-def env(recovery_window):
-    return bootstrap.build_environment(recovery_window=recovery_window)
+def alpha_price():
+    return None
+
+
+@pytest.fixture(scope="session")
+def env(recovery_window, alpha_price):
+    return bootstrap.build_environment(recovery_window=recovery_window, alpha_price=alpha_price)

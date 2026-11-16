@@ -16,8 +16,9 @@ STRANGER_URI = "//Bob"
 STRANGER_FUNDING_RAO = 2_000_000_000
 KEEPER_URI = "//EntryKeeper"
 RETURNER_URI = "//Returner"
-# The chain's sweep threshold is its minimum stake (0.002 TAO) times this factor over 1e6: 0.02 TAO.
-RAISED_THRESHOLD_FACTOR = 10_000_000
+# Only a raise runs the chain's clearing pass. Twice the standing factor sells every nomination
+# worth less than 0.04 TAO.
+RAISED_THRESHOLD_FACTOR = 2 * config.NOMINATOR_MIN_REQUIRED_STAKE_FACTOR
 
 
 @contextmanager

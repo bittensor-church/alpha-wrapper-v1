@@ -13,6 +13,11 @@ from alpha_e2e import chain, config, exits
 from alpha_e2e.checks import assert_gas_within, min_tao_out_for
 
 
+@pytest.fixture(scope="session")
+def alpha_price():
+    return config.MAINNET_ALPHA_PRICE
+
+
 class ChurnLedger:
     """Deposits, withdrawals, and rotations on one subnet, tracking the closing-ledger
     totals (alpha RAO) and every hotkey a delivery can land under. Every call lands clear
