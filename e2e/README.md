@@ -118,7 +118,7 @@ Scenario files in `tests/` cover:
   exit on the successor.
 Each module's docstring describes its sequence. These scenarios exercise specific
 recovery conditions, not an unconditional exit guarantee; see the
-[design](../docs/hotkey-swaps.md).
+[recovery runbook](../docs/hotkey-swaps.md).
 
 Bootstrap creates three subnets, nine validators, the contracts and funded test
 accounts once per scenario process. On fast blocks it stretches each subnet's epoch to

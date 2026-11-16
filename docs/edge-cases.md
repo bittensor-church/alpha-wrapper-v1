@@ -113,8 +113,9 @@ Third-party alpha under tracked hotkeys increases backing. A clone admits
 third-party alpha only onto a hotkey it already lists; alpha it holds on another
 subnet is an [accepted risk](security-model.md#other-accepted-risks). Mailbox
 wraps collect only the mailbox's own hotkey. Other vault alpha joins the position
-through `recoverStray` under the [recovery rules](hotkey-swaps.md), including
-their late-recovery ownership policy.
+through `recoverStray` under the [recovery runbook](hotkey-swaps.md#watcher-runbook);
+alpha recovered after a write-off follows the
+[late-recovery policy](security-model.md#recovery-window-tradeoff-and-late-recovery-attack).
 
 A full-supply `unwrapForTao` attempts to sell all located alpha, including any
 left when supply was zero; the last holder receives the proceeds. An alpha
