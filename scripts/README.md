@@ -33,4 +33,4 @@ separately as `tao_unwrap_shares_refunded` and stay out of `shares_minted`.
 
 `common.py` supplies shared web3, ABI and CSV helpers to these tools and the
 [e2e harness](../e2e/README.md). Recovery monitoring requirements are in the
-[watcher runbook](../docs/hotkey-swaps.md).
+[watcher runbook](../docs/recovery.md).

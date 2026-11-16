@@ -44,6 +44,7 @@ class Environment:
     registry_block_start: int
     registry_block_end: int
     registry_update_receipts: List[dict]
+    weighted_registry: bool = False
 
     def netuid_of(self, token_id: int) -> int:
         """The subnet a token of the bootstrap generation belongs to."""
@@ -216,6 +217,9 @@ class Environment:
         """The minimum a partial unstake enforces; the vault's floor for every move, transfer and partial sale."""
         return int(chain.cast_call(config.STAKING_PRECOMPILE, "getDefaultMinStake()(uint256)"))
 
+    def nominator_min_stake_tao(self) -> int:
+        return int(chain.cast_call(config.STAKING_PRECOMPILE, "getNominatorMinRequiredStake()(uint256)"))
+
     def chain_min_transfer_tao(self) -> int:
         """The minimum the chain enforces on every same-subnet move and transfer, in RAO."""
         constants = chain.cast_call_lines(
@@ -249,6 +253,16 @@ class Environment:
         return int(chain.cast_call(
             config.ALPHA_PRECOMPILE, "getAlphaInPool(uint16)(uint64)", netuid,
         ))
+
+    def lower_alpha_price(self, netuid: int, target_price: int) -> None:
+        price = self.alpha_price(netuid)
+        assert price > target_price, f"netuid {netuid}: alpha trades at {price}, not above {target_price}"
+        extrinsics.set_subnet_alpha_in(netuid, self.alpha_in_pool(netuid) * price // target_price)
+        lowered = self.alpha_price(netuid)
+        assert target_price * 99 // 100 <= lowered <= target_price * 101 // 100, (
+            f"netuid {netuid}: alpha trades at {lowered} after deepening the pool, wanted {target_price}"
+        )
+        print(f"  netuid {netuid}: alpha price {price} -> {lowered}")
 
     def alpha_to_tao_quote(self, netuid: int, alpha_rao: int, block: Optional[int] = None) -> int:
         """Chain's own alpha->TAO quote (RAO out) for selling `alpha_rao` on `netuid`, against
@@ -489,7 +503,14 @@ class Environment:
         return chain.cast_call(factory, "cloneOwnerOf(bytes32)(address)", self.clone_coldkey(token_id))
 
     def set_validator(self, netuid: int, hotkey: str) -> None:
-        validators.set_basic_validator(self.validator_registry_address, netuid, hotkey)
+        validators.set_sole_validator(
+            self.validator_registry_address, netuid, hotkey, weighted=self.weighted_registry,
+        )
+
+    def set_validators(self, netuid: int, hotkeys: List[str], weights: List[int]) -> None:
+        """Publish a weighted set; the deployment must use the weighted registry."""
+        assert self.weighted_registry, "the Placeholder registry attests one hotkey per subnet"
+        validators.set_weighted_validators(self.validator_registry_address, netuid, hotkeys, weights)
 
     def crash_price_until_below(
         self, netuid: int, hotkey_pubkey: str, hotkey_ss58: str,

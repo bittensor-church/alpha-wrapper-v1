@@ -40,7 +40,7 @@ chain is unsupported. CI gives each scenario its own container.
 - `substrate.py`: address derivation and wallet-file readers.
 - `chain.py`: cast/forge/btcli wrappers, block waits and the revert-data probe.
 - `extrinsics.py`: Substrate extrinsics and storage reads.
-- `validators.py`: Placeholder registry updates.
+- `validators.py`: Placeholder registry updates, and weighted sets on the unit suite's registry.
 - `environment.py`: the deployed-localnet handle with getters and vault actions.
 - `checks.py`: shared assertions (pro-rata amounts, alpha per share, payouts, gas, CSV rows).
 - `exits.py`: exits measured against the chain: what a holder receives must match
@@ -48,8 +48,9 @@ chain is unsupported. CI gives each scenario its own container.
 - `rails.py`: every holder rail run against a slot that resolves away from its attested hotkey.
 - `incidents.py`: staged hotkey incidents and write-offs for the recovery scenarios.
 - `bootstrap.py`: one-time localnet setup.
-- `fixtures.py`: the `env` and `recovery_window` fixtures; a scenario overrides
-  `recovery_window` to deploy with a different window.
+- `fixtures.py`: the `env`, `recovery_window` and `alpha_price` fixtures; a scenario overrides
+  `recovery_window` to deploy with a different window, or `alpha_price` to run at a mainnet
+  alpha price instead of the localnet's.
 
 `conftest.py` switches to the repository root and registers the fixtures;
 `pytest.ini` configures imports and registers the `scenario` marker, which `--strict-markers` enforces.
@@ -96,8 +97,13 @@ Scenario files in `tests/` cover:
   keep working.
 - `test_parked_recovery.py`: the chain sweeps a position and a stranger returns the
   alpha under a rotated-out validator a gift keeps listed; the watcher declares,
-  recovers through `scripts/find_strays.py --recover`, parks the position, exits pay
-  from the parking hotkey, an owner update releases.
+  recovers through `scripts/find_strays.py --recover`, parks the position, both exits
+  pay from the parking hotkey, an owner update releases.
+- `test_merged_slots.py`: under a two-validator registry, a validator swaps one attested
+  hotkey onto the other, which holds no subnet seat, so two slots share one pile; the
+  deposit, both exits, the rebalance, the quotes and `recoverStray` refuse, one
+  `syncBacking` parks the position whole, both exits pay from the parking hotkey and
+  a new set releases it.
 - `test_parking_isolation.py`: two subnets park on the one parking hotkey; each keeps
   its own balance, the other keeps trading, and each releases on its own owner update.
 - `test_subnet_generation.py`: a rewritten registration block leaves the token and its
@@ -113,7 +119,7 @@ Scenario files in `tests/` cover:
   exit on the successor.
 Each module's docstring describes its sequence. These scenarios exercise specific
 recovery conditions, not an unconditional exit guarantee; see the
-[design](../docs/hotkey-swaps.md).
+[recovery runbook](../docs/recovery.md).
 
 Bootstrap creates three subnets, nine validators, the contracts and funded test
 accounts once per scenario process. On fast blocks it stretches each subnet's epoch to

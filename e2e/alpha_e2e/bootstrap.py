@@ -4,12 +4,13 @@ build_environment() brings a fresh localnet to the point where a position can
 be deposited:
 
   pre-flight  chain reachable, dev Alice wallet present (regen from seed if not)
+  set the nominator minimum to mainnet's factor;
   fund the deployer EVM account from Alice; create 3 subnets, disable the admin
   freeze window, start emissions, stretch each epoch to `EPOCH_SECONDS`, raise the
   per-block registration limit; register 3 validator hotkeys per subnet and stake
   TAO on them at ratio 3:2:1; deploy the contracts and set one validator per subnet
-  through the Placeholder owner; fund the wrapper user and prepare its mailbox on
-  each subnet.
+  through the Placeholder owner; fund the wrapper user; lower each subnet's alpha
+  price when the scenario sets one; prepare the user's mailbox on each subnet.
 
 btcli calls go through chain.btcli() (auto-appends --network) or
 chain.btcli_json() where the outcome is read back; wallet regen/creation calls
@@ -19,7 +20,7 @@ not carry the --network flag. Keys live under config.WALLET_PATH.
 import math
 import os
 from dataclasses import replace
-from typing import List, NamedTuple, Tuple
+from typing import List, NamedTuple, Optional, Tuple
 
 from . import chain, config, extrinsics, substrate, validators
 from .environment import Environment, random_bytes32, read_stake
@@ -221,9 +222,13 @@ def _stake_validators(
             print(f"  netuid {netuid} {hotkey_pubkey[:18]}...: {amount_tao} TAO -> {stake} RAO")
 
 
-def _deploy_registry() -> str:
+def _deploy_registry(weighted: bool) -> str:
+    if weighted:
+        address = chain.forge_create(validators.WEIGHTED_REGISTRY, private_key=config.DEPLOYER_PRIVATE_KEY)
+        print(f"  MockValidatorRegistry: {address}")
+        return address
     address = chain.forge_create(
-        "src/PlaceholderValidatorRegistry.sol:PlaceholderValidatorRegistry",
+        validators.PLACEHOLDER_REGISTRY,
         private_key=config.DEPLOYER_PRIVATE_KEY,
         constructor_args=[config.DEPLOYER_ADDRESS],
     )
@@ -232,9 +237,10 @@ def _deploy_registry() -> str:
 
 
 def deploy_contracts(
-    netuids: List[int], hotkey_pubkeys: List[str], *, recovery_window: int,
+    netuids: List[int], hotkey_pubkeys: List[str], *, recovery_window: int, weighted_registry: bool = False,
 ) -> Deployment:
-    """Deploy the vault, its lens and a Placeholder registry naming each subnet's first hotkey."""
+    """Deploy the vault, its lens and a registry naming each subnet's first hotkey: the Placeholder
+    registry, or with `weighted_registry` the one that takes weighted sets."""
     _log("Deploy")
 
     observation_block_start = chain.cast_block_number()
@@ -253,7 +259,7 @@ def deploy_contracts(
     )
     print(f"  SubnetClone: {subnet_clone_implementation_address}")
 
-    validator_registry_address = _deploy_registry()
+    validator_registry_address = _deploy_registry(weighted_registry)
 
     clones_library = "src/libraries/VaultClones.sol:VaultClones"
     clones_address = chain.forge_create(clones_library, private_key=config.DEPLOYER_PRIVATE_KEY)
@@ -298,8 +304,9 @@ def deploy_contracts(
 
     registry_block_start = chain.cast_block_number()
     registry_update_receipts = [
-        validators.set_basic_validator(
+        validators.set_sole_validator(
             validator_registry_address, netuid, hotkey_pubkeys[subnet_index * config.VALIDATORS_PER_SUBNET],
+            weighted=weighted_registry,
         )
         for subnet_index, netuid in enumerate(netuids)
     ]
@@ -317,12 +324,16 @@ def deploy_contracts(
     )
 
 
-def redeploy(env: Environment, subnet_index: int, recovery_window: int) -> Environment:
+def redeploy(
+    env: Environment, subnet_index: int, recovery_window: int, *, weighted_registry: bool = False,
+) -> Environment:
     """A fresh vault, lens and registry for the subnet at `subnet_index`, attesting its first hotkey,
     so a scenario can stage the chain before any clone or mailbox exists. The other subnets are
-    not attested on the returned deployment."""
+    not attested on the returned deployment. With `weighted_registry` the registry takes weighted
+    sets through `Environment.set_validators`."""
     deployment = deploy_contracts(
-        [env.netuids[subnet_index]], env.subnet_hotkey_pubkeys(subnet_index), recovery_window=recovery_window,
+        [env.netuids[subnet_index]], env.subnet_hotkey_pubkeys(subnet_index),
+        recovery_window=recovery_window, weighted_registry=weighted_registry,
     )
     return replace(
         env, vault_address=deployment.vault_address, lens_address=deployment.lens_address,
@@ -331,13 +342,16 @@ def redeploy(env: Environment, subnet_index: int, recovery_window: int) -> Envir
         registry_block_start=deployment.registry_block_start,
         registry_block_end=deployment.registry_block_end,
         registry_update_receipts=deployment.registry_update_receipts,
+        weighted_registry=weighted_registry,
     )
 
 
-def build_environment(*, recovery_window: int) -> Environment:
+def build_environment(*, recovery_window: int, alpha_price: Optional[int] = None) -> Environment:
     _check_repo_root()
     _check_chain_reachable()
     _ensure_alice_wallet()
+    _log("Set the nominator minimum")
+    extrinsics.set_nominator_min_required_stake(config.NOMINATOR_MIN_REQUIRED_STAKE_FACTOR)
     _log("Fund deployer")
     _ensure_evm_account_funded(
         "Deployer", config.DEPLOYER_ADDRESS, config.DEPLOYER_SS58,
@@ -365,6 +379,10 @@ def build_environment(*, recovery_window: int) -> Environment:
         registry_block_end=deployment.registry_block_end,
         registry_update_receipts=deployment.registry_update_receipts,
     )
+    if alpha_price is not None:
+        _log("Lower alpha prices")
+        for netuid in netuids:
+            env.lower_alpha_price(netuid, alpha_price)
     for netuid in netuids:
         env.create_mailbox(netuid)
         print(f"  Protected mailbox and subnet clone prepared for netuid {netuid}")

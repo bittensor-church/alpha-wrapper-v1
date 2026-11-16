@@ -1,7 +1,8 @@
 """Scenario: the vault stays live through every dust state.
 
 Two churn cycles exercise withdrawal remainders, skipped rebalances, sale
-leftovers, and balances on rotated-out validators. Each eligible call must
+leftovers, a partial sale the nominator minimum refuses, and balances on
+rotated-out validators. Each eligible call must
 succeed within its gas budget and deliver or sell exactly what the clone gave
 up. The closing ledger must balance both ways: what was deposited and what the
 epochs between calls emitted onto the clone, against what was delivered, sold
@@ -11,6 +12,11 @@ import pytest
 
 from alpha_e2e import chain, config, exits
 from alpha_e2e.checks import assert_gas_within, min_tao_out_for
+
+
+@pytest.fixture(scope="session")
+def alpha_price():
+    return config.MAINNET_ALPHA_PRICE
 
 
 class ChurnLedger:
@@ -42,8 +48,8 @@ class ChurnLedger:
         self.emitted_alpha_total += self.backing(block - 1) - self.backing(self.last_call_block)
         self.last_call_block = block
 
-    def boundary_alpha(self) -> int:
-        _, boundary = self.env.floor_boundary(self.netuid, self.floor)
+    def boundary_alpha(self, floor_rao: int) -> int:
+        _, boundary = self.env.floor_boundary(self.netuid, floor_rao)
         return boundary
 
     def deposit_step(self, label: str, hotkey_pubkey: str, hotkey_ss58: str,
@@ -83,6 +89,23 @@ class ChurnLedger:
         self.rounding_allowance += config.ROUNDING_DUST_TOTAL_RAO
         print(f"  {label}: sold {percent}% of shares for TAO")
 
+    def refused_tao_exit_step(self, label: str, percent: int) -> None:
+        backing = self.backing()
+        nominator_min = self.env.nominator_min_stake_tao()
+        assert self.env.alpha_value_tao(self.netuid, backing * percent // 100) >= self.floor, (
+            f"{label}: a {percent}% sale of {backing} alpha RAO would not clear the stake minimum"
+        )
+        assert self.env.alpha_value_tao(self.netuid, backing) < nominator_min, (
+            f"{label}: {backing} alpha RAO is not below the nominator minimum of {nominator_min} RAO"
+        )
+        self.env.assert_vault_reverts_with(
+            "WithdrawTooSmall()", 2_500_000,
+            f"{label}: a TAO exit leaving less than the nominator minimum did NOT revert as WithdrawTooSmall",
+            "unwrapForTao(uint256,uint256,uint256)",
+            self.token_id, self.env.vault_shares(self.token_id) * percent // 100, 1,
+        )
+        print(f"  {label}: a {percent}% TAO exit that would leave less than the nominator minimum was refused")
+
     def churn_cycle(
         self, round_number: int,
         primary_pubkey: str, primary_ss58: str,
@@ -91,7 +114,7 @@ class ChurnLedger:
         label = f"Cycle {round_number}"
         print(f"\n=== Churn cycle {round_number} ===")
 
-        boundary = self.boundary_alpha()
+        boundary = self.boundary_alpha(self.floor)
         self.deposit_step(label, primary_pubkey, primary_ss58, boundary * 9 // 2)
         self.unwrap_for_alpha_step(label, 80)
         self.deposit_step(label, primary_pubkey, primary_ss58, boundary * 5 // 2)
@@ -111,8 +134,11 @@ class ChurnLedger:
         )
         print(f"  {label}: withdrawal consolidated the rotated-out balances")
 
-        self.deposit_step(label, secondary_pubkey, secondary_ss58, self.boundary_alpha() * 3)
+        self.refused_tao_exit_step(label, 80)
+        nominator_min = self.env.nominator_min_stake_tao()
+        self.deposit_step(label, secondary_pubkey, secondary_ss58, self.boundary_alpha(nominator_min) * 3)
         self.unwrap_for_tao_step(label, 40)
+        self.unwrap_for_alpha_step(f"{label} (back to the floor)", 85)
 
 
 @pytest.mark.scenario
@@ -132,7 +158,7 @@ def test_holders_can_exit_after_two_cycles_of_dust_and_validator_rotation(env):
 
     ledger.deposit_step(
         "Bootstrap deposit", hotkey_a_pubkey, hotkey_a_ss58,
-        ledger.boundary_alpha() * 3 // 2,
+        ledger.boundary_alpha(floor) * 3 // 2,
     )
 
     ledger.churn_cycle(

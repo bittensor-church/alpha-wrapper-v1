@@ -6,7 +6,7 @@ by side, and each must release on its own attestation.
 """
 import pytest
 
-from alpha_e2e import chain, config, exits, incidents
+from alpha_e2e import config, exits, incidents
 
 
 @pytest.mark.scenario
@@ -65,36 +65,10 @@ def test_parked_subnets_share_the_hotkey_without_sharing_state(env):
 
     env.set_validator(netuid_a, swept_a.attested_pubkey)
     assert env.awaiting_attestation(token_b), "an attestation for A should not release B"
-    receipt = env.vault_send_between_epochs(
-        netuid_a, 4_000_000, "Isolation: the release rebalance on A failed", "rebalance(uint256)", netuid_a,
-        label="rebalance [release A]",
-    )
-    assert env.stake(parking_hotkey, clone_a, netuid_a) <= config.ROUNDING_DUST_SLOT_RAO, (
-        "A's entry should be empty after its release"
-    )
-    release_block = chain.receipt_block_number(receipt, "Isolation: A: release")
-    parked_before = env.stake(parking_hotkey, clone_a, netuid_a, release_block - 1)
-    landed = env.stake_change(clone_a, netuid_a, [swept_a.attested_pubkey], release_block)
-    assert abs(landed - parked_before) <= config.ROUNDING_DUST_SLOT_RAO, (
-        f"A's attested validator should take the {parked_before} alpha RAO parked, took {landed}"
-    )
-    assert not env.awaiting_attestation(token_a), "A should be ordinary again"
+    incidents.release_parked(env, token_a, [swept_a.attested_pubkey], "Isolation: A", "rebalance [release A]")
     assert env.stake(parking_hotkey, clone_b, netuid_b) == parked_b, "releasing A should move nothing of B's"
     assert env.awaiting_attestation(token_b), "B should still be parked"
 
     env.set_validator(netuid_b, swept_b.attested_pubkey)
-    receipt = env.vault_send_between_epochs(
-        netuid_b, 4_000_000, "Isolation: the release rebalance on B failed", "rebalance(uint256)", netuid_b,
-        label="rebalance [release B]",
-    )
-    assert env.stake(parking_hotkey, clone_b, netuid_b) <= config.ROUNDING_DUST_SLOT_RAO, (
-        "B's entry should be empty after its release"
-    )
-    release_block = chain.receipt_block_number(receipt, "Isolation: B: release")
-    parked_before = env.stake(parking_hotkey, clone_b, netuid_b, release_block - 1)
-    landed = env.stake_change(clone_b, netuid_b, [swept_b.attested_pubkey], release_block)
-    assert abs(landed - parked_before) <= config.ROUNDING_DUST_SLOT_RAO, (
-        f"B's attested validator should take the {parked_before} alpha RAO parked, took {landed}"
-    )
-    assert not env.awaiting_attestation(token_b), "B should be ordinary again"
-    assert env.backing_intact(token_a) and env.backing_intact(token_b), "both records should follow their new sets"
+    incidents.release_parked(env, token_b, [swept_b.attested_pubkey], "Isolation: B", "rebalance [release B]")
+    assert env.backing_intact(token_a), "releasing B should leave A's record intact"
