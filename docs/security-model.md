@@ -55,18 +55,20 @@ public UID only forces a retry.
 
 ## Recovery-window tradeoff and late-recovery attack
 
-When a validator hotkey swap leaves vault alpha unlocated, the watcher parks the
-located backing and starts one fixed recovery window. Alpha still missing at
-expiry is written off: a real loss for holders at that time, and anything
-recovered later belongs to whoever holds shares then. Balances too small to move
-can be written off as well.
+When the vault cannot locate alpha its record expects, in a case
+[automatic handling leaves to a watcher](hotkey-swaps.md#automatic-handling-has-limits),
+the watcher parks the located backing and starts one fixed recovery window. Alpha
+still missing at expiry is written off: a real loss for holders at that time, and
+anything recovered later belongs to whoever holds shares then. Balances too small
+to move can be written off as well.
 
-A validator can exploit that policy:
+Anyone able to keep vault alpha out of the vault's reach and return it later can
+exploit that policy:
 
-1. Swap its hotkey, carrying vault alpha, and erase the trail the vault follows.
+1. Leave vault alpha where the vault does not locate it.
 2. Let the write-off finalize if watchers miss the window.
 3. Deposit against the reduced backing to acquire a larger share of the supply.
-4. Reveal the hidden alpha, so the new shares take part in its recovery.
+4. Return the hidden alpha, so the new shares take part in its recovery.
 
 The original holders lose at most the hidden alpha and what it earned
 meanwhile. Parking before write-off defeats the attack, which makes watcher
@@ -77,6 +79,9 @@ later recovery until the clone is replaced.
 ## Other accepted risks
 
 - Exits can fail temporarily while the watcher repairs chain state.
+- A validator that swaps one attested hotkey onto another it owns leaves two
+  slots on one pile: wraps, exits and quotes revert until a watcher's
+  `syncBacking` parks the position, whole and with no recovery window.
 - Chain minimums and rounding can require top-ups or combining shares, and a
   full TAO exit may discard a small unsold residue.
 - A TAO exit's price impact falls partly on remaining holders.

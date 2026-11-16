@@ -504,6 +504,10 @@ class Environment:
     def set_validator(self, netuid: int, hotkey: str) -> None:
         validators.set_basic_validator(self.validator_registry_address, netuid, hotkey)
 
+    def set_validators(self, netuid: int, hotkeys: List[str], weights: List[int]) -> None:
+        """Publish a weighted set on a deployment made with the weighted registry."""
+        validators.set_weighted_validators(self.validator_registry_address, netuid, hotkeys, weights)
+
     def crash_price_until_below(
         self, netuid: int, hotkey_pubkey: str, hotkey_ss58: str,
         alpha_rao: int, target_tao_rao: int, context: str,

@@ -40,7 +40,7 @@ chain is unsupported. CI gives each scenario its own container.
 - `substrate.py`: address derivation and wallet-file readers.
 - `chain.py`: cast/forge/btcli wrappers, block waits and the revert-data probe.
 - `extrinsics.py`: Substrate extrinsics and storage reads.
-- `validators.py`: Placeholder registry updates.
+- `validators.py`: Placeholder registry updates, and weighted sets on the unit suite's registry.
 - `environment.py`: the deployed-localnet handle with getters and vault actions.
 - `checks.py`: shared assertions (pro-rata amounts, alpha per share, payouts, gas, CSV rows).
 - `exits.py`: exits measured against the chain: what a holder receives must match
@@ -99,6 +99,10 @@ Scenario files in `tests/` cover:
   alpha under a rotated-out validator a gift keeps listed; the watcher declares,
   recovers through `scripts/find_strays.py --recover`, parks the position, exits pay
   from the parking hotkey, an owner update releases.
+- `test_merged_slots.py`: under a two-validator registry, a validator swaps one attested
+  hotkey onto the other, which holds no subnet seat, so two slots share one pile; priced
+  calls and `recoverStray` refuse, one `syncBacking` parks the position whole with no
+  recovery window, exits pay from the parking hotkey and a new set releases it.
 - `test_parking_isolation.py`: two subnets park on the one parking hotkey; each keeps
   its own balance, the other keeps trading, and each releases on its own owner update.
 - `test_subnet_generation.py`: a rewritten registration block leaves the token and its
