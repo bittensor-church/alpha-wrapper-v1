@@ -51,6 +51,10 @@ class ChurnLedger:
         _, boundary = self.env.floor_boundary(self.netuid, self.floor)
         return boundary
 
+    def nominator_min_alpha(self) -> int:
+        _, boundary = self.env.floor_boundary(self.netuid, self.env.nominator_min_stake_tao())
+        return boundary
+
     def deposit_step(self, label: str, hotkey_pubkey: str, hotkey_ss58: str,
                      amount_rao: int) -> None:
         receipt = self.env.deposit_and_wrap(
@@ -116,7 +120,7 @@ class ChurnLedger:
         )
         print(f"  {label}: withdrawal consolidated the rotated-out balances")
 
-        self.deposit_step(label, secondary_pubkey, secondary_ss58, self.boundary_alpha() * 3)
+        self.deposit_step(label, secondary_pubkey, secondary_ss58, self.nominator_min_alpha() * 3)
         self.unwrap_for_tao_step(label, 40)
 
 

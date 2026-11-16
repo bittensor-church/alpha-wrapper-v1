@@ -216,6 +216,9 @@ class Environment:
         """The minimum a partial unstake enforces; the vault's floor for every move, transfer and partial sale."""
         return int(chain.cast_call(config.STAKING_PRECOMPILE, "getDefaultMinStake()(uint256)"))
 
+    def nominator_min_stake_tao(self) -> int:
+        return int(chain.cast_call(config.STAKING_PRECOMPILE, "getNominatorMinRequiredStake()(uint256)"))
+
     def chain_min_transfer_tao(self) -> int:
         """The minimum the chain enforces on every same-subnet move and transfer, in RAO."""
         constants = chain.cast_call_lines(
