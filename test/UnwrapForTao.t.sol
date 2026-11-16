@@ -506,10 +506,7 @@ contract UnwrapForTaoTest is DepositScenarios {
         vm.prank(address(receiver));
         vault.unwrapForTao(TOKEN1, shares, 0);
 
-        assertEq(
-            receiver.reentryError(),
-            abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector)
-        );
+        assertEq(receiver.reentryError(), abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector));
         assertEq(vault.balanceOf(address(receiver), TOKEN1), 0);
     }
 

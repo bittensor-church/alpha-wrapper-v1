@@ -164,10 +164,7 @@ contract ClaimableTaoTest is AlphaVaultTestBase {
         vm.prank(alice);
         vault.claimTao(TOKEN1, payable(address(receiver)));
 
-        assertEq(
-            receiver.reentryError(),
-            abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector)
-        );
+        assertEq(receiver.reentryError(), abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector));
         assertFalse(receiver.reentrySucceeded());
         assertEq(address(receiver).balance, 5 * TAO);
     }

@@ -126,10 +126,7 @@ contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
         vm.prank(address(receiver));
         vault.reclaimMailboxAlphaAsTao(NETUID1, 0);
 
-        assertEq(
-            receiver.reentryError(),
-            abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector)
-        );
+        assertEq(receiver.reentryError(), abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector));
         assertFalse(receiver.reentrySucceeded());
         assertEq(_mailboxStake(address(receiver)), 0);
     }
