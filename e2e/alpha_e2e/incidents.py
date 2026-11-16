@@ -21,9 +21,15 @@ RAISED_THRESHOLD_FACTOR = 3 * config.NOMINATOR_MIN_REQUIRED_STAKE_FACTOR
 
 @contextmanager
 def dust_threshold_raised(factor: int) -> Iterator[None]:
-    """Raise the nominator dust threshold, which force-sells every nomination below it on every
-    subnet in the raising block, and restore the previous factor on the way out."""
+    """Raise the nominator dust-threshold factor above the standing minimum in RAO, which force-sells
+    every nomination below the new threshold on every subnet in the raising block, and restore the
+    previous factor on the way out."""
     previous = extrinsics.get_nominator_min_required_stake()
+    standing_rao = int(chain.cast_call(config.STAKING_PRECOMPILE, "getNominatorMinRequiredStake()(uint256)"))
+    assert factor > standing_rao, (
+        f"a factor of {factor} is not above the standing minimum of {standing_rao} RAO, "
+        "so the chain would run no clearing pass"
+    )
     extrinsics.set_nominator_min_required_stake(factor)
     try:
         yield

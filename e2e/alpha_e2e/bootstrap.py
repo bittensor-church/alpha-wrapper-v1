@@ -4,12 +4,13 @@ build_environment() brings a fresh localnet to the point where a position can
 be deposited:
 
   pre-flight  chain reachable, dev Alice wallet present (regen from seed if not)
+  set the nominator minimum to mainnet's factor;
   fund the deployer EVM account from Alice; create 3 subnets, disable the admin
   freeze window, start emissions, stretch each epoch to `EPOCH_SECONDS`, raise the
   per-block registration limit; register 3 validator hotkeys per subnet and stake
   TAO on them at ratio 3:2:1; deploy the contracts and set one validator per subnet
-  through the Placeholder owner; fund the wrapper user and prepare its mailbox on
-  each subnet.
+  through the Placeholder owner; fund the wrapper user; lower each subnet's alpha
+  price when the scenario sets one; prepare the user's mailbox on each subnet.
 
 btcli calls go through chain.btcli() (auto-appends --network) or
 chain.btcli_json() where the outcome is read back; wallet regen/creation calls
