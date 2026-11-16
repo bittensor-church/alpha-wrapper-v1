@@ -7,7 +7,7 @@ import { MockStaking } from "./mocks/MockStaking.sol";
 import { MIN_SELL_PRICE_E18 } from "./mocks/MockAlpha.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 import { ReentrantReceiver, RevertingReceiver } from "./helpers/TaoRailReceivers.sol";
-import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
     function _mailboxStake(address user) internal view returns (uint256) {
@@ -128,7 +128,7 @@ contract ReclaimMailboxAlphaAsTaoTest is AlphaVaultTestBase {
 
         assertEq(
             receiver.reentryError(),
-            abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector)
+            abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector)
         );
         assertFalse(receiver.reentrySucceeded());
         assertEq(_mailboxStake(address(receiver)), 0);
