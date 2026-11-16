@@ -48,8 +48,9 @@ chain is unsupported. CI gives each scenario its own container.
 - `rails.py`: every holder rail run against a slot that resolves away from its attested hotkey.
 - `incidents.py`: staged hotkey incidents and write-offs for the recovery scenarios.
 - `bootstrap.py`: one-time localnet setup.
-- `fixtures.py`: the `env` and `recovery_window` fixtures; a scenario overrides
-  `recovery_window` to deploy with a different window.
+- `fixtures.py`: the `env`, `recovery_window` and `alpha_price` fixtures; a scenario overrides
+  `recovery_window` to deploy with a different window, or `alpha_price` to run at a mainnet
+  alpha price instead of the localnet's.
 
 `conftest.py` switches to the repository root and registers the fixtures;
 `pytest.ini` configures imports and registers the `scenario` marker, which `--strict-markers` enforces.

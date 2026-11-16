@@ -333,10 +333,11 @@ def get_nominator_min_required_stake(*, chain_endpoint: str = config.CHAIN_ENDPO
 def set_nominator_min_required_stake(
     factor: int, *, chain_endpoint: str = config.CHAIN_ENDPOINT,
 ) -> str:
-    """Set the global nominator dust-threshold factor via Sudo. Raising it also
-    runs the chain's global clearing pass in the same block: every nomination
-    whose value sits below the new threshold is force-sold and the proceeds are
-    credited to its nominator coldkey. Lowering it only writes the factor."""
+    """Set the global nominator dust-threshold factor via Sudo. A factor above the
+    standing minimum in RAO also runs the chain's global clearing pass in the same
+    block: every nomination whose value sits below the new threshold is force-sold
+    and the proceeds are credited to its nominator coldkey. Any other factor is
+    only written."""
     with _connect(chain_endpoint) as client:
         block_hash = _submit(client, _sudo(
             client,
@@ -426,6 +427,17 @@ def set_network_registration_block(
     written = network_registration_block(netuid, chain_endpoint=chain_endpoint)
     if written != block_number:
         raise ExtrinsicError(f"set_network_registration_block wrote {written}, wanted {block_number}")
+    return block_hash
+
+
+def set_subnet_alpha_in(
+    netuid: int, alpha_rao: int, *, chain_endpoint: str = config.CHAIN_ENDPOINT,
+) -> str:
+    block_hash = _set_subnet_u64(b"SubnetAlphaIn", netuid, alpha_rao, chain_endpoint)
+    with _connect(chain_endpoint) as client:
+        written = int(client.query(_sdk().storage.SubtensorModule.SubnetAlphaIn, [netuid]))
+    if written < alpha_rao:
+        raise ExtrinsicError(f"set_subnet_alpha_in wrote {written}, wanted at least {alpha_rao}")
     return block_hash
 
 

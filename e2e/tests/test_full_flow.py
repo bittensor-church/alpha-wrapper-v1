@@ -18,6 +18,11 @@ from alpha_e2e.substrate import h160_to_ss58
 WRAP_SLIPPAGE_TOLERANCE_PCT = 1
 
 
+@pytest.fixture(scope="session")
+def alpha_price():
+    return config.MAINNET_ALPHA_PRICE
+
+
 @pytest.mark.scenario
 def test_deposits_and_every_exit_survive_emissions_and_validator_rotation(env):
     for subnet_index, netuid in enumerate(env.netuids):

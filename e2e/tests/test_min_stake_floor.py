@@ -11,6 +11,11 @@ import pytest
 from alpha_e2e import chain, checks, config, exits, extrinsics
 
 
+@pytest.fixture(scope="session")
+def alpha_price():
+    return config.MAINNET_ALPHA_PRICE
+
+
 @pytest.mark.scenario
 def test_deposit_below_the_floor_waits_for_a_top_up_and_rotated_out_dust_consolidates(env):
     floor = env.chain_min_stake_tao()

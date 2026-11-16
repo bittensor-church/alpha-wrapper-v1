@@ -216,6 +216,9 @@ class Environment:
         """The minimum a partial unstake enforces; the vault's floor for every move, transfer and partial sale."""
         return int(chain.cast_call(config.STAKING_PRECOMPILE, "getDefaultMinStake()(uint256)"))
 
+    def nominator_min_stake_tao(self) -> int:
+        return int(chain.cast_call(config.STAKING_PRECOMPILE, "getNominatorMinRequiredStake()(uint256)"))
+
     def chain_min_transfer_tao(self) -> int:
         """The minimum the chain enforces on every same-subnet move and transfer, in RAO."""
         constants = chain.cast_call_lines(
@@ -249,6 +252,16 @@ class Environment:
         return int(chain.cast_call(
             config.ALPHA_PRECOMPILE, "getAlphaInPool(uint16)(uint64)", netuid,
         ))
+
+    def lower_alpha_price(self, netuid: int, target_price: int) -> None:
+        price = self.alpha_price(netuid)
+        assert price > target_price, f"netuid {netuid}: alpha trades at {price}, not above {target_price}"
+        extrinsics.set_subnet_alpha_in(netuid, self.alpha_in_pool(netuid) * price // target_price)
+        lowered = self.alpha_price(netuid)
+        assert target_price * 99 // 100 <= lowered <= target_price * 101 // 100, (
+            f"netuid {netuid}: alpha trades at {lowered} after deepening the pool, wanted {target_price}"
+        )
+        print(f"  netuid {netuid}: alpha price {price} -> {lowered}")
 
     def alpha_to_tao_quote(self, netuid: int, alpha_rao: int, block: Optional[int] = None) -> int:
         """Chain's own alpha->TAO quote (RAO out) for selling `alpha_rao` on `netuid`, against
