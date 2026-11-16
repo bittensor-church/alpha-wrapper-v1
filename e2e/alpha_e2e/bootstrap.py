@@ -335,8 +335,6 @@ def redeploy(env: Environment, subnet_index: int, recovery_window: int) -> Envir
 
 
 def build_environment(*, recovery_window: int, alpha_price: Optional[int] = None) -> Environment:
-    """`alpha_price` lowers every subnet's alpha price to it (TAO per alpha, e18 scale); None keeps
-    the price the localnet's pools settle at."""
     _check_repo_root()
     _check_chain_reachable()
     _ensure_alice_wallet()

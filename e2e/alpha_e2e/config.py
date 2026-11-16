@@ -52,11 +52,7 @@ VALIDATORS_PER_SUBNET = len(HOTKEY_SUFFIXES)
 DEPOSIT_RAO = 30 * RAO_PER_ALPHA
 RECOVERY_WINDOW_SECONDS = 3 * 60 * 60
 SHORT_RECOVERY_WINDOW_SECONDS = 120
-# Mainnet's value. The chain force-sells a nomination worth less than its minimum stake
-# (0.002 TAO) times this factor over 1e6: 0.02 TAO.
 NOMINATOR_MIN_REQUIRED_STAKE_FACTOR = 10_000_000
-# Near the median mainnet alpha price (TAO per alpha, e18 scale); every mainnet subnet trades
-# below one TAO, and the localnet's own pools settle above it.
 MAINNET_ALPHA_PRICE = 5 * 10**15
 
 COMMAND_TIMEOUT_SECONDS = 300

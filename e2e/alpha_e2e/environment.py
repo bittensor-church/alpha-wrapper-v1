@@ -251,12 +251,10 @@ class Environment:
         ))
 
     def lower_alpha_price(self, netuid: int, target_price: int) -> None:
-        """Deepen the pool's alpha side until alpha trades at `target_price` (TAO per alpha, e18 scale)."""
         price = self.alpha_price(netuid)
         assert price > target_price, f"netuid {netuid}: alpha trades at {price}, not above {target_price}"
         extrinsics.set_subnet_alpha_in(netuid, self.alpha_in_pool(netuid) * price // target_price)
         lowered = self.alpha_price(netuid)
-        # Emissions move the reserves between the reads and the write.
         assert target_price * 99 // 100 <= lowered <= target_price * 101 // 100, (
             f"netuid {netuid}: alpha trades at {lowered} after deepening the pool, wanted {target_price}"
         )

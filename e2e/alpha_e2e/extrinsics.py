@@ -432,9 +432,6 @@ def set_network_registration_block(
 def set_subnet_alpha_in(
     netuid: int, alpha_rao: int, *, chain_endpoint: str = config.CHAIN_ENDPOINT,
 ) -> str:
-    """Rewrite the alpha side of a subnet's pool through Sudo, the state emissions into the pool
-    build up over time. Read the result back through the alpha precompile: emissions keep adding
-    to it every block."""
     return _set_subnet_u64(b"SubnetAlphaIn", netuid, alpha_rao, chain_endpoint)
 
 
