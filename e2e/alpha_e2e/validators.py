@@ -3,7 +3,6 @@ from typing import List
 from . import chain, config
 
 PLACEHOLDER_REGISTRY = "src/PlaceholderValidatorRegistry.sol:PlaceholderValidatorRegistry"
-# The unit suite's weighted registry: any sender publishes up to the vault's validator limit.
 WEIGHTED_REGISTRY = "test/mocks/MockValidatorRegistry.sol:MockValidatorRegistry"
 FULL_WEIGHT_BPS = 10_000
 
@@ -41,3 +40,10 @@ def set_weighted_validators(
         registry_address, private_key, rpc, "setValidators(uint256,bytes32[],uint16[])", netuid,
         f"[{','.join(hotkeys)}]", f"[{','.join(str(weight) for weight in weights)}]",
     )
+
+
+def set_sole_validator(registry_address: str, netuid: int, hotkey: str, *, weighted: bool) -> dict:
+    """Attest `hotkey` alone at full weight on either registry; returns its receipt."""
+    if weighted:
+        return set_weighted_validators(registry_address, netuid, [hotkey], [FULL_WEIGHT_BPS])
+    return set_basic_validator(registry_address, netuid, hotkey)

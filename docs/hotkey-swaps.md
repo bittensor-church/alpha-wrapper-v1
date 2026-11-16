@@ -3,8 +3,11 @@
 The vault supports weighted `IValidatorRegistry` implementations. Here, the
 `PlaceholderValidatorRegistry` owner updates one target.
 
-The design uses automatic one-hop swap handling plus an external watcher.
-Temporary wrap/exit failures while the watcher repairs chain state are accepted.
+A validator hotkey swap that carries its stake moves the vault's alpha to the new
+hotkey, still under the clone's coldkey. The vault finds it there by itself, so
+wraps, exits, rebalances and quotes keep working and the backing stays whole. The
+registry owner then publishes the new hotkey. A watcher acts only on
+[missing backing](#missing-backing).
 
 ## What changes in a swap
 
@@ -17,44 +20,40 @@ An all-subnet swap that carries the stake removes the old hotkey's owner record;
 a per-subnet swap, or one that leaves the stake under the old hotkey, retains it.
 In these docs, “ownerless” means only that the record is absent.
 
-## An emptied slot after a swap
+## How the vault follows a swap
 
-Suppose the registry names A and the vault holds 100 alpha there:
+The record keeps the attested hotkey (`attested`), the hotkey the stake sits under
+(`stakedUnder`) and the expected alpha (`tracked`). A priced call values the
+position before it acts: `wrap`, `unwrap`, `unwrapForTao`, `rebalance` and the
+lens previews.
 
-1. A swaps to B across all subnets. The 100 alpha moves to B; A loses its owner record.
-2. The vault follows the swap and records B as the actual stake location.
-3. An exit empties that slot. The next allocation for A goes to B, the hotkey that
-   still has an owner record.
+For each slot the vault reads the recorded hotkey, then its one-hop successor
+when that covers the slot's expectation within 1000 RAO of accounting slack,
+then, among the hotkeys the clone stakes under that no other slot holds, the one
+with the smallest pile that covers the slot. It counts each hotkey for at most
+one slot. Any priced call, and a `syncBacking` call on a position that accounts
+for itself, writes the hotkey it found into the record. A found hotkey keeps the
+slot, even when it is a rotated-out validator; a later registry set moves the slot.
+
+Two slots that moved together and differ by less than what the piles gained
+since the record was last written can take each other's pile: the total stays
+exact, each validator holds the other's weight on later deposits and alignment,
+and a registry set naming both successors puts each slot under its own validator.
+
+## Missing backing
+
+The vault cannot account for a slot after a sweep, a pile split across hotkeys, a
+pile under hotkey 0x0, two slots merged onto one hotkey, or a pile found under a
+hotkey the registry attests for another slot. Priced calls then revert
+`BackingShortfall` until a watcher follows the [runbook](#watcher-runbook) or the
+registry is updated. One shortfall clock covers the whole token.
+
+## Receiving hotkeys
 
 For an empty slot the vault takes the recorded hotkey while it has an owner
 record and no outgoing swap edge, else the attested hotkey while it has an owner
 record, else that hotkey's one-hop successor, subject to collision checks. Funded
 slots stay at their resolved location.
-
-## Automatic handling has limits
-
-The record keeps the attested hotkey (`attested`), the hotkey the stake sits under
-(`stakedUnder`) and the expected alpha (`tracked`). One shortfall clock covers the whole token. A
-priced call values the position before it acts: `wrap`, `unwrap`, `unwrapForTao`,
-`rebalance` and the lens previews.
-
-The resolver follows at most one hop from each recorded hotkey, only when
-the successor covers that slot's expectation within 1000 RAO of accounting slack.
-Failing that, it takes, among the hotkeys the clone stakes under that no other slot
-holds, the one with the smallest pile that covers the slot. It counts each hotkey
-for at most one slot. Two slots that moved together and differ by less than what
-the piles gained since the record was last written can take each other's pile:
-the total stays exact, each validator holds the other's weight on later deposits
-and alignment, and a registry set naming both successors puts each slot under its
-own validator. Separately observed swaps can advance the record repeatedly:
-any priced call, and a `syncBacking` call on a position that accounts for
-itself, writes a followed or found hotkey into the record. A found hotkey keeps
-the slot like a followed one, even when it is a rotated-out validator; a later
-registry set moves the slot. A sweep, a pile split across hotkeys, a pile under
-hotkey 0x0, two slots merged onto one hotkey, or a pile found under a hotkey the
-registry attests for another slot need a watcher or a registry update.
-
-## Receiving hotkeys
 
 A receiving hotkey needs an owner record, because the chain refuses stake
 operations without one. An attested hotkey with no usable hotkey reports
@@ -66,10 +65,7 @@ validator swaps on from the followed hotkey while the slot is empty, a stranger
 can claim that hotkey, clear any swap edge on it and receive the slot's allocation.
 An attested hotkey with no followed record receives an empty slot's allocation while it has an
 owner record, whoever holds it. Either way the stranger cannot take the
-principal: the alpha stays under the clone's coldkey, and moved without a trail
-it is found on the clone's staking list. A pile no single listed hotkey covers
-is missing backing: every priced call reverts `BackingShortfall` until a watcher
-parks the position, which earns again once the registry publishes a new set.
+principal: the alpha stays under the clone's coldkey.
 The followed hotkey keeps the slot after its validator registers the attested
 hotkey again; a swap from the followed hotkey onto it, or publishing the
 followed hotkey, moves the slot.
@@ -126,9 +122,7 @@ even while backing is intact.
 
 1. Monitor current registry entries, recorded/resolved stake hotkeys and their
    owner records, backing status and `awaitingAttestation`. Include empty
-   entries and newly attested hotkeys with no recorded slot. If the vault
-   resolves a successor after a swap,
-   call `syncBacking(tokenId)` before the old hotkey is re-registered to record it.
+   entries and newly attested hotkeys with no recorded slot.
    Watch the chain's hotkey swap events for attested and recorded hotkeys. After
    a swap from either, or a lost or changed owner record on a recorded hotkey,
    publish the validator's current hotkey at once: until then an emptied slot can

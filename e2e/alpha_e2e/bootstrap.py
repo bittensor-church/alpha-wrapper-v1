@@ -236,12 +236,6 @@ def _deploy_registry(weighted: bool) -> str:
     return address
 
 
-def _attest_sole_validator(registry_address: str, weighted: bool, netuid: int, hotkey: str) -> dict:
-    if weighted:
-        return validators.set_weighted_validators(registry_address, netuid, [hotkey], [validators.FULL_WEIGHT_BPS])
-    return validators.set_basic_validator(registry_address, netuid, hotkey)
-
-
 def deploy_contracts(
     netuids: List[int], hotkey_pubkeys: List[str], *, recovery_window: int, weighted_registry: bool = False,
 ) -> Deployment:
@@ -310,9 +304,9 @@ def deploy_contracts(
 
     registry_block_start = chain.cast_block_number()
     registry_update_receipts = [
-        _attest_sole_validator(
-            validator_registry_address, weighted_registry, netuid,
-            hotkey_pubkeys[subnet_index * config.VALIDATORS_PER_SUBNET],
+        validators.set_sole_validator(
+            validator_registry_address, netuid, hotkey_pubkeys[subnet_index * config.VALIDATORS_PER_SUBNET],
+            weighted=weighted_registry,
         )
         for subnet_index, netuid in enumerate(netuids)
     ]
@@ -348,6 +342,7 @@ def redeploy(
         registry_block_start=deployment.registry_block_start,
         registry_block_end=deployment.registry_block_end,
         registry_update_receipts=deployment.registry_update_receipts,
+        weighted_registry=weighted_registry,
     )
 
 

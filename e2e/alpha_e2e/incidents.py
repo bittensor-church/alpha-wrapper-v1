@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Iterator, List
 
-from . import chain, checks, config, extrinsics
+from . import chain, checks, config, exits, extrinsics
 from .environment import Environment
 from .substrate import account_id_to_ss58, h160_to_ss58
 
@@ -239,3 +239,79 @@ def assert_watcher_parked(env: Environment, token_id: int, swept: Sweep, parking
     assert {swept.listed_ss58, parking_ss58} <= listed, (
         f"{context}: the clone should list the gifted validator and the parking hotkey, lists {listed}"
     )
+
+
+SHORTFALL_ERROR = "BackingShortfall(uint16,bytes32,uint256)"
+
+
+def assert_shortfall_blocks_priced_calls(
+    env: Environment, token_id: int, short_hotkey: str, tracked_rao: int, context: str,
+) -> None:
+    """Assert the deposit, both exits, the rebalance and the lens quotes all refuse with the shortfall
+    of the slot attested and recorded under `short_hotkey`, which expects `tracked_rao`."""
+    netuid = env.netuid_of(token_id)
+    shares = env.vault_shares(token_id)
+    shortfall = (netuid, short_hotkey, tracked_rao)
+    for signature, args in (
+        ("wrap(uint256,bytes32,uint256)", (netuid, short_hotkey, 0)),
+        ("unwrap(uint256,uint256,bytes32,uint256)", (token_id, shares, env.wrapper_substrate_coldkey, 0)),
+        ("unwrapForTao(uint256,uint256,uint256)", (token_id, shares, 0)),
+        ("rebalance(uint256)", (netuid,)),
+    ):
+        env.assert_vault_reverts_with(
+            SHORTFALL_ERROR, 1_500_000, f"{context}: {signature.split('(')[0]} should refuse while a slot reads short",
+            signature, *args, error_args=shortfall,
+        )
+    expected = chain.encoded_call(SHORTFALL_ERROR, *shortfall)
+    for signature, args in (
+        ("totalStake(uint256)", (token_id,)),
+        ("previewWrap(uint256,uint256)", (token_id, config.DEPOSIT_RAO)),
+        ("previewUnwrap(uint256,uint256)", (token_id, shares)),
+    ):
+        reverted = chain.revert_data(env.lens_address, signature, *args)
+        assert reverted == expected, (
+            f"{context}: {signature.split('(')[0]} should revert {SHORTFALL_ERROR} as {expected}, got {reverted}"
+        )
+
+
+def assert_parked_refuses_deposits_and_pays_exits(
+    env: Environment, token_id: int, attested_hotkey: str, shares: int, context: str,
+) -> None:
+    """Assert a parked position refuses a deposit, pays an alpha exit and a TAO exit of `shares` each
+    from the parking hotkey, and stays parked."""
+    netuid = env.netuid_of(token_id)
+    parking = [env.parking_hotkey()]
+    env.assert_vault_reverts_with(
+        "Parked()", 1_500_000, f"{context}: a deposit should be refused while parked",
+        "wrap(uint256,bytes32,uint256)", netuid, attested_hotkey, 0,
+    )
+    exits.unwrap(env, token_id, shares, f"{context}: the exit should pay from the parking hotkey", hotkeys=parking)
+    exits.unwrap_for_tao(
+        env, token_id, shares, f"{context}: the TAO exit should sell from the parking hotkey", hotkeys=parking,
+    )
+    assert env.awaiting_attestation(token_id), f"{context}: an exit does not release the position"
+
+
+def release_parked(env: Environment, token_id: int, attested_hotkeys: List[str], context: str, label: str) -> int:
+    """Once the registry published `attested_hotkeys`, send the rebalance that releases the parked
+    position and assert the parked alpha lands on that set and the position is ordinary again;
+    returns the release block."""
+    netuid = env.netuid_of(token_id)
+    clone_coldkey = env.clone_coldkey(token_id)
+    parking_hotkey = env.parking_hotkey()
+    assert not env.awaiting_attestation(token_id), f"{context}: a newer attestation lifts the hold"
+    receipt = env.vault_send_between_epochs(
+        netuid, 4_000_000, f"{context}: the release rebalance failed", "rebalance(uint256)", netuid, label=label,
+    )
+    release_block = chain.receipt_block_number(receipt, f"{context}: release")
+    parked_before = env.stake(parking_hotkey, clone_coldkey, netuid, release_block - 1)
+    assert env.stake(parking_hotkey, clone_coldkey, netuid, release_block) <= config.ROUNDING_DUST_SLOT_RAO, (
+        f"{context}: the parking hotkey should be empty after the release"
+    )
+    landed = env.stake_change(clone_coldkey, netuid, attested_hotkeys, release_block)
+    assert abs(landed - parked_before) <= config.ROUNDING_DUST_SLOT_RAO * len(attested_hotkeys), (
+        f"{context}: the attested set should take the {parked_before} alpha RAO parked, took {landed}"
+    )
+    assert env.backing_intact(token_id), f"{context}: the record follows the set"
+    assert not env.awaiting_attestation(token_id), f"{context}: the position is ordinary again"
+    return release_block

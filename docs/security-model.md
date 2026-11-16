@@ -22,8 +22,9 @@ Holders rely on:
   [runtime compatibility](deployment.md#runtime-compatibility).
 - Registry governance publishing distinct hotkeys; a hotkey counted twice can
   overpay an exit.
-- A funded, responsive watcher to repair validator hotkey swaps, and an
-  authorized registry update to release a parked position.
+- A funded, responsive watcher to park
+  [missing backing](hotkey-swaps.md#missing-backing), and an authorized registry
+  update to release a parked position.
 - Trusted vault and lens builds and addresses.
 
 ## Safeguards
@@ -55,15 +56,15 @@ public UID only forces a retry.
 
 ## Recovery-window tradeoff and late-recovery attack
 
-When the vault cannot locate alpha its record expects, in a case
-[automatic handling leaves to a watcher](hotkey-swaps.md#automatic-handling-has-limits),
-the watcher parks the located backing and starts one fixed recovery window. Alpha
-still missing at expiry is written off: a real loss for holders at that time, and
-anything recovered later belongs to whoever holds shares then. Balances too small
-to move can be written off as well.
+When alpha the record expects is still missing after `syncBacking` collects the
+located backing, the sync parks that backing and starts one fixed recovery window.
+Alpha still missing at expiry is written off: a real loss for holders at that
+time, and anything recovered later belongs to whoever holds shares then. Balances
+too small to move can be written off as well.
 
-Anyone able to keep vault alpha out of the vault's reach and return it later can
-exploit that policy:
+Anyone able to keep vault alpha
+[where the vault does not locate it](hotkey-swaps.md#missing-backing) and return
+it later can exploit that policy:
 
 1. Leave vault alpha where the vault does not locate it.
 2. Let the write-off finalize if watchers miss the window.
@@ -79,9 +80,8 @@ later recovery until the clone is replaced.
 ## Other accepted risks
 
 - Exits can fail temporarily while the watcher repairs chain state.
-- A validator that swaps one attested hotkey onto another it owns leaves two
-  slots on one pile: wraps, exits and quotes revert until a watcher's
-  `syncBacking` parks the position, whole and with no recovery window.
+- A validator that swaps one attested hotkey onto another it owns merges two
+  slots; the position reads short until one `syncBacking` parks it whole.
 - Chain minimums and rounding can require top-ups or combining shares, and a
   full TAO exit may discard a small unsold residue.
 - A TAO exit's price impact falls partly on remaining holders.
