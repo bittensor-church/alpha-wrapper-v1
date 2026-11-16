@@ -23,7 +23,7 @@ Holders rely on:
 - Registry governance publishing distinct hotkeys; a hotkey counted twice can
   overpay an exit.
 - A funded, responsive watcher to park
-  [missing backing](hotkey-swaps.md#missing-backing), and an authorized registry
+  [missing backing](recovery.md#missing-backing), and an authorized registry
   update to release a parked position.
 - Trusted vault and lens builds and addresses.
 
@@ -63,7 +63,7 @@ time, and anything recovered later belongs to whoever holds shares then. Balance
 too small to move can be written off as well.
 
 Anyone able to keep vault alpha
-[where the vault does not locate it](hotkey-swaps.md#missing-backing) and return
+[where the vault does not locate it](recovery.md#missing-backing) and return
 it later can exploit that policy:
 
 1. Leave vault alpha where the vault does not locate it.

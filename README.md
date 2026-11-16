@@ -76,8 +76,8 @@ placeholder as is.
 
 - [Overview](docs/overview.md): contracts and token ids.
 - [User guide](docs/user-guide.md): deposits, exits and mailbox recovery.
-- [Hotkey swaps](docs/hotkey-swaps.md): what a swap changes for the vault, and
-  the watcher's recovery runbook.
+- [Recovery](docs/recovery.md): hotkey swaps, missing backing, parked positions
+  and the watcher runbook.
 - [Edge cases](docs/edge-cases.md): dissolution, minimums, disabled transfers and dust.
 - [Security model](docs/security-model.md): authority, liveness dependencies and loss policy.
 - [Deployment](docs/deployment.md): deploying the registry and vault set, and runtime compatibility.

@@ -1,4 +1,6 @@
-# Hotkey swaps and recovery
+# Recovery
+
+## Hotkey swaps
 
 A validator hotkey swap that carries its stake moves the vault's alpha to the new
 hotkey, still under the clone's coldkey. The vault finds it there by itself, so

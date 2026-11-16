@@ -1,7 +1,7 @@
 # Edge cases
 
 Hotkey swaps, ownerless hotkeys and missing backing have a separate
-[recovery runbook](hotkey-swaps.md). This page covers other chain constraints.
+[recovery runbook](recovery.md). This page covers other chain constraints.
 
 ## Subnet dissolution
 
@@ -97,7 +97,7 @@ The chain's root can raise the minimum a nominator may hold and sweep every
 smaller position. A vault slot swept that way arrives as TAO on the clone,
 claimable by holders, or is deleted unpaid if the sale fails. Either way the
 record reads short and the lens reports the undeclared-shortfall sentinel. A
-watcher handles it under the [recovery runbook](hotkey-swaps.md#watcher-runbook).
+watcher handles it under the [recovery runbook](recovery.md#watcher-runbook).
 
 ## Stray TAO and alpha
 
@@ -113,7 +113,7 @@ Third-party alpha under tracked hotkeys increases backing. A clone admits
 third-party alpha only onto a hotkey it already lists; alpha it holds on another
 subnet is an [accepted risk](security-model.md#other-accepted-risks). Mailbox
 wraps collect only the mailbox's own hotkey. Other vault alpha joins the position
-through `recoverStray` under the [recovery runbook](hotkey-swaps.md#watcher-runbook);
+through `recoverStray` under the [recovery runbook](recovery.md#watcher-runbook);
 alpha recovered after a write-off follows the
 [late-recovery policy](security-model.md#recovery-window-tradeoff-and-late-recovery-attack).
 

@@ -75,7 +75,7 @@ still transfer and accrued TAO stays claimable. The lens reports
 `awaitingAttestation(tokenId)` reports a parked position. It pays alpha exits
 from the parking hotkey, so move the received alpha to a validator with
 `moveStake` to earn emissions. Deposits wait for a new validator set. See the
-[watcher runbook](hotkey-swaps.md).
+[watcher runbook](recovery.md).
 
 ## Claim TAO and reclaim deposits
 
