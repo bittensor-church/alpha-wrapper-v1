@@ -453,17 +453,18 @@ abstract contract BackingCampaignHarness is CampaignHarness {
         }
     }
 
-    /// @dev Both halves must clear the chain's transfer minimum for the returns to land.
-    function strandable(bytes32 hotkey) external view returns (bool) {
-        uint256 held = _getVaultStake(hotkey, NETUID1);
-        return held != 0
-            && (held / 2) * MockAlpha(ALPHA_PRECOMPILE).chainAlphaPrice(uint16(NETUID1)) / 1e18 >= CHAIN_MIN_TRANSFER;
+    function simulateSweep(bytes32 from) external returns (uint256) {
+        return _getVaultStake(from, NETUID1) == 0 ? 0 : _sweepDuringCrash(NETUID1, from);
     }
 
-    function simulateSweepReturnedInTwoPiles(bytes32 from, bytes32 first, bytes32 second) external {
-        uint256 swept = _sweepDuringCrash(NETUID1, from);
-        _strangerReturns(NETUID1, first, swept / 2);
-        _strangerReturns(NETUID1, second, swept - swept / 2);
+    /// @dev Both halves must clear the chain's transfer minimum for the returns to land.
+    function returnableInTwoPiles(uint256 amount) external view returns (bool) {
+        return (amount / 2) * MockAlpha(ALPHA_PRECOMPILE).chainAlphaPrice(uint16(NETUID1)) / 1e18 >= CHAIN_MIN_TRANSFER;
+    }
+
+    function simulateReturnInTwoPiles(bytes32 first, bytes32 second, uint256 amount) external {
+        _strangerReturns(NETUID1, first, amount / 2);
+        _strangerReturns(NETUID1, second, amount - amount / 2);
     }
 
     function zeroPaySlots() external view returns (uint256) {
@@ -651,18 +652,24 @@ abstract contract BackingCampaignHarness is CampaignHarness {
     }
 
     /// @dev An open recovery stays unchanged only while parking does not cover the obligation and the sync has nothing
-    ///      to collect: no other recorded hotkey holds stake, or the richest recorded pile is below the floor.
+    ///      to collect: no other recorded hotkey holds stake and no other listed hotkey with an owner holds a pile
+    ///      that clears the floor, or the richest of those piles is below the floor.
     function recoveryCannotAdvance() external view returns (bool) {
         uint256 parkingStake = _parkedStake(NETUID1);
         if (parkingStake + BACKING_SLACK_RAO >= trackedBacking()) return false;
-        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
+        bytes32[] memory recorded = VaultReads.stakedUnderOf(vault.recordedSlots(TOKEN1));
+        bytes32[] memory listed = _listedHotkeys(_subnetColdkey(NETUID1));
         uint256 richest = parkingStake;
         bool exposed;
-        for (uint256 i; i < slots.length; ++i) {
-            if (slots[i].stakedUnder == vault.parkingHotkey()) continue;
-            uint256 held = _getVaultStake(slots[i].stakedUnder, NETUID1);
+        for (uint256 i; i < listed.length; ++i) {
+            if (listed[i] == vault.parkingHotkey()) continue;
+            uint256 held = _getVaultStake(listed[i], NETUID1);
+            bool collected = _contains(recorded, listed[i])
+                ? held != 0
+                : taoValueAtRead(held) >= CHAIN_MIN_STAKE && _hasOwner(listed[i]);
+            if (!collected) continue;
+            exposed = true;
             if (held > richest) richest = held;
-            if (held != 0) exposed = true;
         }
         return !exposed || taoValueAtRead(richest) < CHAIN_MIN_STAKE;
     }
@@ -835,9 +842,19 @@ abstract contract BackingCampaignHarness is CampaignHarness {
         }
     }
 
+    /// @dev Alpha the campaign's sweeps took from the clone that no stranger has returned yet.
+    function _sweptAlpha() internal view virtual returns (uint256) {
+        return 0;
+    }
+
+    /// @dev A swept pile stays in the record until its loss is written off.
     function _assertTrackedBackingWithinChainHoldings() internal view {
         uint256 slots = vault.recordedSlots(TOKEN1).length;
-        assertLe(trackedBacking(), chainHoldings() + BACKING_SLACK_RAO * slots, "the record expects more than exists");
+        assertLe(
+            trackedBacking(),
+            chainHoldings() + _sweptAlpha() + BACKING_SLACK_RAO * slots,
+            "the record expects more than the clone ever held"
+        );
     }
 
     /// @dev Bounds the lens read itself, which follows successors without writing them back: one live balance

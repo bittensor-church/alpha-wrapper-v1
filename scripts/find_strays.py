@@ -10,7 +10,8 @@ hotkey the vault already locates, a followed successor or a listed hotkey holdin
 slot's alpha, shows `NothingToRecover` until `syncBacking` records it. `--recover` signs with `RECOVER_PRIVATE_KEY` from the environment and
 sends each call the dry run accepts at the head just before sending, so a pile parked
 by one call carries the smaller ones; it exits non-zero while any pile stays out.
-Call `syncBacking` first while a shortfall stands, and again once everything is home.
+While a shortfall stands, `syncBacking` collects the ten largest of these piles that clear
+the move floor per call; call it first, and again once everything is home.
 """
 
 import argparse

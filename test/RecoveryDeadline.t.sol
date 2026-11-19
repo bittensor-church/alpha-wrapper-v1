@@ -31,6 +31,14 @@ contract RecoveryDeadlineTest is BackingScenarios {
         _strangerReturns(NETUID1, secondTip, secondSwept);
     }
 
+    /// @dev The first loss comes back under hotkey4; the 24 alpha swept from hotkey2 stays lost.
+    function _firstLossReturned() private returns (bytes32 tip, uint256 secondSwept, uint256 deadline) {
+        uint256 firstSwept;
+        (firstSwept, secondSwept, deadline) = _twoLossesDeclared();
+        tip = hotkey4;
+        _strangerReturns(NETUID1, tip, firstSwept);
+    }
+
     function test_LateSwap_CannotHideBackingSecuredBeforeTheDeadline() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _sweepDuringCrash(NETUID1, hotkey1);
@@ -86,7 +94,7 @@ contract RecoveryDeadlineTest is BackingScenarios {
     }
 
     function test_ReturnedBalance_IsSecuredBeforeItsHotkeyCanSwapAgain() public {
-        (bytes32 firstTip, bytes32 secondTip, uint256 deadline) = _twoLosses();
+        (bytes32 firstTip, uint256 secondSwept, uint256 deadline) = _firstLossReturned();
         vm.warp(deadline - 2);
         _simulateOffVaultSwap(NETUID1, firstTip, hotkey1);
         assertEq(lens.locatedStake(TOKEN1), 16 * ALPHA, "8 alpha parked and 8 returned, each counted once");
@@ -104,7 +112,8 @@ contract RecoveryDeadlineTest is BackingScenarios {
         emit BackingWrittenOff(TOKEN1, 40 * ALPHA, 16 * ALPHA);
         vault.syncBacking(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), 16 * ALPHA, "the write-off keeps the 16 alpha secured");
-        vault.recoverStray(TOKEN1, secondTip);
+        _strangerReturns(NETUID1, hotkey5, secondSwept);
+        vault.recoverStray(TOKEN1, hotkey5);
         assertEq(lens.totalStake(TOKEN1), 40 * ALPHA, "late recovery still belongs to current holders");
     }
 
@@ -147,7 +156,7 @@ contract RecoveryDeadlineTest is BackingScenarios {
     }
 
     function test_FailedCollectionAtExpiry_RevertsAndCanBeRetried() public {
-        (bytes32 firstTip,, uint256 deadline) = _twoLosses();
+        (bytes32 firstTip,, uint256 deadline) = _firstLossReturned();
         _simulateOffVaultSwap(NETUID1, firstTip, hotkey1);
         vm.warp(deadline);
         MockStaking(STAKING_PRECOMPILE).setMoveStakeReverts(true);
@@ -312,7 +321,7 @@ contract RecoveryDeadlineTest is BackingScenarios {
 
     /// @dev Fault injection of the BackingNotSecured guard: a mock move leaves a residual at its source.
     function test_MoveLeavingAResidualAtExpiry_HoldsTheWriteOffUntilRetried() public {
-        (bytes32 first,, uint256 deadline) = _twoLosses();
+        (bytes32 first,, uint256 deadline) = _firstLossReturned();
         _simulateOffVaultSwap(NETUID1, first, hotkey1);
         vm.warp(deadline);
         MockStaking staking = MockStaking(STAKING_PRECOMPILE);

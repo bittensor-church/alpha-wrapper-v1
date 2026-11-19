@@ -62,6 +62,10 @@ library VaultMath {
         return INDEX_NOT_FOUND;
     }
 
+    function indexOfLargest(uint256[] memory values) internal pure returns (uint256 largest) {
+        for (uint256 i = 1; i < values.length;) { if (values[i] > values[largest]) largest = i; unchecked { ++i; } }
+    }
+
     function netuidOf(uint256 tokenId) internal pure returns (uint16) {
         // forge-lint: disable-next-line(unsafe-typecast)
         return uint16(tokenId & NETUID_MASK);

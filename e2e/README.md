@@ -104,6 +104,12 @@ Scenario files in `tests/` cover:
   deposit, both exits, the rebalance, the quotes and `recoverStray` refuse, one
   `syncBacking` parks the position whole, both exits pay from the parking hotkey and
   a new set releases it.
+- `test_cross_assigned_slots.py`: under a two-validator registry, one validator swaps
+  its hotkey on every subnet and the other swaps its own onto the vacated hotkey, so the
+  smaller pile sits where no slot accounts for it; the priced calls refuse, one
+  `syncBacking` collects both piles from the clone's staking list and parks the position
+  whole with no recovery window, both exits pay from the parking hotkey and a new set
+  releases it.
 - `test_parking_isolation.py`: two subnets park on the one parking hotkey; each keeps
   its own balance, the other keeps trading, and each releases on its own owner update.
 - `test_subnet_generation.py`: a rewritten registration block leaves the token and its

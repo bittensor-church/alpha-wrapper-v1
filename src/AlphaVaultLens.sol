@@ -42,7 +42,8 @@ contract AlphaVaultLens {
     function locatedStake(uint256 tokenId) external view returns (uint256) { return _readBacking(tokenId).backing.total; }
 
     /// @notice Missing alpha in RAO. Zero during and after dissolution.
-    /// @dev Counts dust and offsets deficits with surpluses; zero does not imply intact backing.
+    /// @dev Counts dust and offsets deficits with surpluses; zero does not imply intact backing. A pile under a
+    ///      listed hotkey the record does not name counts as missing until `syncBacking` collects it.
     function missingStake(uint256 tokenId) external view returns (uint256) {
         BackingRead memory read = _readBacking(tokenId);
         uint256 expected;

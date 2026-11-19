@@ -25,22 +25,14 @@ contract ZeroHotkeyRecoveryTest is AlphaVaultTestBase {
     }
 
     function _parkFromZeroHotkey(uint256 backing) private {
-        vault.syncBacking(TOKEN1);
-        assertEq(_parkedStake(NETUID1), 0, "nothing is located at declaration");
-
-        vm.expectEmit(true, true, true, true, address(vault));
-        emit BackingRecovered(TOKEN1, ZERO, vault.parkingHotkey(), backing);
-        vault.recoverStray(TOKEN1, ZERO);
-
-        assertEq(_parkedStake(NETUID1), backing, "the watcher parks the whole backing from hotkey 0");
-        assertEq(_getVaultStake(ZERO, NETUID1), 0, "leaving nothing under hotkey 0");
-        assertEq(lens.missingStake(TOKEN1), 0, "and nothing missing");
-
         vm.expectEmit(true, false, false, true, address(vault));
         emit BackingParked(TOKEN1, backing, NONCE_AFTER_SET_UP);
         vault.syncBacking(TOKEN1);
+
+        assertEq(_parkedStake(NETUID1), backing, "one sync parks the whole backing from hotkey 0");
+        assertEq(_getVaultStake(ZERO, NETUID1), 0, "leaving nothing under hotkey 0");
         assertEq(lens.totalStake(TOKEN1), backing, "nothing is written off");
-        assertEq(lens.writeOffDeadline(TOKEN1), 0, "and the clock is gone");
+        assertEq(lens.writeOffDeadline(TOKEN1), 0, "and no clock starts");
     }
 
     function test_SwapIntoTheZeroHotkey_IsParkedAndReleasedOntoTheNextAttestation() public {
@@ -74,6 +66,20 @@ contract ZeroHotkeyRecoveryTest is AlphaVaultTestBase {
 
         _simulatePerSubnetSwap(NETUID1, hotkey1, ZERO);
         _parkFromZeroHotkey(deposit);
+    }
+
+    function test_RecoverStray_ParksAReturnUnderTheZeroHotkey() public {
+        _depositOnTheOnlyValidator(VICTIMS_DEPOSIT);
+        uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
+        vault.syncBacking(TOKEN1);
+        _strangerReturns(NETUID1, ZERO, swept);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit BackingRecovered(TOKEN1, ZERO, vault.parkingHotkey(), VICTIMS_DEPOSIT);
+        vault.recoverStray(TOKEN1, ZERO);
+
+        assertEq(_parkedStake(NETUID1), VICTIMS_DEPOSIT, "the watcher parks the whole backing from hotkey 0");
+        assertEq(lens.missingStake(TOKEN1), 0, "and nothing is missing");
     }
 
     function _ownerlessAttestedHotkeyBesideHeldBacking() private returns (uint256 shares) {

@@ -9,6 +9,7 @@ import { VaultClones } from "./VaultClones.sol";
 import { VaultReads } from "./VaultReads.sol";
 import { IAlpha, ALPHA_PRECOMPILE } from "../interfaces/IAlpha.sol";
 import { IStaking, STAKING_LIST_PAGE, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
+import { MAX_VALIDATORS } from "../interfaces/IValidatorRegistry.sol";
 import { LockedDeposit, ZeroAmount } from "../VaultErrors.sol";
 import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
 import { CloneFactory } from "../CloneFactory.sol";
@@ -18,6 +19,11 @@ import { SubnetClone } from "../SubnetClone.sol";
 library VaultAllocation {
     /// @dev What collection does with a pile below the floor.
     enum CollectionPolicy { RevertBelowFloor, LeaveBelowFloor }
+
+    /// @dev Bounds the moves one collection signs. A hotkey swap carries a slot's pile whole, so a position's
+    ///      alpha sits under no more hotkeys than it has slots; a larger gift collected in a pile's place covers
+    ///      at least as much.
+    uint256 private constant MAX_STRAYS_PER_COLLECTION = MAX_VALIDATORS;
 
     /// @dev One position under one alpha price: the caller reads the price once and every floor test in
     ///      the call uses that read.
@@ -85,7 +91,7 @@ library VaultAllocation {
             if (offset != 0) (page,) = staking.getStakingHotkeys(coldkey, offset, STAKING_LIST_PAGE);
             for (uint256 i; i < page.length;) {
                 bytes32 hotkey = page[i];
-                if (hotkey != bytes32(0) && hotkey != parking) {
+                if (hotkey != parking) {
                     candidates[offset + i] = hotkey;
                     piles[offset + i] = staking.getStake(hotkey, coldkey, netuid);
                 }
@@ -94,6 +100,7 @@ library VaultAllocation {
         }
     }
 
+    /// @dev A slot never resolves to hotkey 0x0, which the record reads as no hotkey.
     function _smallestUnclaimedPileCovering(bytes32[] memory taken, bytes32[] memory candidates, uint256[] memory piles, uint256 tracked)
         private pure returns (uint256 pick) {
         pick = VaultMath.INDEX_NOT_FOUND;
@@ -108,6 +115,33 @@ library VaultAllocation {
             }
             unchecked { ++i; }
         }
+    }
+
+    /// @dev `hotkeys` followed by the largest piles the clone holds under other listed hotkeys. A pile stays
+    ///      behind when it is not proven to clear the floor, as unproven weight-alignment moves do, or when its
+    ///      hotkey has no owner record: the chain can refuse that claim, and a stray must not block collection.
+    function withListedStrays(Context memory context, bytes32[] memory hotkeys) external view returns (bytes32[] memory) {
+        uint256 alphaPriceE18 = context.alphaPriceE18;
+        if (alphaPriceE18 == 0) return hotkeys;
+        (bytes32[] memory listed, uint256[] memory piles) =
+            _pilesUnderListedHotkeys(context.coldkey, context.netuid, context.parking);
+        uint256 minStakeTao = StakeOps.minStakeTao();
+        uint256 count;
+        for (uint256 i; i < piles.length;) {
+            if (
+                StakeOps.taoValue(piles[i], alphaPriceE18) < minStakeTao || VaultMath.contains(hotkeys, listed[i])
+                    || !VaultReads.hasOwner(listed[i])
+            ) piles[i] = 0;
+            else if (count < MAX_STRAYS_PER_COLLECTION) ++count;
+            unchecked { ++i; }
+        }
+        bytes32[] memory strays = new bytes32[](count);
+        for (uint256 taken; taken < count;) {
+            uint256 largest = VaultMath.indexOfLargest(piles);
+            strays[taken] = listed[largest]; piles[largest] = 0;
+            unchecked { ++taken; }
+        }
+        return VaultMath.concat(hotkeys, strays);
     }
 
     function readAdmittedDeposit(bytes32 mailboxColdkey, uint16 nid) external view
@@ -424,11 +458,7 @@ library VaultAllocation {
     function _gatherIntoLargestSlot(Context memory context, bytes32[] memory hotkeys, uint256[] memory balances,
         uint256 assets) private returns (bytes32 payingHotkey, uint256 deliverable) {
         bytes32 coldkey = context.coldkey; uint16 netuid = context.netuid;
-        uint256 deliveryIndex;
-        for (uint256 i = 1; i < balances.length;) {
-            if (balances[i] > balances[deliveryIndex]) deliveryIndex = i;
-            unchecked { ++i; }
-        }
+        uint256 deliveryIndex = VaultMath.indexOfLargest(balances);
         // Gather hops can round down, so summed balances cannot determine the final deliverable amount.
         deliverable = balances[deliveryIndex];
         if (balances[deliveryIndex] < assets) {

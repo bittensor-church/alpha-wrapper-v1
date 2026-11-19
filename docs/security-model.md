@@ -57,16 +57,17 @@ public UID only forces a retry.
 ## Recovery-window tradeoff and late-recovery attack
 
 When alpha the record expects is still missing after `syncBacking` collects the
-located backing, the sync parks that backing and starts one fixed recovery window.
+located backing and the clone's listed piles, the sync parks them and starts one
+fixed recovery window.
 Alpha still missing at expiry is written off: a real loss for holders at that
 time, and anything recovered later belongs to whoever holds shares then. Balances
 too small to move can be written off as well.
 
 Anyone able to keep vault alpha
-[where the vault does not locate it](recovery.md#missing-backing) and return
+[where a sync does not collect it](recovery.md#missing-backing) and return
 it later can exploit that policy:
 
-1. Leave vault alpha where the vault does not locate it.
+1. Leave vault alpha where a sync does not collect it.
 2. Let the write-off finalize if watchers miss the window.
 3. Deposit against the reduced backing to acquire a larger share of the supply.
 4. Return the hidden alpha, so the new shares take part in its recovery.
@@ -81,7 +82,9 @@ later recovery until the clone is replaced.
 
 - Exits can fail temporarily while the watcher repairs chain state.
 - A validator that swaps one attested hotkey onto another it owns merges two
-  slots; the position reads short until one `syncBacking` parks it whole.
+  slots, and one that swaps its hotkey onto another slot's vacated hotkey can
+  leave a pile no slot accounts for; the position reads short until one
+  `syncBacking` parks it whole.
 - Chain minimums and rounding can require top-ups or combining shares, and a
   full TAO exit may discard a small unsold residue.
 - A TAO exit's price impact falls partly on remaining holders.

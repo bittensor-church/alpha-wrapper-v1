@@ -39,7 +39,7 @@ error NothingToRecover();
 error AlphaTransfersDisabled(uint16 netuid);
 /// @dev A bit of the exclusion mask names a slot the record does not have.
 error SlotMaskOutOfRange();
-/// @dev Located backing remains exposed after collection; the recovery clock must not start.
+/// @dev Backing remains exposed under a collected hotkey; the recovery clock must not start.
 error BackingNotSecured();
 /// @dev The position rests on the parking hotkey until the registry publishes a newer set.
 error Parked();

@@ -40,12 +40,6 @@ contract BackingRecoveryTest is BackingScenarios {
 
     uint256 private constant PARKED_DEPOSIT = 30 * ALPHA;
 
-    function _declaredShortfall() private returns (uint256 shares) {
-        shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
-        _sweepDuringCrash(NETUID1, hotkey1);
-        vault.syncBacking(TOKEN1);
-    }
-
     function _declaredShortfallReturnedUnder(bytes32 stray) private returns (uint256 shares) {
         shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);

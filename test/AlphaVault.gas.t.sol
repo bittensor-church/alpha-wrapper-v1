@@ -328,6 +328,22 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         assertEq(shortSince, block.timestamp, "the loss is on file");
     }
 
+    function test_gas_syncBacking_parkFromTenListedStrays_10Validators() public {
+        _setValidatorCount(NETUID1, VALIDATOR_CAP);
+        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+        uint256 swept = _sweepDuringCrash(NETUID1, _attestedHotkeys(NETUID1)[0]);
+        bytes32[] memory strays = _hotkeysFrom("stray", VALIDATOR_CAP);
+        for (uint256 i; i < strays.length; ++i) {
+            _strangerReturns(NETUID1, strays[i], swept / VALIDATOR_CAP);
+        }
+
+        vault.syncBacking(TOKEN1);
+        vm.snapshotGasLastCall("AlphaVault", "syncBacking: park from ten listed strays (10 validators)");
+
+        assertEq(_parkedStake(NETUID1), 10 * ALPHA, "the strays cover the swept slot's 1 alpha");
+        assertEq(lens.writeOffDeadline(TOKEN1), 0, "so no loss goes on file");
+    }
+
     function test_gas_rebalance_cutEdge() public {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
         _cutTheEdge(hotkey1, hotkey4);

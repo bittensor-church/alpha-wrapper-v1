@@ -28,7 +28,8 @@ interface IAlphaVaultAbi {
     event MailboxTaoReclaimed(address indexed user, uint256 indexed netuid, uint256 amount);
     /// @dev `amount` is native TAO in EVM wei.
     event TaoClaimed(address indexed user, uint256 indexed tokenId, address indexed recipient, uint256 amount);
-    /// @dev The window starts once located backing above the floor sits on parking; smaller piles can stay behind.
+    /// @dev The window starts once located backing and listed piles above the floor sit on parking; smaller piles
+    ///      can stay behind.
     event BackingShortfallDeclared(uint256 indexed tokenId, uint256 expected, uint256 located);
     event BackingShortfallCleared(uint256 indexed tokenId);
     /// @dev Loss falls on holders at write-off; later recovery belongs to holders at recovery time.
@@ -41,7 +42,7 @@ interface IAlphaVaultAbi {
     event ParkingReleased(uint256 indexed tokenId, uint256 registryNonce);
     /// @dev `recoverStray` moved the vault's alpha from `source` onto `destination`.
     event BackingRecovered(uint256 indexed tokenId, bytes32 indexed source, bytes32 indexed destination, uint256 amount);
-    /// @dev A sync during recovery moved returns from recorded hotkeys onto the parking hotkey.
+    /// @dev A sync during recovery moved returns from recorded and listed hotkeys onto the parking hotkey.
     event BackingCollected(uint256 indexed tokenId, uint256 amount);
     /// @dev The record moved slot `slot` from `fromHotkey` to `toHotkey`. A zero `fromHotkey` opens the slot; a zero
     ///      `toHotkey` closes it. It tracks the record, not alpha: a renumbered slot moves no stake.

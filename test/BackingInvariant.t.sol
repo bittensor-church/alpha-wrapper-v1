@@ -18,6 +18,8 @@ contract BackingHandler is BackingCampaignHandler {
     uint256 public strayAnnexations;
     uint256 public strayCollections;
     uint256 public replacements;
+    /// @dev Alpha the chain swept that no stranger has returned yet.
+    uint256 public sweptAlpha;
 
     constructor(
         AlphaVault _vault,
@@ -66,14 +68,20 @@ contract BackingHandler is BackingCampaignHandler {
         _backing().simulateSilentMove(from, to);
     }
 
-    function strandInTwoPiles(uint256 fromSeed, uint256 toSeed) external {
-        bytes32 from = touchedHotkeys[bound(fromSeed, 0, touchedHotkeys.length - 1)];
-        if (!_backing().strandable(from)) return;
+    /// @dev The chain's sweep takes a pile out of the clone.
+    function sweep(uint256 fromSeed) external {
+        sweptAlpha += _backing().simulateSweep(touchedHotkeys[bound(fromSeed, 0, touchedHotkeys.length - 1)]);
+    }
+
+    /// @dev A stranger returns the swept alpha in two piles under hotkeys the record does not name.
+    function returnSweptInTwoPiles(uint256 toSeed) external {
+        if (!_backing().returnableInTwoPiles(sweptAlpha)) return;
         bytes32 first = keccak256(abi.encode("half", toSeed, uint256(0)));
         bytes32 second = keccak256(abi.encode("half", toSeed, uint256(1)));
         _remember(first);
         _remember(second);
-        _backing().simulateSweepReturnedInTwoPiles(from, first, second);
+        _backing().simulateReturnInTwoPiles(first, second, sweptAlpha);
+        sweptAlpha = 0;
     }
 
     function sourceFor(uint256 sourceSeed) public view returns (bytes32) {
@@ -166,6 +174,10 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
 
     function _campaign() internal view override returns (BackingCampaignHandler) {
         return handler;
+    }
+
+    function _sweptAlpha() internal view override returns (uint256) {
+        return handler.sweptAlpha();
     }
 
     function assertMovedPilesLeft(bytes32 previousColdkey) external view {
@@ -285,7 +297,7 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
             vault.recordedSlots(TOKEN1)[0].stakedUnder, keccak256(abi.encode("stray", uint256(1))), "and is recorded"
         );
 
-        handler.strandInTwoPiles(3, 1);
+        handler.sweep(3);
         assertEq(vault.recordedSlots(TOKEN1).length, 3, "one slot per attested hotkey before recovery");
         _assertSharedInvariants();
         handler.syncBacking();
@@ -297,6 +309,7 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         _assertSharedInvariants();
         assertEq(handler.recoveriesClosed(), 1, "an expired shortfall is written off");
         assertLt(trackedBacking(), owed, "the write-off shrank the obligation");
+        handler.returnSweptInTwoPiles(1);
         handler.recoverStray(_seedSelecting(keccak256(abi.encode("half", uint256(1), uint256(0)))));
         handler.recoverStray(_seedSelecting(keccak256(abi.encode("half", uint256(1), uint256(1)))));
         _assertSharedInvariants();
@@ -308,10 +321,21 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         _assertSharedInvariants();
         assertEq(_parkedStake(NETUID1), 0, "the rebalance spreads the parked backing again");
 
-        handler.strandInTwoPiles(1, 2);
+        handler.sweep(1);
+        handler.returnSweptInTwoPiles(2);
         _assertSharedInvariants();
         handler.syncBacking();
         _assertSharedInvariants();
+        assertEq(lens.writeOffDeadline(TOKEN1), 0, "one sync parks both returned halves with no window");
+        assertEq(trackedBacking(), owed, "and the position is whole");
+        _advanceRegistryNonce();
+        handler.rebalance();
+
+        handler.sweep(1);
+        _assertSharedInvariants();
+        handler.syncBacking();
+        _assertSharedInvariants();
+        handler.returnSweptInTwoPiles(3);
         handler.recoverHeldStray(0);
         handler.recoverHeldStray(0);
         _assertSharedInvariants();
