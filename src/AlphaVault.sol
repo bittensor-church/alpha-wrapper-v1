@@ -455,7 +455,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         emit BackingRecovered(tokenId, source, parkingHotkey, parked - before);
     }
 
-    /// @notice Move the token's position to a fresh clone once the old one's staking list is half full.
+    /// @notice Move the token's position to a fresh clone once the old one's staking list holds 64 entries.
     ///         Anyone may call it; a rejected candidate is retried with a fresh UID.
     /// @dev All TAO moves. Recorded piles below the floor stay behind and leave the record, and the
     ///      old clone keeps the alpha strangers sent it. Token id, shares, claims and mailboxes carry over.

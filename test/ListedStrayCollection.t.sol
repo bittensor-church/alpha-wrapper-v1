@@ -3,6 +3,7 @@ pragma solidity 0.8.36;
 
 import { BackingScenarios } from "./helpers/BackingScenarios.sol";
 import { BackingUnchanged } from "src/VaultErrors.sol";
+import { VaultReads } from "src/libraries/VaultReads.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
@@ -10,6 +11,7 @@ import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 /// name, so alpha a hotkey swap relocated is parked rather than written off.
 contract ListedStrayCollectionTest is BackingScenarios {
     bytes32 private constant SUCCESSOR = keccak256("successor");
+    bytes32 private constant SECOND_SUCCESSOR = keccak256("second-successor");
 
     /// @dev NETUID2 attests hotkey2 at 60% and hotkey1 at 40%: 10 alpha puts 6 and 4 alpha under them.
     uint256 private constant LARGER_SLOT = 6 * ALPHA;
@@ -102,6 +104,47 @@ contract ListedStrayCollectionTest is BackingScenarios {
 
         assertEq(lens.writeOffDeadline(TOKEN2), 0, "no recovery window opens");
         assertEq(lens.totalStake(TOKEN2), deposit, "the whole deposit still backs the shares");
+    }
+
+    /// @dev hotkey2 and hotkey3 swap on every subnet; hotkey1 moves onto the vacated hotkey2 and hotkey2's
+    ///      successor onto the vacated hotkey3, so each slot's own hotkey holds another slot's pile or nothing.
+    function testFuzz_ThreeSlotSwapCycle_IsNeverWrittenOff(uint256 deposit, uint256 rawFirst, uint256 rawSecond)
+        public
+    {
+        deposit = bound(deposit, 30 * ALPHA, 100_000 * ALPHA);
+        uint16 firstWeight = uint16(bound(rawFirst, 1_000, 4_500));
+        uint16 secondWeight = uint16(bound(rawSecond, 1_000, 4_500));
+        _setValidators(
+            NETUID1,
+            _hotkeys(hotkey1, hotkey2, hotkey3),
+            _weights(firstWeight, secondWeight, BPS_BASE - firstWeight - secondWeight)
+        );
+        _depositAndWrap(alice, NETUID1, deposit);
+
+        _swapOntoVacatedHotkey(NETUID1, hotkey2, SUCCESSOR, hotkey1);
+        _swapOntoVacatedHotkey(NETUID1, hotkey3, SECOND_SUCCESSOR, SUCCESSOR);
+
+        if (!lens.isBackingIntact(TOKEN1)) vault.syncBacking(TOKEN1);
+
+        assertEq(lens.writeOffDeadline(TOKEN1), 0, "no recovery window opens");
+        assertEq(lens.totalStake(TOKEN1), deposit, "the whole deposit still backs the shares");
+    }
+
+    function test_SyncBacking_DeclaresWithAListedStrayCoveringPartOfTheLoss() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _sweepDuringCrash(NETUID1, hotkey1);
+        _strangerReturns(NETUID1, hotkey4, 3 * ALPHA);
+
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit BackingShortfallDeclared(TOKEN1, 30 * ALPHA, 22_998_000_000);
+        vault.syncBacking(TOKEN1);
+
+        assertEq(_getVaultStake(hotkey4, NETUID1), 0, "the stray is drained onto the parking hotkey");
+        VaultReads.Slot[] memory slots = vault.recordedSlots(TOKEN1);
+        assertEq(slots.length, 4, "the record holds parking and the three slots' hotkeys");
+        for (uint256 i; i < slots.length; ++i) {
+            assertTrue(slots[i].stakedUnder != hotkey4, "and does not name the stray");
+        }
     }
 
     function test_SyncBacking_ClearsADeclaredShortfallFromAListedStray() public {
@@ -197,6 +240,22 @@ contract ListedStrayCollectionTest is BackingScenarios {
         assertEq(_getVaultStake(hotkey4, NETUID1), ALPHA_FLOOR - 1, "the stray waits for recoverStray");
     }
 
+    function test_StrayUnderAnOwnerlessHotkey_WaitsForRecoverStrayToClaimIt() public {
+        _declaredShortfall();
+        _strangerReturns(NETUID1, hotkey4, 3 * ALPHA);
+        MockStaking(STAKING_PRECOMPILE).setHotkeyDeleted(hotkey4, true);
+
+        vm.expectRevert(BackingUnchanged.selector);
+        vault.syncBacking(TOKEN1);
+        (bool owned,) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey4);
+        assertFalse(owned, "the sync claims nothing");
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit BackingRecovered(TOKEN1, hotkey4, vault.parkingHotkey(), 3 * ALPHA);
+        vault.recoverStray(TOKEN1, hotkey4);
+        assertEq(_hotkeyOwner(hotkey4), _cloneOwnerColdkey(NETUID1), "recoverStray claims it for the clone's owner");
+    }
+
     /// @dev The chain refuses the claim of a hotkey under its hashed account scheme, and stake cannot move
     ///      from a hotkey nobody owns.
     function test_StrayUnderAnUnclaimableHotkey_DoesNotBlockTheWriteOff() public {
@@ -230,6 +289,20 @@ contract ListedStrayCollectionTest is BackingScenarios {
         _setAlphaPrice(NETUID1, ALPHA_PRICE);
         vm.expectEmit(true, false, false, true, address(vault));
         emit BackingCollected(TOKEN1, 3 * ALPHA);
+        vault.syncBacking(TOKEN1);
+    }
+
+    /// @dev Fault injection: no runtime sets a zero stake minimum. The clone lists four hotkeys for another
+    ///      subnet; holding nothing here, they must not count as strays.
+    function test_SyncBacking_IgnoresEmptyListEntriesAtAZeroMinimum() public {
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(2000, 6000, 2000));
+        _depositAndWrap(alice, NETUID1, 40 * ALPHA);
+        _sweepDuringCrash(NETUID1, hotkey3);
+        _fillListTo(_subnetColdkey(NETUID1), 6);
+        MockStaking(STAKING_PRECOMPILE).setChainMinStake(0);
+
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit BackingShortfallDeclared(TOKEN1, 40 * ALPHA, 32 * ALPHA);
         vault.syncBacking(TOKEN1);
     }
 

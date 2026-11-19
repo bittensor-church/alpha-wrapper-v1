@@ -11,7 +11,7 @@ Emissions raise the backing behind each share.
 - `AlphaVaultLens`: read-only backing and payout quotes.
 - `SubnetClone`: one vault-controlled coldkey per subnet registration, isolating
   that position's stake and TAO from other positions, replaced by a fresh one
-  once its staking list is half full.
+  once its staking list holds 64 entries.
 - `CloneOwner`: owns one subnet clone's account as a hotkey, so no coldkey can
   be swapped into the clone and no subnet can be handed to it, and claims the
   ownerless hotkeys the clone has to move stake through. It refuses staking-list

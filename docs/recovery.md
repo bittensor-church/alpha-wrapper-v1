@@ -59,25 +59,32 @@ serves every subnet, and each position parks and releases on its own.
 3. While recovery is open, further syncs collect returns under recorded and
    listed hotkeys. The deadline stays fixed through partial recovery. At expiry,
    sync collects returns before writing off the remaining deficit.
-   `missingStake(tokenId)` counts a listed pile as missing until a sync collects it.
+   `missingStake(tokenId)` counts a listed pile as missing until a sync collects
+   it.
 4. `scripts/find_strays.py` lists what a sync left under hotkeys the record does
    not name: piles beyond the ten largest, piles below the floor and piles under
-   a hotkey with no owner record. A write-off does not wait for them. With `--recover` it calls `recoverStray(tokenId, source)`
-   for each, largest first, so a pile parked by one call carries the smaller ones
-   home. After `recoverStray` collects full coverage, call sync again to finalize
-   recovery.
+   a hotkey with no owner record. A write-off does not wait for them. With
+   `--recover` it calls `recoverStray(tokenId, source)` for each, largest first,
+   so a pile parked by one call carries the smaller ones home. After
+   `recoverStray` collects full coverage, call sync again to finalize recovery.
 5. Once the position is parked, registry governance publishes a newer set, even
    if all backing returned. The next wrap, alpha exit or `rebalance(netuid)`
    releases the position onto it.
-6. The lens's `stakingListEntries(tokenId)` reports the clone's staking list. From
-   128 entries anyone can call `replaceClone(tokenId, uid)` with a fresh random
-   UID; `StakingListFull` on any call means the same. The position, its TAO and
-   the token id move to a fresh clone; piles below the floor and uncollected
-   strays stay on the old clone, an [accepted risk](security-model.md#other-accepted-risks).
-   Before the list reaches 128 entries, collect strays with
-   `scripts/find_strays.py --recover`.
+6. The lens's `stakingListEntries(tokenId)` reports the clone's staking list. The
+   vault stops adding hotkeys to it at 96 entries, the last one kept for the
+   parking hotkey, and from 64 entries anyone can call
+   `replaceClone(tokenId, uid)` with a fresh random UID; `StakingListFull` on any
+   call means the same. The position, its TAO and the token id move to a fresh
+   clone; piles below the floor and uncollected strays stay on the old clone, an
+   [accepted risk](security-model.md#other-accepted-risks). Before the list
+   reaches 64 entries, collect strays with `scripts/find_strays.py --recover`.
 
-`syncBacking` and `recoverStray` are permissionless. A sync's cost grows with the
-hotkeys it collects from and the length of the clone's staking list: simulate the
-call and budget above the estimate.
-Keep funds for retries when a chain restriction blocks collection.
+`syncBacking` and `recoverStray` are permissionless. On chain every stake move
+walks the clone's whole staking list: about 75k gas plus 8,750 gas per entry. A
+sync signs one move per pile it collects and one onto the parking hotkey, and
+reads the list at about 6k gas per entry, twice when it declares. No other call
+moves a position that reads short, so the list cap keeps the largest sync inside
+one transaction: at 96 entries a move costs about 0.9M gas and a sync over twenty
+recorded piles and ten listed ones about 30M of the 65M one transaction may use.
+Simulate the call and budget above the estimate. Keep funds for retries when a
+chain restriction blocks collection.

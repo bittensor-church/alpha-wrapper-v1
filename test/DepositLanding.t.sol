@@ -16,7 +16,6 @@ import {
 
 contract DepositLandingTest is DepositScenarios {
     bytes32 private constant FRESH_UID = keccak256("fresh-clone-uid");
-    uint256 private constant REPLACEMENT_OPENS_AT = 128;
 
     function _sendToMailbox(address user, uint256 netuid, bytes32 fromHotkey, uint256 amount) private {
         _prepareMailbox(user, netuid);
@@ -157,6 +156,55 @@ contract DepositLandingTest is DepositScenarios {
 
         assertEq(_getStake(hotkey1, bob, NETUID1), 6 * ALPHA, "bob's exit pays his 6 alpha");
         assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "deposit and exit go through after replacement");
+    }
+
+    function test_UnlistedValidator_IsAdmittedAtNinetyFourEntriesAndRefusedAtNinetyFive() public {
+        _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        _fillListTo(cloneColdkey, 94);
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey4), _weights(5000, 5000));
+
+        _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
+        _wrapHotkey(bob, NETUID1, hotkey4);
+        assertEq(_getVaultStake(hotkey4, NETUID1), 18 * ALPHA, "half of 36 alpha on the new validator");
+        assertEq(_stakingHotkeyCount(cloneColdkey), 95, "which takes the last entry the vault's own moves may");
+
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey4, hotkey5), _weights(3334, 3333, 3333));
+        _simulateAlphaDeposit(bob, NETUID1, 6 * ALPHA);
+        vm.prank(bob);
+        vm.expectRevert(IAlphaVaultAbi.StakingListFull.selector);
+        vault.wrap(NETUID1, hotkey5, 0);
+    }
+
+    /// @dev A crumb on the other subnet keeps hotkey1 listed once its pile is swept, so the list stays at 95.
+    function test_HeldHotkeyAndParking_AreAdmittedAtNinetyFiveEntries() public {
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        _strangerTransfer(hotkey1, cloneColdkey, NETUID2, CRUMB);
+        _fillListTo(cloneColdkey, 95);
+
+        _depositAndWrap(bob, NETUID1, 6 * ALPHA);
+        assertEq(lens.totalStake(TOKEN1), 36 * ALPHA, "a deposit onto validators the clone stakes under lands");
+
+        _sweepDuringCrash(NETUID1, hotkey1);
+        assertEq(_stakingHotkeyCount(cloneColdkey), 95, "the swept validator keeps its entry");
+        vault.syncBacking(TOKEN1);
+        assertEq(_parkedStake(NETUID1), 18 * ALPHA, "the other slot's 18 alpha parks on the entry kept for it");
+    }
+
+    /// @dev Replacement opens at 64 entries; a registry update landing one entry under it must not hit the cap.
+    function test_TenNewValidators_LandFromSixtyThreeEntries() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        _fillListTo(cloneColdkey, 63);
+        bytes32[] memory next = _setValidatorCount(NETUID1, VALIDATOR_CAP);
+
+        vault.rebalance(NETUID1);
+
+        _assertSpread(next, cloneColdkey, NETUID1, 3 * ALPHA, 3 * ALPHA);
+        assertEq(_stakingHotkeyCount(cloneColdkey), 70, "ten new entries for the three the rotation emptied");
     }
 
     function testFuzz_DepositOntoAnUnlistedValidator_PassesOnlyBelowTheReserve(uint256 entries) public {
@@ -533,7 +581,7 @@ contract DepositLandingTest is DepositScenarios {
         assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "the position moved whole");
     }
 
-    function test_ReplacementOpensAtHalfTheCap() public {
+    function test_ReplacementOpensAtSixtyFourEntries() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 cloneColdkey = _subnetColdkey(NETUID1);
         _fillListTo(cloneColdkey, REPLACEMENT_OPENS_AT - 1);

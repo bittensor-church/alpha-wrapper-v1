@@ -117,7 +117,7 @@ library VaultAllocation {
         }
     }
 
-    /// @dev `hotkeys` followed by the largest piles the clone holds under other listed hotkeys. A pile stays
+    /// @dev `hotkeys` followed by the other listed hotkeys holding the clone's largest piles. A pile stays
     ///      behind when it is not proven to clear the floor, as unproven weight-alignment moves do, or when its
     ///      hotkey has no owner record: the chain can refuse that claim, and a stray must not block collection.
     function withListedStrays(Context memory context, bytes32[] memory hotkeys) external view returns (bytes32[] memory) {
@@ -129,8 +129,8 @@ library VaultAllocation {
         uint256 count;
         for (uint256 i; i < piles.length;) {
             if (
-                StakeOps.taoValue(piles[i], alphaPriceE18) < minStakeTao || VaultMath.contains(hotkeys, listed[i])
-                    || !VaultReads.hasOwner(listed[i])
+                piles[i] == 0 || StakeOps.taoValue(piles[i], alphaPriceE18) < minStakeTao
+                    || VaultMath.contains(hotkeys, listed[i]) || !VaultReads.hasOwner(listed[i])
             ) piles[i] = 0;
             else if (count < MAX_STRAYS_PER_COLLECTION) ++count;
             unchecked { ++i; }

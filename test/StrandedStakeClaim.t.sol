@@ -85,7 +85,7 @@ contract StrandedStakeClaimTest is BackingScenarios {
     function test_ReplaceClone_ClaimsTheHotkeyForTheOldCloneOwner() public {
         _fundedSlotLosesItsOwnerRecord(30 * ALPHA);
         bytes32 oldCloneOwner = _cloneOwnerColdkey(NETUID1);
-        _fillListTo(_subnetColdkey(NETUID1), STAKING_LIST_CAP / 2);
+        _fillListTo(_subnetColdkey(NETUID1), REPLACEMENT_OPENS_AT);
 
         vault.replaceClone(TOKEN1, UID);
 

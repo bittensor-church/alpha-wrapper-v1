@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { IStaking, MAX_STAKING_HOTKEYS, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
+import { IStaking, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
 import { IValidatorRegistry, MAX_VALIDATORS } from "../interfaces/IValidatorRegistry.sol";
 import { IAddressMapping, ADDRESS_MAPPING_PRECOMPILE } from "../interfaces/IAddressMapping.sol";
 import { ISubnet, SUBNET_PRECOMPILE } from "../interfaces/ISubnet.sol";
@@ -15,8 +15,11 @@ library VaultReads {
     uint256 internal constant NO_SHORT_SLOT = type(uint256).max;
     /// @dev Frozen with no deadline until recovery is declared.
     uint256 internal constant UNDECLARED_SHORTFALL = type(uint256).max;
-    /// @dev Half the cap: every move and exit a clone signs pays the chain's walk of its whole list.
-    uint256 private constant REPLACEMENT_LIST_LENGTH = MAX_STAKING_HOTKEYS / 2;
+    /// @dev Every move a clone signs pays the chain's walk of its whole staking list, and a sync is the only call
+    ///      that moves a position reading short. Capping the list keeps the worst sync inside one transaction.
+    uint256 private constant STAKING_LIST_CAP = 96;
+    /// @dev Far enough under the cap that a registry update landing just below it is still admitted whole.
+    uint256 private constant REPLACEMENT_LIST_LENGTH = 64;
 
     function coldkeyOf(address evmAddress) internal view returns (bytes32) {
         return IAddressMapping(ADDRESS_MAPPING_PRECOMPILE).addressMapping(evmAddress);
@@ -42,7 +45,7 @@ library VaultReads {
     /// @dev The last entry is kept for the parking hotkey, so recovery can always park.
     function stakingListAdmits(bytes32 coldkey, bytes32 hotkey, uint16 netuid, bytes32 parking) internal view returns (bool) {
         if (hotkey == parking || IStaking(STAKING_PRECOMPILE).getStake(hotkey, coldkey, netuid) != 0) return true;
-        return stakingHotkeyCount(coldkey) + 2 <= MAX_STAKING_HOTKEYS;
+        return stakingHotkeyCount(coldkey) + 2 <= STAKING_LIST_CAP;
     }
 
     function cloneReplacementOpen(bytes32 coldkey) internal view returns (bool) {
