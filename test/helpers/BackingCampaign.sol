@@ -9,6 +9,7 @@ import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { VaultMath } from "src/libraries/VaultMath.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
 import {
     AttestedHotkeyRetired,
@@ -502,28 +503,32 @@ abstract contract BackingCampaignHarness is CampaignHarness {
     /// @dev The piles a sync collects beyond the record: listed, owned, proven to clear the floor, and under a hotkey
     ///      that neither the record nor, before a declaration, its resolution names.
     function collectableStrays() public view returns (bytes32[] memory strays, uint256[] memory piles) {
-        bytes32[] memory recorded = VaultReads.stakedUnderOf(vault.recordedSlots(TOKEN1));
-        (uint256 shortSince,) = vault.recovery(TOKEN1);
-        bytes32[] memory resolved;
-        if (shortSince == 0) (resolved,,) = resolvedSlots();
+        bytes32[] memory named = _namedHotkeys();
         bytes32[] memory listed = _listedHotkeys(_subnetColdkey(NETUID1));
         strays = new bytes32[](listed.length);
         piles = new uint256[](listed.length);
         uint256 count;
         for (uint256 i; i < listed.length; ++i) {
-            bytes32 hotkey = listed[i];
-            uint256 held = _getVaultStake(hotkey, NETUID1);
+            uint256 held = _getVaultStake(listed[i], NETUID1);
             if (
-                hotkey == vault.parkingHotkey() || _contains(recorded, hotkey) || _contains(resolved, hotkey)
-                    || taoValueAtRead(held) < CHAIN_MIN_STAKE || !_hasOwner(hotkey)
+                listed[i] == vault.parkingHotkey() || _contains(named, listed[i])
+                    || taoValueAtRead(held) < CHAIN_MIN_STAKE || !_hasOwner(listed[i])
             ) continue;
-            strays[count] = hotkey;
+            strays[count] = listed[i];
             piles[count++] = held;
         }
         assembly {
             mstore(strays, count)
             mstore(piles, count)
         }
+    }
+
+    function _namedHotkeys() private view returns (bytes32[] memory named) {
+        named = VaultReads.stakedUnderOf(vault.recordedSlots(TOKEN1));
+        (uint256 shortSince,) = vault.recovery(TOKEN1);
+        if (shortSince != 0) return named;
+        (bytes32[] memory resolved,,) = resolvedSlots();
+        return VaultMath.concat(named, resolved);
     }
 
     function zeroPaySlots() external view returns (uint256) {

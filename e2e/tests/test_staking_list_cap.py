@@ -3,17 +3,17 @@
 Each round attests a fresh validator and rebalances onto it, which lists it, then sends a
 crumb under it on another subnet, which keeps its entry once the next round rotates it
 out. The last round attests a pair. The vault stops its own growth one entry short of its
-96-entry cap, kept for the parking hotkey, so a rebalance and a deposit onto a fresh
-validator revert `StakingListFull`.
+96-entry cap, kept for the parking hotkey.
 
 A stranger then gives the clone ten piles under rotated-out validators, and the pair's
 validator swaps one attested hotkey onto the other on this subnet, so two slots share one
 pile and the position reads short. Every stake move on chain walks the clone's whole
 staking list, so this is the costliest list the vault allows a sync on: it collects the
 merged pile and the ten strays onto the parking hotkey and must stay within the gas the
-runbook quotes. `replaceClone` then moves the parked position and all of the clone's TAO
-to a fresh clone that lists only the parking hotkey, a new set releases it, the deposit
-lands and the token exits in full.
+runbook quotes. The registry then names a fresh validator, and a rebalance and a deposit
+onto it revert `StakingListFull`. `replaceClone` moves the parked position and all of the
+clone's TAO to a fresh clone that lists only the parking hotkey, the deposit lands,
+carrying the parked pile onto the fresh validator, and the token exits in full.
 
 Gas rows: deposit and `previewUnwrap` on the fresh clone; deposit, partial exit and
 `previewUnwrap` on the full list; the sync; the replacement; deposit, `previewUnwrap` and
@@ -103,17 +103,6 @@ def test_list_reaches_the_cap_syncs_there_and_replacement_reopens_it(env, recove
         gas_limit=4_000_000,
     )
 
-    env.set_validator(netuid, spare)
-    env.assert_vault_reverts_with(
-        "StakingListFull()", 4_000_000, "Cap: a rebalance onto an unlisted validator should hit the cap",
-        "rebalance(uint256)", netuid,
-    )
-    env.send_to_mailbox(netuid, first_validator_ss58, config.DEPOSIT_RAO)
-    env.assert_vault_reverts_with(
-        "StakingListFull()", 1_500_000, "Cap: a deposit onto an unlisted validator should hit the cap",
-        "wrap(uint256,bytes32,uint256)", netuid, spare, 0,
-    )
-
     old_coldkey = env.clone_coldkey(token_id)
     strays = validators[:STRAYS]
     _, gift = env.floor_boundary(netuid, 3 * env.chain_min_stake_tao())
@@ -156,6 +145,17 @@ def test_list_reaches_the_cap_syncs_there_and_replacement_reopens_it(env, recove
         f"the sync used {gas_used} gas for {moves} moves on a full list; the runbook quotes {quoted}"
     )
 
+    env.set_validator(netuid, spare)
+    env.assert_vault_reverts_with(
+        "StakingListFull()", 4_000_000, "Cap: a rebalance onto an unlisted validator should hit the cap",
+        "rebalance(uint256)", netuid,
+    )
+    env.send_to_mailbox(netuid, first_validator_ss58, config.DEPOSIT_RAO)
+    env.assert_vault_reverts_with(
+        "StakingListFull()", 1_500_000, "Cap: a deposit onto an unlisted validator should hit the cap",
+        "wrap(uint256,bytes32,uint256)", netuid, spare, 0,
+    )
+
     shares = env.vault_shares(token_id)
     tao_before = chain.cast_balance_wei(clone)
     assert tao_before == 0, f"the clone should hold no TAO before it is funded, holds {tao_before} wei"
@@ -181,7 +181,6 @@ def test_list_reaches_the_cap_syncs_there_and_replacement_reopens_it(env, recove
     quoted_stake = env.vault_total_stake(token_id, block=replace_block)
     assert quoted_stake == moved, f"the quote prices {quoted_stake} alpha RAO; the successor holds {moved}"
 
-    env.set_validator(netuid, spare)
     receipt = env.wrap(netuid, spare, 2_500_000, "Cap, successor: the deposit should land once the list has room")
     wrap_block = chain.receipt_block_number(receipt, "Cap, successor: deposit")
     deposited = env.deposited(receipt, netuid)

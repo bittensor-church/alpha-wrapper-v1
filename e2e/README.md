@@ -118,10 +118,10 @@ Scenario files in `tests/` cover:
 - `test_validator_coldkey_swap.py`: a validator swaps its coldkey; wraps, rebalances and
   exits continue without a new attestation.
 - `test_staking_list_cap.py`: a clone's staking list walked to the last entry the vault
-  admits, where a rebalance and a deposit onto a fresh validator are refused; ten gifted
-  piles and two merged slots are parked there by one `syncBacking` within the gas the
-  runbook quotes; `replaceClone` moves the parked position, a new set releases it, the
-  deposit lands and the token exits. Gas rows: deposit and `previewUnwrap` on the fresh
+  admits; ten gifted piles and two merged slots are parked there by one `syncBacking`
+  within the gas the runbook quotes; a rebalance and a deposit onto a fresh validator
+  are then refused; `replaceClone` moves the parked position, the deposit lands and the
+  token exits. Gas rows: deposit and `previewUnwrap` on the fresh
   clone; deposit, partial exit and `previewUnwrap` on the full list; the sync; the
   replacement; deposit, `previewUnwrap` and full exit on the successor.
 Each module's docstring describes its sequence. These scenarios exercise specific
