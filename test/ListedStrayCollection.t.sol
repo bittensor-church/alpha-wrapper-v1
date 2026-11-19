@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
+import { MAX_STRAYS_PER_COLLECTION } from "./AlphaVaultTestBase.sol";
 import { BackingScenarios } from "./helpers/BackingScenarios.sol";
 import { BackingUnchanged } from "src/VaultErrors.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
@@ -18,7 +19,8 @@ contract ListedStrayCollectionTest is BackingScenarios {
     uint256 private constant SMALLER_SLOT = 4 * ALPHA;
     /// @dev The registry nonce setUp's attestation leaves on NETUID2.
     uint256 private constant NETUID2_SETUP_NONCE = 1;
-    uint256 private constant MAX_STRAYS_PER_SYNC = 10;
+    /// @dev The ten larger of the eleven strays, 0.2 to 1.1 alpha.
+    uint256 private constant TEN_LARGER_STRAYS = 65 * ALPHA / 10;
 
     /// @dev One validator swaps its hotkey on every subnet; the other swaps its own hotkey onto the vacated
     ///      one on this subnet, which erases the vacated hotkey's edge and writes its own.
@@ -36,7 +38,7 @@ contract ListedStrayCollectionTest is BackingScenarios {
 
     /// @dev Eleven strays of 0.1 to 1.1 alpha: 6.6 alpha, short of the 10.002 alpha lost.
     function _elevenStraysReturned() private returns (bytes32[] memory strays) {
-        strays = _hotkeysFrom("stray", MAX_STRAYS_PER_SYNC + 1);
+        strays = _hotkeysFrom("stray", MAX_STRAYS_PER_COLLECTION + 1);
         for (uint256 i; i < strays.length; ++i) {
             _strangerReturns(NETUID1, strays[i], (i + 1) * ALPHA / 10);
         }
@@ -136,7 +138,7 @@ contract ListedStrayCollectionTest is BackingScenarios {
         _strangerReturns(NETUID1, hotkey4, 3 * ALPHA);
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit BackingShortfallDeclared(TOKEN1, 30 * ALPHA, 22_998_000_000);
+        emit BackingShortfallDeclared(TOKEN1, 30 * ALPHA, OTHER_TWO_SLOTS + 3 * ALPHA);
         vault.syncBacking(TOKEN1);
 
         assertEq(_getVaultStake(hotkey4, NETUID1), 0, "the stray is drained onto the parking hotkey");
@@ -171,7 +173,7 @@ contract ListedStrayCollectionTest is BackingScenarios {
         emit BackingCollected(TOKEN1, 3 * ALPHA);
         vault.syncBacking(TOKEN1);
 
-        assertEq(_parkedStake(NETUID1), 22_998_000_000, "19.998 alpha located and the 3 alpha returned");
+        assertEq(_parkedStake(NETUID1), OTHER_TWO_SLOTS + 3 * ALPHA, "19.998 alpha located and the 3 alpha returned");
         assertEq(lens.writeOffDeadline(TOKEN1), deadline, "the deadline did not move");
         vm.expectRevert(BackingUnchanged.selector);
         vault.syncBacking(TOKEN1);
@@ -183,10 +185,14 @@ contract ListedStrayCollectionTest is BackingScenarios {
 
         vm.warp(lens.writeOffDeadline(TOKEN1));
         vm.expectEmit(true, false, false, true, address(vault));
-        emit BackingWrittenOff(TOKEN1, 30 * ALPHA, 22_998_000_000);
+        emit BackingWrittenOff(TOKEN1, 30 * ALPHA, OTHER_TWO_SLOTS + 3 * ALPHA);
         vault.syncBacking(TOKEN1);
 
-        assertEq(lens.totalStake(TOKEN1), 22_998_000_000, "only the 7.002 alpha that never returned is written off");
+        assertEq(
+            lens.totalStake(TOKEN1),
+            OTHER_TWO_SLOTS + 3 * ALPHA,
+            "only the 7.002 alpha that never returned is written off"
+        );
         assertEq(_getVaultStake(hotkey4, NETUID1), 0, "leaving nothing for a later recovery");
     }
 
@@ -195,7 +201,7 @@ contract ListedStrayCollectionTest is BackingScenarios {
         bytes32[] memory strays = _elevenStraysReturned();
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit BackingCollected(TOKEN1, 6_500_000_000);
+        emit BackingCollected(TOKEN1, TEN_LARGER_STRAYS);
         vault.syncBacking(TOKEN1);
         assertEq(_getVaultStake(strays[0], NETUID1), ALPHA / 10, "the smallest stray waits for the next sync");
         assertEq(_vaultStakeAcross(strays, NETUID1), ALPHA / 10, "and the ten larger ones are home");
@@ -213,12 +219,16 @@ contract ListedStrayCollectionTest is BackingScenarios {
 
         vm.warp(lens.writeOffDeadline(TOKEN1));
         vm.expectEmit(true, false, false, true, address(vault));
-        emit BackingWrittenOff(TOKEN1, 30 * ALPHA, 26_498_000_000);
+        emit BackingWrittenOff(TOKEN1, 30 * ALPHA, OTHER_TWO_SLOTS + TEN_LARGER_STRAYS);
         vault.syncBacking(TOKEN1);
         assertEq(_getVaultStake(strays[0], NETUID1), ALPHA / 10, "the smallest stray is written off with the loss");
 
         vault.recoverStray(TOKEN1, strays[0]);
-        assertEq(lens.totalStake(TOKEN1), 26_598_000_000, "and joins the backing once recovered");
+        assertEq(
+            lens.totalStake(TOKEN1),
+            OTHER_TWO_SLOTS + TEN_LARGER_STRAYS + ALPHA / 10,
+            "and joins the backing once recovered"
+        );
     }
 
     function test_SyncBacking_CollectsAStrayAtTheMoveFloor() public {
@@ -274,7 +284,11 @@ contract ListedStrayCollectionTest is BackingScenarios {
 
         staking.setHashedSchemeHotkey(hotkey4, false);
         vault.recoverStray(TOKEN1, hotkey4);
-        assertEq(lens.totalStake(TOKEN1), 22_998_000_000, "the stray joins the backing once its hotkey can be claimed");
+        assertEq(
+            lens.totalStake(TOKEN1),
+            OTHER_TWO_SLOTS + 3 * ALPHA,
+            "the stray joins the backing once its hotkey can be claimed"
+        );
     }
 
     /// @dev A zero price read proves no pile clears the floor.

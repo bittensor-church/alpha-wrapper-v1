@@ -20,7 +20,7 @@ contract BackingHandler is BackingCampaignHandler {
     uint256 public replacements;
     /// @dev Alpha the chain swept that no stranger has returned yet.
     uint256 public sweptAlpha;
-    /// @dev The part of it the record may still expect: not returned, and no record rewritten since.
+    /// @dev The swept alpha the record may still expect: not returned, and no record rewritten since.
     uint256 public unbookedLoss;
 
     constructor(
@@ -80,7 +80,7 @@ contract BackingHandler is BackingCampaignHandler {
     /// @dev A stranger returns the swept alpha in up to twelve piles of unequal size, under hotkeys the record does
     ///      not name: more than one sync collects.
     function returnSwept(uint256 toSeed, uint256 pileSeed) external {
-        uint256 piles = _backing().returnablePiles(sweptAlpha, bound(pileSeed, 1, 12));
+        uint256 piles = _backing().returnablePileCount(sweptAlpha, bound(pileSeed, 1, 12));
         if (piles == 0) return;
         bytes32[] memory hotkeys = new bytes32[](piles);
         for (uint256 i; i < piles; ++i) {

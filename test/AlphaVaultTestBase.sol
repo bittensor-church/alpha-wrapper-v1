@@ -25,6 +25,9 @@ import { NEURON_PRECOMPILE } from "src/interfaces/INeuron.sol";
 import { BALANCE_TRANSFER_PRECOMPILE } from "src/interfaces/IBalanceTransfer.sol";
 import { SUBNET_PRECOMPILE } from "src/interfaces/ISubnet.sol";
 
+/// @dev The listed strays one sync collects.
+uint256 constant MAX_STRAYS_PER_COLLECTION = 10;
+
 abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     AlphaVault public vault;
     AlphaVaultLens public lens;

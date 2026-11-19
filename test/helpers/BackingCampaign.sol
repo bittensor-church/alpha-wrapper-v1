@@ -2,6 +2,7 @@
 pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
+import { MAX_STRAYS_PER_COLLECTION } from "../AlphaVaultTestBase.sol";
 import { CampaignHarness, requireExpectedRevert } from "./CampaignHarness.sol";
 import { CHAIN_MIN_STAKE, CHAIN_MIN_TRANSFER, MockStaking } from "../mocks/MockStaking.sol";
 import { MockAlpha } from "../mocks/MockAlpha.sol";
@@ -270,7 +271,11 @@ abstract contract BackingCampaignHandler is Test {
                 largestLeft = piles[i];
             }
         }
-        assertEq(drained, strays.length < 10 ? strays.length : 10, "a sync collects up to ten listed strays");
+        assertEq(
+            drained,
+            strays.length < MAX_STRAYS_PER_COLLECTION ? strays.length : MAX_STRAYS_PER_COLLECTION,
+            "a sync collects up to ten listed strays"
+        );
         assertGe(smallestDrained, largestLeft, "and the largest ones first");
     }
 
@@ -482,7 +487,7 @@ abstract contract BackingCampaignHarness is CampaignHarness {
 
     /// @dev Pile `i` of `n` takes `i + 1` parts of `n(n + 1)/2`. The count shrinks from `wanted` until the smallest
     ///      pile clears the chain's transfer minimum, so every return lands; zero when none can.
-    function returnablePiles(uint256 amount, uint256 wanted) external view returns (uint256 piles) {
+    function returnablePileCount(uint256 amount, uint256 wanted) external view returns (uint256 piles) {
         uint256 price = MockAlpha(ALPHA_PRECOMPILE).chainAlphaPrice(uint16(NETUID1));
         for (piles = wanted; piles != 0; --piles) {
             if (amount / (piles * (piles + 1) / 2) * price / 1e18 >= CHAIN_MIN_TRANSFER) break;

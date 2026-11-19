@@ -29,14 +29,14 @@ STRANGER = "//CapStranger"
 OWNER = "//CapOwner"
 VAULT_CAP = 96
 PARKING_RESERVE = 1
-STRAYS = 10
+MAX_STRAYS_PER_COLLECTION = 10
 EQUAL_WEIGHTS = [5_000, 5_000]
 # docs/recovery.md: what one stake move and one list read cost on chain.
 MOVE_GAS = 75_000
 MOVE_GAS_PER_ENTRY = 8_750
 LIST_READ_GAS_PER_ENTRY = 6_000
-# The vault's own bookkeeping around the moves.
-VAULT_OVERHEAD_GAS = 2_000_000
+# The vault's own bookkeeping around the moves, measured at about 0.3M: one move more must break the bound.
+VAULT_OVERHEAD_GAS = 1_000_000
 
 
 @pytest.mark.scenario
@@ -104,7 +104,7 @@ def test_list_reaches_the_cap_syncs_there_and_replacement_reopens_it(env, recove
     )
 
     old_coldkey = env.clone_coldkey(token_id)
-    strays = validators[:STRAYS]
+    strays = validators[:MAX_STRAYS_PER_COLLECTION]
     _, gift = env.floor_boundary(netuid, 3 * env.chain_min_stake_tao())
     extrinsics.add_stakes(
         [ss58 for _, ss58 in strays], netuid, 10 * env.chain_min_stake_tao(), signer_uri=STRANGER,
@@ -123,7 +123,7 @@ def test_list_reaches_the_cap_syncs_there_and_replacement_reopens_it(env, recove
     )
     sync_block = chain.receipt_block_number(receipt, "Cap: sync")
     collected = [swapped, merged_onto] + [pubkey for pubkey, _ in strays]
-    moves = STRAYS + 1
+    moves = MAX_STRAYS_PER_COLLECTION + 1
     held_before = env.total_stake_across(old_coldkey, netuid, collected, sync_block - 1)
     parked = env.stake(parking_hotkey, old_coldkey, netuid, sync_block)
     assert abs(parked - held_before) <= moves * config.ROUNDING_DUST_SLOT_RAO, (

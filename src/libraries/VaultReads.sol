@@ -18,8 +18,10 @@ library VaultReads {
     /// @dev Every move a clone signs pays the chain's walk of its whole staking list, and a sync is the only call
     ///      that moves a position reading short. Capping the list keeps the worst sync inside one transaction.
     uint256 private constant STAKING_LIST_CAP = 96;
+    /// @dev The cap's last entry is kept for the parking hotkey, so recovery can always park.
+    uint256 private constant PARKING_RESERVE = 1;
     /// @dev Far enough under the cap that a registry update landing just below it is still admitted whole.
-    uint256 private constant REPLACEMENT_LIST_LENGTH = 64;
+    uint256 private constant REPLACEMENT_OPENS_AT = 64;
 
     function coldkeyOf(address evmAddress) internal view returns (bytes32) {
         return IAddressMapping(ADDRESS_MAPPING_PRECOMPILE).addressMapping(evmAddress);
@@ -42,14 +44,13 @@ library VaultReads {
         (, total) = IStaking(STAKING_PRECOMPILE).getStakingHotkeys(coldkey, 0, 1);
     }
 
-    /// @dev The last entry is kept for the parking hotkey, so recovery can always park.
     function stakingListAdmits(bytes32 coldkey, bytes32 hotkey, uint16 netuid, bytes32 parking) internal view returns (bool) {
         if (hotkey == parking || IStaking(STAKING_PRECOMPILE).getStake(hotkey, coldkey, netuid) != 0) return true;
-        return stakingHotkeyCount(coldkey) + 2 <= STAKING_LIST_CAP;
+        return stakingHotkeyCount(coldkey) < STAKING_LIST_CAP - PARKING_RESERVE;
     }
 
     function cloneReplacementOpen(bytes32 coldkey) internal view returns (bool) {
-        return stakingHotkeyCount(coldkey) >= REPLACEMENT_LIST_LENGTH;
+        return stakingHotkeyCount(coldkey) >= REPLACEMENT_OPENS_AT;
     }
 
     /// @dev One attestation: the target hotkeys and their basis-point weights.

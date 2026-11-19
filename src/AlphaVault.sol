@@ -353,8 +353,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         bytes32 coldkey = VaultReads.coldkeyOf(clone);
         (VaultReads.Slot[] memory slots, VaultReads.Backing memory backing) = _openBacking(tokenId, coldkey, nid);
         bytes32[] memory stakingHotkeys = _fundableStakingHotkeys(slots, backing, set, nid);
-        VaultAllocation.Context memory context =
-            _context(tokenId, clone, coldkey, IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(nid));
+        VaultAllocation.Context memory context = _contextAtCurrentPrice(tokenId, clone, coldkey);
         VaultAllocation.consolidateRotatedStake(
             context, backing.hotkeys, stakingHotkeys, VaultAllocation.CollectionPolicy.RevertBelowFloor);
         VaultAllocation.rebalance(context, stakingHotkeys, set.weights);
@@ -417,7 +416,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         });
     }
 
-    function _contextAtReadPrice(uint256 tokenId, address clone, bytes32 coldkey) private view
+    function _contextAtCurrentPrice(uint256 tokenId, address clone, bytes32 coldkey) private view
         returns (VaultAllocation.Context memory) {
         return _context(tokenId, clone, coldkey, IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(VaultMath.netuidOf(tokenId)));
     }
@@ -444,13 +443,13 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (recovery[tokenId].shortSince == 0) {
             (, VaultReads.Backing memory backing) = _openBacking(tokenId, coldkey, netuid);
             if (VaultMath.contains(backing.hotkeys, source)) revert NothingToRecover();
-            (bytes32 home, uint256 annexed) = _annex(_contextAtReadPrice(tokenId, clone, coldkey), backing, sources);
+            (bytes32 home, uint256 annexed) = _annex(_contextAtCurrentPrice(tokenId, clone, coldkey), backing, sources);
             emit BackingRecovered(tokenId, source, home, annexed);
             return;
         }
         if (source == parkingHotkey) revert NothingToRecover();
         uint256 before = IStaking(STAKING_PRECOMPILE).getStake(parkingHotkey, coldkey, netuid);
-        uint256 parked = _secureBacking(_contextAtReadPrice(tokenId, clone, coldkey), sources);
+        uint256 parked = _secureBacking(_contextAtCurrentPrice(tokenId, clone, coldkey), sources);
         if (parked <= before) revert NothingToRecover();
         emit BackingRecovered(tokenId, source, parkingHotkey, parked - before);
     }
@@ -469,8 +468,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         (, VaultReads.Backing memory backing) = _openBacking(tokenId, coldkey, netuid);
         if (!VaultReads.cloneReplacementOpen(coldkey)) revert StakingListHasRoom();
         address successor = VaultAllocation.replaceClone(
-            cloneFactory, _context(tokenId, clone, coldkey, IAlpha(ALPHA_PRECOMPILE).getAlphaPrice(netuid)),
-            backing.hotkeys, backing.balances, uid);
+            cloneFactory, _contextAtCurrentPrice(tokenId, clone, coldkey), backing.hotkeys, backing.balances, uid);
         subnetClone[tokenId] = successor;
         _reanchor(tokenId, backing.hotkeys, VaultReads.stakesUnder(backing.hotkeys, VaultReads.coldkeyOf(successor), netuid));
         emit SubnetCloneReplaced(tokenId, clone, successor);
@@ -504,7 +502,7 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     ///      still names it, so sync parks that alpha instead of writing it off.
     function _secureWithListedStrays(uint256 tokenId, address clone, bytes32 coldkey, bytes32[] memory hotkeys)
         private returns (uint256 parked) {
-        VaultAllocation.Context memory context = _contextAtReadPrice(tokenId, clone, coldkey);
+        VaultAllocation.Context memory context = _contextAtCurrentPrice(tokenId, clone, coldkey);
         return _secureBacking(context, VaultAllocation.withListedStrays(context, hotkeys));
     }
 

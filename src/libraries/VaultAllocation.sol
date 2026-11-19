@@ -118,8 +118,8 @@ library VaultAllocation {
     }
 
     /// @dev `hotkeys` followed by the other listed hotkeys holding the clone's largest piles. A pile stays
-    ///      behind when it is not proven to clear the floor, as unproven weight-alignment moves do, or when its
-    ///      hotkey has no owner record: the chain can refuse that claim, and a stray must not block collection.
+    ///      behind when it is not proven to clear the floor or when its hotkey has no owner record: the chain
+    ///      can refuse that claim, and a stray must not block collection.
     function withListedStrays(Context memory context, bytes32[] memory hotkeys) external view returns (bytes32[] memory) {
         uint256 alphaPriceE18 = context.alphaPriceE18;
         if (alphaPriceE18 == 0) return hotkeys;
