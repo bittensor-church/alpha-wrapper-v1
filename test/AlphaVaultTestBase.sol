@@ -57,7 +57,8 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     uint16 public constant NETUID2_BPS_HK2 = 6000;
     uint16 public constant NETUID2_BPS_HK1 = 4000;
 
-    uint256 internal constant STAKING_LIST_CAP = 256;
+    uint256 internal constant STAKING_LIST_CAP = 96;
+    uint256 internal constant REPLACEMENT_OPENS_AT = 64;
     uint256 internal constant VALIDATOR_CAP = 10;
 
     uint256 internal constant DUST_THRESHOLD = CHAIN_NOMINATOR_MIN_STAKE;

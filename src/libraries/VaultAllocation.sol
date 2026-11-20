@@ -9,6 +9,7 @@ import { VaultClones } from "./VaultClones.sol";
 import { VaultReads } from "./VaultReads.sol";
 import { IAlpha, ALPHA_PRECOMPILE } from "../interfaces/IAlpha.sol";
 import { IStaking, STAKING_LIST_PAGE, STAKING_PRECOMPILE } from "../interfaces/IStaking.sol";
+import { MAX_VALIDATORS } from "../interfaces/IValidatorRegistry.sol";
 import { LockedDeposit, ZeroAmount } from "../VaultErrors.sol";
 import { IAlphaVaultAbi } from "../interfaces/IAlphaVaultAbi.sol";
 import { CloneFactory } from "../CloneFactory.sol";
@@ -85,7 +86,7 @@ library VaultAllocation {
             if (offset != 0) (page,) = staking.getStakingHotkeys(coldkey, offset, STAKING_LIST_PAGE);
             for (uint256 i; i < page.length;) {
                 bytes32 hotkey = page[i];
-                if (hotkey != bytes32(0) && hotkey != parking) {
+                if (hotkey != parking) {
                     candidates[offset + i] = hotkey;
                     piles[offset + i] = staking.getStake(hotkey, coldkey, netuid);
                 }
@@ -108,6 +109,30 @@ library VaultAllocation {
             }
             unchecked { ++i; }
         }
+    }
+
+    function withLargestCollectableStrays(Context memory context, bytes32[] memory collectionHotkeys)
+        external view returns (bytes32[] memory) {
+        uint256 alphaPriceE18 = context.alphaPriceE18;
+        if (alphaPriceE18 == 0) return collectionHotkeys;
+        (bytes32[] memory listedHotkeys, uint256[] memory piles) =
+            _pilesUnderListedHotkeys(context.coldkey, context.netuid, context.parking);
+        uint256 minStakeTao = StakeOps.minStakeTao();
+        uint256 strayCount;
+        for (uint256 i; i < piles.length;) {
+            bool collectable = piles[i] != 0 && StakeOps.taoValue(piles[i], alphaPriceE18) >= minStakeTao
+                && !VaultMath.contains(collectionHotkeys, listedHotkeys[i]) && VaultReads.hasOwner(listedHotkeys[i]);
+            if (!collectable) piles[i] = 0;
+            else if (strayCount < MAX_VALIDATORS) ++strayCount;
+            unchecked { ++i; }
+        }
+        bytes32[] memory largestStrays = new bytes32[](strayCount);
+        for (uint256 taken; taken < strayCount;) {
+            uint256 largest = VaultMath.indexOfLargest(piles);
+            largestStrays[taken] = listedHotkeys[largest]; piles[largest] = 0;
+            unchecked { ++taken; }
+        }
+        return VaultMath.concat(collectionHotkeys, largestStrays);
     }
 
     function readAdmittedDeposit(bytes32 mailboxColdkey, uint16 nid) external view
@@ -424,11 +449,7 @@ library VaultAllocation {
     function _gatherIntoLargestSlot(Context memory context, bytes32[] memory hotkeys, uint256[] memory balances,
         uint256 assets) private returns (bytes32 payingHotkey, uint256 deliverable) {
         bytes32 coldkey = context.coldkey; uint16 netuid = context.netuid;
-        uint256 deliveryIndex;
-        for (uint256 i = 1; i < balances.length;) {
-            if (balances[i] > balances[deliveryIndex]) deliveryIndex = i;
-            unchecked { ++i; }
-        }
+        uint256 deliveryIndex = VaultMath.indexOfLargest(balances);
         // Gather hops can round down, so summed balances cannot determine the final deliverable amount.
         deliverable = balances[deliveryIndex];
         if (balances[deliveryIndex] < assets) {

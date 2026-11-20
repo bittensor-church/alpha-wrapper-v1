@@ -9,6 +9,8 @@ import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
+import { VaultMath } from "src/libraries/VaultMath.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
 import {
     AttestedHotkeyRetired,
@@ -231,16 +233,19 @@ abstract contract BackingCampaignHandler is Test {
         uint256 owedBefore = harness.trackedBacking();
         uint256 parkedBefore = harness.parkedStake();
         uint256 holdings = harness.chainHoldings();
+        (bytes32[] memory strays, uint256[] memory piles) = harness.collectableStrays();
         try vault.syncBacking(tokenId) {
             ++syncs;
             (uint256 shortSinceAfter,) = vault.recovery(tokenId);
             assertEq(harness.chainHoldings(), holdings, "a sync only moves backing within the clone");
+            if (shortSinceBefore != 0 || shortBefore) _assertLargestStraysCollected(strays, piles);
             if (shortSinceAfter == 0) {
                 if (shortSinceBefore != 0) {
                     ++recoveriesClosed;
                     _assertWriteOffAfterTheDeadline(shortSinceBefore, owedBefore);
                 }
                 harness.assertRecordMatchesChain();
+                _afterRecordMatchesChain();
             } else if (shortSinceBefore == 0) {
                 _assertDeclaredShortfall(shortBefore, shortSinceAfter, owedBefore);
             } else {
@@ -251,6 +256,26 @@ abstract contract BackingCampaignHandler is Test {
         } catch (bytes memory reason) {
             _requireJustifiedRevert(reason, syncErrors(), Attempt(0, 0, 0, bytes32(0), false));
         }
+    }
+
+    function _assertLargestStraysCollected(bytes32[] memory strays, uint256[] memory piles) private view {
+        uint256 drained;
+        uint256 smallestDrained = type(uint256).max;
+        uint256 largestLeft;
+        for (uint256 i; i < strays.length; ++i) {
+            if (harness.vaultStakeAt(strays[i]) == 0) {
+                ++drained;
+                if (piles[i] < smallestDrained) smallestDrained = piles[i];
+            } else if (piles[i] > largestLeft) {
+                largestLeft = piles[i];
+            }
+        }
+        assertEq(
+            drained,
+            strays.length < MAX_VALIDATORS ? strays.length : MAX_VALIDATORS,
+            "a sync collects up to ten listed strays"
+        );
+        assertGe(smallestDrained, largestLeft, "and the largest ones first");
     }
 
     function _assertWriteOffAfterTheDeadline(uint256 shortSince, uint256 owedBefore) private view {
@@ -281,6 +306,8 @@ abstract contract BackingCampaignHandler is Test {
     }
 
     function _afterAllocation() internal virtual { }
+
+    function _afterRecordMatchesChain() internal virtual { }
 
     /// @dev A refusal must be documented for the entry point and justified by the state it met: each check below
     ///      is a condition the refused state must satisfy, read from the chain mock rather than the lens.
@@ -453,17 +480,61 @@ abstract contract BackingCampaignHarness is CampaignHarness {
         }
     }
 
-    /// @dev Both halves must clear the chain's transfer minimum for the returns to land.
-    function strandable(bytes32 hotkey) external view returns (bool) {
-        uint256 held = _getVaultStake(hotkey, NETUID1);
-        return held != 0
-            && (held / 2) * MockAlpha(ALPHA_PRECOMPILE).chainAlphaPrice(uint16(NETUID1)) / 1e18 >= CHAIN_MIN_TRANSFER;
+    function simulateSweep(bytes32 from) external returns (uint256) {
+        return _getVaultStake(from, NETUID1) == 0 ? 0 : _sweepDuringCrash(NETUID1, from);
     }
 
-    function simulateSweepReturnedInTwoPiles(bytes32 from, bytes32 first, bytes32 second) external {
-        uint256 swept = _sweepDuringCrash(NETUID1, from);
-        _strangerReturns(NETUID1, first, swept / 2);
-        _strangerReturns(NETUID1, second, swept - swept / 2);
+    function _smallestOfRisingPiles(uint256 amount, uint256 pileCount) private pure returns (uint256) {
+        uint256 sharesAcrossPiles = pileCount * (pileCount + 1) / 2;
+        return amount / sharesAcrossPiles;
+    }
+
+    function largestReturnablePileCount(uint256 amount, uint256 wanted) external view returns (uint256 pileCount) {
+        uint256 price = MockAlpha(ALPHA_PRECOMPILE).chainAlphaPrice(uint16(NETUID1));
+        for (pileCount = wanted; pileCount != 0; --pileCount) {
+            uint256 smallestPileTao = _smallestOfRisingPiles(amount, pileCount) * price / 1e18;
+            if (smallestPileTao >= CHAIN_MIN_TRANSFER) break;
+        }
+    }
+
+    function simulateReturnInRisingPiles(bytes32[] memory hotkeys, uint256 amount) external {
+        uint256 last = hotkeys.length - 1;
+        uint256 smallestPile = _smallestOfRisingPiles(amount, hotkeys.length);
+        uint256 returned;
+        for (uint256 i; i < last; ++i) {
+            _strangerReturns(NETUID1, hotkeys[i], smallestPile * (i + 1));
+            returned += smallestPile * (i + 1);
+        }
+        _strangerReturns(NETUID1, hotkeys[last], amount - returned);
+    }
+
+    function collectableStrays() public view returns (bytes32[] memory strays, uint256[] memory piles) {
+        bytes32[] memory named = _recordedAndResolvedHotkeys();
+        bytes32[] memory listed = _listedHotkeys(_subnetColdkey(NETUID1));
+        strays = new bytes32[](listed.length);
+        piles = new uint256[](listed.length);
+        uint256 count;
+        for (uint256 i; i < listed.length; ++i) {
+            uint256 held = _getVaultStake(listed[i], NETUID1);
+            if (
+                listed[i] == vault.parkingHotkey() || _contains(named, listed[i])
+                    || taoValueAtRead(held) < CHAIN_MIN_STAKE || !_hasOwner(listed[i])
+            ) continue;
+            strays[count] = listed[i];
+            piles[count++] = held;
+        }
+        assembly {
+            mstore(strays, count)
+            mstore(piles, count)
+        }
+    }
+
+    function _recordedAndResolvedHotkeys() private view returns (bytes32[] memory named) {
+        named = VaultReads.stakedUnderOf(vault.recordedSlots(TOKEN1));
+        (uint256 shortSince,) = vault.recovery(TOKEN1);
+        if (shortSince != 0) return named;
+        (bytes32[] memory resolved,,) = resolvedSlots();
+        return VaultMath.concat(named, resolved);
     }
 
     function zeroPaySlots() external view returns (uint256) {
@@ -599,12 +670,12 @@ abstract contract BackingCampaignHarness is CampaignHarness {
         return rotatedOut && _belowFloorAtAnyPrice(richest);
     }
 
-    /// @dev Annexing refuses only when the stray holds stake and neither it nor the first slot's hotkey holds a pile that
-    ///      clears the floor at any price.
+    /// @dev Annexing refuses only when the stray holds stake and neither it nor the largest slot's hotkey holds a pile
+    ///      that clears the floor at any price.
     function annexBelowFloor(bytes32 source) external view returns (bool) {
-        (bytes32[] memory hotkeys,,) = resolvedSlots();
+        (, uint256[] memory balances,) = resolvedSlots();
         uint256 stray = _getVaultStake(source, NETUID1);
-        uint256 home = _getVaultStake(hotkeys[0], NETUID1);
+        uint256 home = balances[VaultMath.indexOfLargest(balances)];
         return stray != 0 && _belowFloorAtAnyPrice(stray > home ? stray : home);
     }
 
@@ -651,7 +722,8 @@ abstract contract BackingCampaignHarness is CampaignHarness {
     }
 
     /// @dev An open recovery stays unchanged only while parking does not cover the obligation and the sync has nothing
-    ///      to collect: no other recorded hotkey holds stake, or the richest recorded pile is below the floor.
+    ///      to collect: no other recorded hotkey holds stake and no stray is collectable, or the richest of those piles
+    ///      is below the floor.
     function recoveryCannotAdvance() external view returns (bool) {
         uint256 parkingStake = _parkedStake(NETUID1);
         if (parkingStake + BACKING_SLACK_RAO >= trackedBacking()) return false;
@@ -663,6 +735,11 @@ abstract contract BackingCampaignHarness is CampaignHarness {
             uint256 held = _getVaultStake(slots[i].stakedUnder, NETUID1);
             if (held > richest) richest = held;
             if (held != 0) exposed = true;
+        }
+        (, uint256[] memory piles) = collectableStrays();
+        for (uint256 i; i < piles.length; ++i) {
+            if (piles[i] > richest) richest = piles[i];
+            exposed = true;
         }
         return !exposed || taoValueAtRead(richest) < CHAIN_MIN_STAKE;
     }
@@ -835,9 +912,17 @@ abstract contract BackingCampaignHarness is CampaignHarness {
         }
     }
 
+    function _sweptAlphaStillRecorded() internal view virtual returns (uint256) {
+        return 0;
+    }
+
     function _assertTrackedBackingWithinChainHoldings() internal view {
         uint256 slots = vault.recordedSlots(TOKEN1).length;
-        assertLe(trackedBacking(), chainHoldings() + BACKING_SLACK_RAO * slots, "the record expects more than exists");
+        assertLe(
+            trackedBacking(),
+            chainHoldings() + _sweptAlphaStillRecorded() + BACKING_SLACK_RAO * slots,
+            "the record expects more than the clone ever held"
+        );
     }
 
     /// @dev Bounds the lens read itself, which follows successors without writing them back: one live balance

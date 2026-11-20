@@ -64,7 +64,7 @@ contract AlphaVaultLens {
         return VaultReads.stakedUnderOf(vault.recordedSlots(tokenId));
     }
 
-    /// @notice Entries on the clone's staking list, zero without a clone; `replaceClone` opens at half the cap.
+    /// @notice Entries on the clone's staking list, zero without a clone.
     function stakingListEntries(uint256 tokenId) external view returns (uint256) {
         address clone = vault.subnetClone(tokenId);
         if (clone == address(0)) return 0;

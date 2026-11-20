@@ -394,7 +394,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
     function test_StakingListEntries_FollowsAReplacedClone() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _fillListTo(_subnetColdkey(NETUID1), STAKING_LIST_CAP - 1);
-        assertEq(lens.stakingListEntries(TOKEN1), 255, "one short of the chain's 256-entry cap");
+        assertEq(lens.stakingListEntries(TOKEN1), 95, "one short of the vault's 96-entry cap");
         vault.replaceClone(TOKEN1, keccak256("successor-uid"));
 
         assertEq(lens.stakingListEntries(TOKEN1), 3, "the successor lists only the funded validators");

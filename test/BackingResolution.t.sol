@@ -209,7 +209,7 @@ contract BackingResolutionTest is BackingScenarios {
         vault.rebalance(NETUID1);
     }
 
-    function test_SplitPile_StaysShortUntilCollectedFromEachHotkey() public {
+    function test_SplitPile_StaysShortUntilOneSyncParksBothHalves() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         uint256 swept = _sweepDuringCrash(NETUID1, hotkey1);
         _strangerReturns(NETUID1, hotkey4, swept / 2);
@@ -217,10 +217,7 @@ contract BackingResolutionTest is BackingScenarios {
 
         assertTrue(lens.resolvedBacking(TOKEN1).short[0], "no single listed pile covers the slot");
         vault.syncBacking(TOKEN1);
-        vault.recoverStray(TOKEN1, hotkey4);
-        vault.recoverStray(TOKEN1, hotkey5);
-        vault.syncBacking(TOKEN1);
-        assertEq(_parkedStake(NETUID1), 30 * ALPHA, "both halves are parked from the hotkeys the watcher supplied");
+        assertEq(_parkedStake(NETUID1), 30 * ALPHA, "both halves are parked from the clone's staking list");
         assertTrue(lens.isBackingIntact(TOKEN1), "and the position accounts for itself");
     }
 

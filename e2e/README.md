@@ -104,6 +104,12 @@ Scenario files in `tests/` cover:
   deposit, both exits, the rebalance, the quotes and `recoverStray` refuse, one
   `syncBacking` parks the position whole, both exits pay from the parking hotkey and
   a new set releases it.
+- `test_cross_assigned_slots.py`: under a two-validator registry, one validator swaps
+  its hotkey on every subnet and the other swaps its own onto the vacated hotkey, so the
+  smaller pile sits where no slot accounts for it; the priced calls refuse, one
+  `syncBacking` collects both piles from the clone's staking list and parks the position
+  whole with no recovery window, both exits pay from the parking hotkey and a new set
+  releases it.
 - `test_parking_isolation.py`: two subnets park on the one parking hotkey; each keeps
   its own balance, the other keeps trading, and each releases on its own owner update.
 - `test_subnet_generation.py`: a rewritten registration block leaves the token and its
@@ -111,12 +117,13 @@ Scenario files in `tests/` cover:
   old one redeems its dissolution refund.
 - `test_validator_coldkey_swap.py`: a validator swaps its coldkey; wraps, rebalances and
   exits continue without a new attestation.
-- `test_staking_list_cap.py`: a clone's staking list walked to its last admitted
-  entry, where a rebalance and a deposit onto a fresh validator are refused;
-  `replaceClone` moves the position, the deposit lands and the token exits. Gas rows:
-  deposit and `previewUnwrap` on the fresh clone; deposit, partial exit and
-  `previewUnwrap` on the full list; the replacement; deposit, `previewUnwrap` and full
-  exit on the successor.
+- `test_staking_list_cap.py`: a clone's staking list walked to the last entry the vault
+  admits; ten gifted piles and two merged slots are parked there by one `syncBacking`
+  within the gas the runbook quotes; a rebalance and a deposit onto a fresh validator
+  are then refused; `replaceClone` moves the parked position, the deposit lands and the
+  token exits. Gas rows: deposit and `previewUnwrap` on the fresh
+  clone; deposit, partial exit and `previewUnwrap` on the full list; the sync; the
+  replacement; deposit, `previewUnwrap` and full exit on the successor.
 Each module's docstring describes its sequence. These scenarios exercise specific
 recovery conditions, not an unconditional exit guarantee; see the
 [recovery runbook](../docs/recovery.md).

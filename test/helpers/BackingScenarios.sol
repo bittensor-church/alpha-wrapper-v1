@@ -20,6 +20,12 @@ abstract contract BackingScenarios is AlphaVaultTestBase {
     uint256 internal constant WIDE_SET_NETUID = 9;
     uint64 internal constant WIDE_SET_REGISTERED_AT = 400;
 
+    function _declaredShortfall() internal returns (uint256 shares) {
+        shares = _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        _sweepDuringCrash(NETUID1, hotkey1);
+        vault.syncBacking(TOKEN1);
+    }
+
     function _hotkeyOwner(bytes32 hotkey) internal view returns (bytes32 owner) {
         bool owned;
         (owned, owner) = MockStaking(STAKING_PRECOMPILE).getHotkeyOwner(hotkey);

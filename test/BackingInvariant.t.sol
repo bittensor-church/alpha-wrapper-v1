@@ -15,9 +15,13 @@ import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract BackingHandler is BackingCampaignHandler {
+    uint256 private constant MAX_RETURNED_PILES = 12;
+
     uint256 public strayAnnexations;
     uint256 public strayCollections;
     uint256 public replacements;
+    uint256 public sweptAlphaNotReturned;
+    uint256 public sweptAlphaStillRecorded;
 
     constructor(
         AlphaVault _vault,
@@ -66,14 +70,32 @@ contract BackingHandler is BackingCampaignHandler {
         _backing().simulateSilentMove(from, to);
     }
 
-    function strandInTwoPiles(uint256 fromSeed, uint256 toSeed) external {
-        bytes32 from = touchedHotkeys[bound(fromSeed, 0, touchedHotkeys.length - 1)];
-        if (!_backing().strandable(from)) return;
-        bytes32 first = keccak256(abi.encode("half", toSeed, uint256(0)));
-        bytes32 second = keccak256(abi.encode("half", toSeed, uint256(1)));
-        _remember(first);
-        _remember(second);
-        _backing().simulateSweepReturnedInTwoPiles(from, first, second);
+    function sweepDuringCrash(uint256 fromSeed) external {
+        uint256 swept = _backing().simulateSweep(touchedHotkeys[bound(fromSeed, 0, touchedHotkeys.length - 1)]);
+        sweptAlphaNotReturned += swept;
+        sweptAlphaStillRecorded += swept;
+    }
+
+    function strangerReturnsSweptInRisingPiles(uint256 toSeed, uint256 pileSeed) external {
+        uint256 pileCount =
+            _backing().largestReturnablePileCount(sweptAlphaNotReturned, bound(pileSeed, 1, MAX_RETURNED_PILES));
+        if (pileCount == 0) return;
+        bytes32[] memory hotkeys = new bytes32[](pileCount);
+        for (uint256 i; i < pileCount; ++i) {
+            hotkeys[i] = keccak256(abi.encode("returned", toSeed, i));
+            _remember(hotkeys[i]);
+        }
+        _backing().simulateReturnInRisingPiles(hotkeys, sweptAlphaNotReturned);
+        sweptAlphaNotReturned = 0;
+        sweptAlphaStillRecorded = 0;
+    }
+
+    function _afterAllocation() internal override {
+        sweptAlphaStillRecorded = 0;
+    }
+
+    function _afterRecordMatchesChain() internal override {
+        sweptAlphaStillRecorded = 0;
     }
 
     function sourceFor(uint256 sourceSeed) public view returns (bytes32) {
@@ -166,6 +188,10 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
 
     function _campaign() internal view override returns (BackingCampaignHandler) {
         return handler;
+    }
+
+    function _sweptAlphaStillRecorded() internal view override returns (uint256) {
+        return handler.sweptAlphaStillRecorded();
     }
 
     function assertMovedPilesLeft(bytes32 previousColdkey) external view {
@@ -285,7 +311,7 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
             vault.recordedSlots(TOKEN1)[0].stakedUnder, keccak256(abi.encode("stray", uint256(1))), "and is recorded"
         );
 
-        handler.strandInTwoPiles(3, 1);
+        handler.sweepDuringCrash(3);
         assertEq(vault.recordedSlots(TOKEN1).length, 3, "one slot per attested hotkey before recovery");
         _assertSharedInvariants();
         handler.syncBacking();
@@ -297,10 +323,11 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         _assertSharedInvariants();
         assertEq(handler.recoveriesClosed(), 1, "an expired shortfall is written off");
         assertLt(trackedBacking(), owed, "the write-off shrank the obligation");
-        handler.recoverStray(_seedSelecting(keccak256(abi.encode("half", uint256(1), uint256(0)))));
-        handler.recoverStray(_seedSelecting(keccak256(abi.encode("half", uint256(1), uint256(1)))));
+        handler.strangerReturnsSweptInRisingPiles(1, 2);
+        handler.recoverStray(_seedSelecting(keccak256(abi.encode("returned", uint256(1), uint256(0)))));
+        handler.recoverStray(_seedSelecting(keccak256(abi.encode("returned", uint256(1), uint256(1)))));
         _assertSharedInvariants();
-        assertEq(handler.strayAnnexations(), 2, "both halves found after write-off are annexed");
+        assertEq(handler.strayAnnexations(), 2, "both piles found after write-off are annexed");
         assertEq(trackedBacking(), owed, "annexation restores the written-off obligation");
 
         _advanceRegistryNonce();
@@ -308,19 +335,44 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         _assertSharedInvariants();
         assertEq(_parkedStake(NETUID1), 0, "the rebalance spreads the parked backing again");
 
-        handler.strandInTwoPiles(1, 2);
+        handler.sweepDuringCrash(1);
+        handler.strangerReturnsSweptInRisingPiles(2, 2);
         _assertSharedInvariants();
         handler.syncBacking();
         _assertSharedInvariants();
-        handler.recoverHeldStray(0);
-        handler.recoverHeldStray(0);
+        assertEq(lens.writeOffDeadline(TOKEN1), 0, "one sync parks both returned piles with no window");
+        assertEq(trackedBacking(), owed, "and the position is whole");
+        _advanceRegistryNonce();
+        handler.rebalance();
+
+        handler.sweepDuringCrash(1);
+        handler.strangerReturnsSweptInRisingPiles(4, 12);
+        handler.syncBacking();
         _assertSharedInvariants();
-        assertEq(handler.strayCollections(), 2, "both halves under an open shortfall are collected");
+        assertGt(lens.writeOffDeadline(TOKEN1), 0, "twelve returned piles outnumber what one sync collects");
         vm.expectEmit(true, false, false, true);
         emit IAlphaVaultAbi.BackingShortfallCleared(TOKEN1);
         handler.syncBacking();
         _assertSharedInvariants();
-        assertEq(handler.recoveriesClosed(), 2, "full collection closes the recovery");
+        assertEq(handler.recoveriesClosed(), 2, "the next sync collects the last two and closes the recovery");
+        assertEq(trackedBacking(), owed, "with the position whole");
+        _advanceRegistryNonce();
+        handler.rebalance();
+
+        handler.sweepDuringCrash(1);
+        _assertSharedInvariants();
+        handler.syncBacking();
+        _assertSharedInvariants();
+        handler.strangerReturnsSweptInRisingPiles(3, 2);
+        handler.recoverHeldStray(0);
+        handler.recoverHeldStray(0);
+        _assertSharedInvariants();
+        assertEq(handler.strayCollections(), 2, "both piles under an open shortfall are collected");
+        vm.expectEmit(true, false, false, true);
+        emit IAlphaVaultAbi.BackingShortfallCleared(TOKEN1);
+        handler.syncBacking();
+        _assertSharedInvariants();
+        assertEq(handler.recoveriesClosed(), 3, "full collection closes the recovery");
         assertEq(trackedBacking(), owed, "the position is whole again");
         _assertSharedInvariants();
 

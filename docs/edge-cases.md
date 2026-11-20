@@ -113,7 +113,8 @@ Third-party alpha under tracked hotkeys increases backing. A clone admits
 third-party alpha only onto a hotkey it already lists; alpha it holds on another
 subnet is an [accepted risk](security-model.md#other-accepted-risks). Mailbox
 wraps collect only the mailbox's own hotkey. Other vault alpha joins the position
-through `recoverStray` under the [recovery runbook](recovery.md#watcher-runbook);
+through `syncBacking` while backing is missing or through `recoverStray`, under the
+[recovery runbook](recovery.md#watcher-runbook);
 alpha recovered after a write-off follows the
 [late-recovery policy](security-model.md#recovery-window-tradeoff-and-late-recovery-attack).
 

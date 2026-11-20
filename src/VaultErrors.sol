@@ -39,13 +39,12 @@ error NothingToRecover();
 error AlphaTransfersDisabled(uint16 netuid);
 /// @dev A bit of the exclusion mask names a slot the record does not have.
 error SlotMaskOutOfRange();
-/// @dev Located backing remains exposed after collection; the recovery clock must not start.
+/// @dev Backing remains exposed under a collected hotkey; the recovery clock must not start.
 error BackingNotSecured();
 /// @dev The position rests on the parking hotkey until the registry publishes a newer set.
 error Parked();
 /// @dev The parking hotkey already belongs to another coldkey; deploy with an unused one.
 error ParkingHotkeyUnavailable();
-/// @dev The clone's staking list is still under half the chain's cap.
 error StakingListHasRoom();
 /// @dev No receiving hotkey with an owner record resolves for this attested hotkey.
 ///      Restore an owner record or replace the registry entry; the backing timer cannot fix it.
