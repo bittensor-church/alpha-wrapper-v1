@@ -157,6 +157,16 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         _assertQuotesHalfOfTenAlpha(shares);
     }
 
+    function test_gas_sharesToUnwrap() public {
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
+        _wrap(alice, NETUID1);
+
+        lens.sharesToUnwrap(TOKEN1, 5 * ALPHA);
+        vm.snapshotGasLastCall("AlphaVaultLens", "sharesToUnwrap");
+
+        _assertHalfTheSharesUnwrapFiveAlpha();
+    }
+
     function test_gas_claimableTaoOf() public {
         _seedClaimableTao();
 
@@ -214,6 +224,12 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         (uint256 alpha, uint256 tao) = lens.previewUnwrap(TOKEN1, shares / 2);
         assertEq(alpha, 5 * ALPHA);
         assertEq(tao, 0);
+    }
+
+    function _assertHalfTheSharesUnwrapFiveAlpha() private view {
+        (uint256 shares, uint256 alphaOut) = lens.sharesToUnwrap(TOKEN1, 5 * ALPHA);
+        assertEq(shares, 5e18);
+        assertEq(alphaOut, 5 * ALPHA);
     }
 
     function _stakeOfAliceAcrossTheAttestedSet() private view returns (uint256) {
@@ -495,5 +511,16 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         vm.snapshotGasLastCall("AlphaVaultLens", "previewUnwrap (10 validators)");
 
         _assertQuotesHalfOfTenAlpha(shares);
+    }
+
+    function test_gas_sharesToUnwrap_10Validators() public {
+        _setValidatorCount(NETUID1, VALIDATOR_CAP);
+        _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
+        _wrap(alice, NETUID1);
+
+        lens.sharesToUnwrap(TOKEN1, 5 * ALPHA);
+        vm.snapshotGasLastCall("AlphaVaultLens", "sharesToUnwrap (10 validators)");
+
+        _assertHalfTheSharesUnwrapFiveAlpha();
     }
 }

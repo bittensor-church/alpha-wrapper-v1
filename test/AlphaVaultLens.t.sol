@@ -8,6 +8,7 @@ import { AlphaVaultLens } from "src/AlphaVaultLens.sol";
 import {
     AlphaTransfersDisabled,
     BackingShortfall,
+    InsufficientShares,
     LockedBacking,
     NoSharesOutstanding,
     Parked,
@@ -640,5 +641,222 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 35 * ALPHA, "totalStake tracks live stake");
         // 1e18 * (3.5e10 + 1) / (3e19 + 1e9), floored.
         assertEq(lens.sharePrice(TOKEN1), 1_166_666_666, "sharePrice rises with emissions");
+    }
+
+    function testFuzz_SharesToUnwrap_AreTheFewestThatRedeemTheAlpha(uint256 deposit, uint256 emissions, uint256 alpha)
+        public
+    {
+        deposit = bound(deposit, ALPHA, MAX_SUBNET_ALPHA / 2);
+        emissions = bound(emissions, 0, MAX_SUBNET_ALPHA / 2);
+        alpha = bound(alpha, 1, deposit);
+        uint256 supply = _depositAndWrap(alice, NETUID1, deposit);
+        _simulateEmissions(NETUID1, emissions);
+        uint256 plainShares = alpha * supply / (deposit + emissions);
+
+        (uint256 shares, uint256 alphaOut) = lens.sharesToUnwrap(TOKEN1, alpha);
+
+        assertEq(alphaOut, alpha, "a share unit is worth under one RAO, so the alpha is met exactly");
+        assertGe(shares, plainShares, "never below the plain pro-rata shares");
+        assertLe(shares, plainShares + 1e9 + 1, "at most the shares of one RAO above them, plus one");
+        (uint256 quoted,) = lens.previewUnwrap(TOKEN1, shares);
+        assertEq(quoted, alphaOut, "the exit quote of those shares");
+        (uint256 oneShareUnitLess,) = lens.previewUnwrap(TOKEN1, shares - 1);
+        assertLt(oneShareUnitLess, alpha, "one share unit fewer falls short");
+    }
+
+    function test_SharesToUnwrap_TheAlphaExitPaysTheAlphaAskedFor() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        _simulateEmissions(NETUID1, 6 * ALPHA);
+
+        (uint256 shares, uint256 alphaOut) = lens.sharesToUnwrap(TOKEN1, 153 * ALPHA);
+        // 1.53e11 * (3e20 + 1e9) / (306e9 + 1), rounded up
+        assertEq(shares, 150_000_000_000_009_803_922, "shares");
+        assertEq(alphaOut, 153 * ALPHA, "alpha");
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 153 * ALPHA);
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 153 * ALPHA, "the exit honors the quote");
+    }
+
+    function test_SharesToUnwrap_AStrangerTransferLowersTheSharesAndKeepsTheAlpha() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        (uint256 shares, uint256 alphaOut) = lens.sharesToUnwrap(TOKEN1, 2 * ALPHA);
+        assertEq(shares, 2e18, "a billion shares per RAO at the initial rate");
+        assertEq(alphaOut, 2 * ALPHA, "alpha at the initial rate");
+
+        _strangerTransfer(hotkey1, _subnetColdkey(NETUID1), NETUID1, 300 * ALPHA);
+
+        (shares, alphaOut) = lens.sharesToUnwrap(TOKEN1, 2 * ALPHA);
+        // 2e9 * (3e20 + 1e9) / (600e9 + 1), rounded up
+        assertEq(shares, 1_000_000_000_001_666_667, "half the shares once the backing doubles");
+        assertEq(alphaOut, 2 * ALPHA, "the same alpha");
+    }
+
+    function test_SharesToUnwrap_QuotesAParkedPosition() public {
+        _parkedPosition(300 * ALPHA);
+        assertTrue(vault.awaitingAttestation(TOKEN1), "the scenario needs a parked position");
+
+        (uint256 shares, uint256 alphaOut) = lens.sharesToUnwrap(TOKEN1, ALPHA);
+        assertEq(shares, 1e18, "shares");
+        assertEq(alphaOut, ALPHA, "alpha");
+    }
+
+    function test_SharesToUnwrap_QuotesNothingForZeroAlpha() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+
+        (uint256 shares, uint256 alphaOut) = lens.sharesToUnwrap(TOKEN1, 0);
+        assertEq(shares, 0, "shares");
+        assertEq(alphaOut, 0, "alpha");
+    }
+
+    function test_RevertWhen_SharesToUnwrapAsksMoreAlphaThanTheSupplyRedeems() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        (uint256 shares,) = lens.sharesToUnwrap(TOKEN1, 300 * ALPHA);
+        assertEq(shares, 300e18, "the whole backing takes the whole supply");
+
+        vm.expectRevert(InsufficientShares.selector);
+        lens.sharesToUnwrap(TOKEN1, 300 * ALPHA + 1);
+    }
+
+    function test_RevertWhen_SharesToUnwrapHasNoSharesOutstanding() public {
+        vm.expectRevert(InsufficientShares.selector);
+        lens.sharesToUnwrap(TOKEN1, 1);
+    }
+
+    function test_RevertWhen_SharesToUnwrapAfterACompleteWriteOff() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        bytes32[] memory recorded = _hotkeys(hotkey1, hotkey2, hotkey3);
+        for (uint256 i; i < recorded.length; ++i) {
+            _sweepDuringCrash(NETUID1, recorded[i]);
+        }
+        _runOutRecoveryWindow(TOKEN1);
+        assertEq(lens.totalStake(TOKEN1), 0, "the scenario needs the whole backing written off");
+
+        vm.expectRevert(InsufficientShares.selector);
+        lens.sharesToUnwrap(TOKEN1, 1);
+    }
+
+    function test_RevertWhen_SharesToUnwrapMeetsMissingBacking() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        _sweepDuringCrash(NETUID1, hotkey1);
+
+        vm.expectRevert(abi.encodeWithSelector(BackingShortfall.selector, uint16(NETUID1), hotkey1, 100.02e9));
+        lens.sharesToUnwrap(TOKEN1, ALPHA);
+
+        vault.syncBacking(TOKEN1);
+        vm.expectRevert(ShortfallOnFile.selector);
+        lens.sharesToUnwrap(TOKEN1, ALPHA);
+    }
+
+    function test_RevertWhen_SharesToUnwrapMeetsLockedBacking() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        MockStaking(STAKING_PRECOMPILE).setLockedAlpha(_subnetColdkey(NETUID1), NETUID1, hotkey1, ALPHA);
+
+        vm.expectRevert(LockedBacking.selector);
+        lens.sharesToUnwrap(TOKEN1, ALPHA);
+    }
+
+    function test_RevertWhen_SharesToUnwrapForDissolvedTokenId() public {
+        _depositAndWrap(alice, NETUID1, 100 * ALPHA);
+
+        _simulateDissolutionStarted(NETUID1);
+        _simulateTaoAwardedOnDissolution(TOKEN1, 5 * TAO);
+        _simulateDissolutionCompleted(NETUID1);
+
+        vm.expectRevert(SubnetDissolved.selector);
+        lens.sharesToUnwrap(TOKEN1, ALPHA);
+    }
+
+    function test_RevertWhen_SharesToUnwrapBlackoutOfCurrentRegistration() public {
+        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+
+        _simulateDissolutionStarted(NETUID1);
+
+        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
+        lens.sharesToUnwrap(TOKEN1, ALPHA);
+    }
+
+    function test_PositionStatus_ReadsAnOpenPosition() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+
+        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Registered, false, 0, false, true);
+    }
+
+    function test_PositionStatus_ReadsARegisteredSubnetBeforeItsCloneExists() public view {
+        assertEq(vault.subnetClone(TOKEN2), address(0), "the scenario needs a position with no clone");
+        _assertStatus(TOKEN2, VaultReads.SubnetPhase.Registered, false, 0, false, true);
+    }
+
+    function test_PositionStatus_ReadsAnUnregisteredSubnetAsDissolved() public view {
+        _assertStatus(TOKEN_OF_AN_UNREGISTERED_SUBNET, VaultReads.SubnetPhase.Dissolved, false, 0, false, false);
+    }
+
+    function test_PositionStatus_ReportsAParkedPosition() public {
+        _parkedPosition(300 * ALPHA);
+
+        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Registered, true, 0, false, true);
+    }
+
+    function test_PositionStatus_CarriesTheWriteOffDeadlineOfAShortfall() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        _sweepDuringCrash(NETUID1, hotkey1);
+        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Registered, false, type(uint256).max, false, true);
+
+        vault.syncBacking(TOKEN1);
+        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Registered, false, block.timestamp + RECOVERY_WINDOW, false, true);
+    }
+
+    function test_PositionStatus_ReportsLockedBacking() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        MockStaking(STAKING_PRECOMPILE).setLockedAlpha(_subnetColdkey(NETUID1), NETUID1, hotkey1, ALPHA);
+
+        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Registered, false, 0, true, true);
+    }
+
+    function test_PositionStatus_ReportsDisabledAlphaTransfers() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        _setTransfersEnabled(NETUID1, false);
+
+        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Registered, false, 0, false, false);
+    }
+
+    function test_PositionStatus_AnswersThroughDissolution() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+
+        _simulateDissolutionStarted(NETUID1);
+        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Dissolving, false, 0, false, false);
+
+        _simulateTaoAwardedOnDissolution(TOKEN1, 5 * TAO);
+        _simulateDissolutionCompleted(NETUID1);
+        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Dissolved, false, 0, false, false);
+    }
+
+    function test_PositionStatus_TellsAReplacedGenerationFromItsSuccessor() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        _simulateNewNetworkRegistered(TOKEN1, 5 * TAO);
+        uint256 successor = vault.currentTokenId(NETUID1);
+
+        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Dissolved, false, 0, false, false);
+        _assertStatus(successor, VaultReads.SubnetPhase.Registered, false, 0, false, true);
+
+        _simulateDissolutionStarted(NETUID1);
+        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Dissolved, false, 0, false, false);
+        _assertStatus(successor, VaultReads.SubnetPhase.Dissolving, false, 0, false, false);
+    }
+
+    function _assertStatus(
+        uint256 tokenId,
+        VaultReads.SubnetPhase subnetPhase,
+        bool awaitingAttestation,
+        uint256 writeOffDeadline,
+        bool backingLocked,
+        bool alphaTransfersEnabled
+    ) private view {
+        AlphaVaultLens.PositionStatus memory status = lens.positionStatus(tokenId);
+        assertEq(uint8(status.subnetPhase), uint8(subnetPhase), "subnet phase");
+        assertEq(status.awaitingAttestation, awaitingAttestation, "awaiting attestation");
+        assertEq(status.writeOffDeadline, writeOffDeadline, "write-off deadline");
+        assertEq(status.backingLocked, backingLocked, "locked backing");
+        assertEq(status.alphaTransfersEnabled, alphaTransfersEnabled, "alpha transfers enabled");
     }
 }

@@ -6,7 +6,7 @@ import { VaultAllocation } from "./libraries/VaultAllocation.sol";
 import { VaultMath } from "./libraries/VaultMath.sol";
 import { VaultReads } from "./libraries/VaultReads.sol";
 import {
-    LockedBacking, NoSharesOutstanding, Parked,
+    InsufficientShares, LockedBacking, NoSharesOutstanding, Parked,
     SharePriceBelowPrecision, ShortfallOnFile,
     SubnetDissolved, ZeroAddress
 } from "./VaultErrors.sol";
@@ -22,6 +22,15 @@ contract AlphaVaultLens {
         bool alphaInFlux;
         VaultReads.Slot[] slots;
         VaultReads.Backing backing;
+    }
+
+    /// @dev `backingLocked` and `alphaTransfersEnabled` are read while the subnet is registered.
+    struct PositionStatus {
+        VaultReads.SubnetPhase subnetPhase;
+        bool awaitingAttestation;
+        uint256 writeOffDeadline;
+        bool backingLocked;
+        bool alphaTransfersEnabled;
     }
 
     AlphaVault public immutable vault;
@@ -81,12 +90,24 @@ contract AlphaVaultLens {
     /// @notice Earliest time `syncBacking` may write off a recorded loss.
     /// @return deadline Recorded deadline, max uint256 for an undeclared shortfall, or zero if intact.
     /// @dev Expiry alone does not clear the loss.
-    function writeOffDeadline(uint256 tokenId) external view returns (uint256 deadline) {
+    function writeOffDeadline(uint256 tokenId) public view returns (uint256 deadline) {
         uint256 shortSince = _shortSince(tokenId);
         if (shortSince != 0) return shortSince + vault.recoveryWindow();
         if (VaultReads.firstShortOf(_readBacking(tokenId).backing.short) != VaultReads.NO_SHORT_SLOT) {
             deadline = VaultReads.UNDECLARED_SHORTFALL;
         }
+    }
+
+    /// @notice Position state in one read that answers in every subnet phase.
+    function positionStatus(uint256 tokenId) external view returns (PositionStatus memory status) {
+        status.subnetPhase = VaultReads.subnetPhaseOf(tokenId);
+        status.awaitingAttestation = vault.awaitingAttestation(tokenId);
+        status.writeOffDeadline = writeOffDeadline(tokenId);
+        if (status.subnetPhase != VaultReads.SubnetPhase.Registered) return status;
+
+        uint16 netuid = VaultMath.netuidOf(tokenId); address clone = vault.subnetClone(tokenId);
+        status.backingLocked = clone != address(0) && VaultReads.lockedAlphaOf(VaultReads.coldkeyOf(clone), netuid) != 0;
+        status.alphaTransfersEnabled = VaultReads.transfersEnabled(netuid);
     }
 
     function _readBacking(uint256 tokenId) private view returns (BackingRead memory read) {
@@ -134,6 +155,16 @@ contract AlphaVaultLens {
         _requireCurrentRegistration(tokenId);
         if (vault.awaitingAttestation(tokenId)) revert Parked();
         return VaultMath.sharesFor(totalStake(tokenId), vault.totalSupply(tokenId), assets);
+    }
+
+    /// @notice Fewest shares `previewUnwrap` quotes at `alpha` RAO or more, with that quote.
+    /// @dev Quotes a parked position. `InsufficientShares` means the outstanding shares redeem less.
+    function sharesToUnwrap(uint256 tokenId, uint256 alpha) external view returns (uint256 shares, uint256 alphaOut) {
+        _requireCurrentRegistration(tokenId);
+        uint256 stake = totalStake(tokenId); uint256 supply = vault.totalSupply(tokenId);
+        shares = VaultMath.sharesToRedeem(stake, supply, alpha);
+        if (shares > supply) revert InsufficientShares();
+        alphaOut = VaultMath.assetsFor(stake, supply, shares);
     }
 
     /// @notice Estimated exit payout: live alpha RAO or dissolved TAO wei.
