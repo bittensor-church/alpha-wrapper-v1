@@ -20,11 +20,6 @@ library VaultAllocation {
     /// @dev What collection does with a pile below the floor.
     enum CollectionPolicy { RevertBelowFloor, LeaveBelowFloor }
 
-    /// @dev Bounds the moves one collection signs. A hotkey swap carries a slot's pile whole, so a position's
-    ///      alpha sits under no more hotkeys than it has slots; a larger gift collected in a pile's place covers
-    ///      at least as much.
-    uint256 private constant MAX_STRAYS_PER_COLLECTION = MAX_VALIDATORS;
-
     /// @dev One position under one alpha price: the caller reads the price once and every floor test in
     ///      the call uses that read.
     struct Context {
@@ -100,7 +95,6 @@ library VaultAllocation {
         }
     }
 
-    /// @dev A slot never resolves to hotkey 0x0, which the record reads as no hotkey.
     function _smallestUnclaimedPileCovering(bytes32[] memory taken, bytes32[] memory candidates, uint256[] memory piles, uint256 tracked)
         private pure returns (uint256 pick) {
         pick = VaultMath.INDEX_NOT_FOUND;
@@ -117,31 +111,28 @@ library VaultAllocation {
         }
     }
 
-    /// @dev `hotkeys` followed by the other listed hotkeys holding the clone's largest piles. A pile stays
-    ///      behind when it is not proven to clear the floor or when its hotkey has no owner record: the chain
-    ///      can refuse that claim, and a stray must not block collection.
-    function withListedStrays(Context memory context, bytes32[] memory hotkeys) external view returns (bytes32[] memory) {
+    function withLargestCollectableStrays(Context memory context, bytes32[] memory collectionHotkeys)
+        external view returns (bytes32[] memory) {
         uint256 alphaPriceE18 = context.alphaPriceE18;
-        if (alphaPriceE18 == 0) return hotkeys;
-        (bytes32[] memory listed, uint256[] memory piles) =
+        if (alphaPriceE18 == 0) return collectionHotkeys;
+        (bytes32[] memory listedHotkeys, uint256[] memory piles) =
             _pilesUnderListedHotkeys(context.coldkey, context.netuid, context.parking);
         uint256 minStakeTao = StakeOps.minStakeTao();
-        uint256 count;
+        uint256 strayCount;
         for (uint256 i; i < piles.length;) {
-            if (
-                piles[i] == 0 || StakeOps.taoValue(piles[i], alphaPriceE18) < minStakeTao
-                    || VaultMath.contains(hotkeys, listed[i]) || !VaultReads.hasOwner(listed[i])
-            ) piles[i] = 0;
-            else if (count < MAX_STRAYS_PER_COLLECTION) ++count;
+            bool collectable = piles[i] != 0 && StakeOps.taoValue(piles[i], alphaPriceE18) >= minStakeTao
+                && !VaultMath.contains(collectionHotkeys, listedHotkeys[i]) && VaultReads.hasOwner(listedHotkeys[i]);
+            if (!collectable) piles[i] = 0;
+            else if (strayCount < MAX_VALIDATORS) ++strayCount;
             unchecked { ++i; }
         }
-        bytes32[] memory strays = new bytes32[](count);
-        for (uint256 taken; taken < count;) {
+        bytes32[] memory largestStrays = new bytes32[](strayCount);
+        for (uint256 taken; taken < strayCount;) {
             uint256 largest = VaultMath.indexOfLargest(piles);
-            strays[taken] = listed[largest]; piles[largest] = 0;
+            largestStrays[taken] = listedHotkeys[largest]; piles[largest] = 0;
             unchecked { ++taken; }
         }
-        return VaultMath.concat(hotkeys, strays);
+        return VaultMath.concat(collectionHotkeys, largestStrays);
     }
 
     function readAdmittedDeposit(bytes32 mailboxColdkey, uint16 nid) external view

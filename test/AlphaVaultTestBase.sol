@@ -25,9 +25,6 @@ import { NEURON_PRECOMPILE } from "src/interfaces/INeuron.sol";
 import { BALANCE_TRANSFER_PRECOMPILE } from "src/interfaces/IBalanceTransfer.sol";
 import { SUBNET_PRECOMPILE } from "src/interfaces/ISubnet.sol";
 
-/// @dev The listed strays one sync collects.
-uint256 constant MAX_STRAYS_PER_COLLECTION = 10;
-
 abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     AlphaVault public vault;
     AlphaVaultLens public lens;
@@ -60,7 +57,6 @@ abstract contract AlphaVaultTestBase is RegistryTestHelper, IAlphaVaultAbi {
     uint16 public constant NETUID2_BPS_HK2 = 6000;
     uint16 public constant NETUID2_BPS_HK1 = 4000;
 
-    /// @dev The vault stops growing a clone's staking list here; the chain's own cap is 256.
     uint256 internal constant STAKING_LIST_CAP = 96;
     uint256 internal constant REPLACEMENT_OPENS_AT = 64;
     uint256 internal constant VALIDATOR_CAP = 10;

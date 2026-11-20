@@ -454,8 +454,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         emit BackingRecovered(tokenId, source, parkingHotkey, parked - before);
     }
 
-    /// @notice Move the token's position to a fresh clone once the old one's staking list holds 64 entries.
-    ///         Anyone may call it; a rejected candidate is retried with a fresh UID.
+    /// @notice Move the token's position to a fresh clone. Anyone may call it; a rejected candidate is retried
+    ///         with a fresh UID.
     /// @dev All TAO moves. Recorded piles below the floor stay behind and leave the record, and the
     ///      old clone keeps the alpha strangers sent it. Token id, shares, claims and mailboxes carry over.
     function replaceClone(uint256 tokenId, bytes32 uid) external nonReentrant {
@@ -498,12 +498,10 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
         if (exposed > VaultReads.TRACKED_SLACK_RAO) revert BackingNotSecured();
     }
 
-    /// @dev A hotkey swap can carry a slot's alpha to a hotkey the record does not name; the clone's list
-    ///      still names it, so sync parks that alpha instead of writing it off.
     function _secureWithListedStrays(uint256 tokenId, address clone, bytes32 coldkey, bytes32[] memory hotkeys)
         private returns (uint256 parked) {
         VaultAllocation.Context memory context = _contextAtCurrentPrice(tokenId, clone, coldkey);
-        return _secureBacking(context, VaultAllocation.withListedStrays(context, hotkeys));
+        return _secureBacking(context, VaultAllocation.withLargestCollectableStrays(context, hotkeys));
     }
 
     /// @dev Only parking carries the pooled obligation; other entries are collection locations.

@@ -2,7 +2,6 @@
 pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
-import { MAX_STRAYS_PER_COLLECTION } from "../AlphaVaultTestBase.sol";
 import { CampaignHarness, requireExpectedRevert } from "./CampaignHarness.sol";
 import { CHAIN_MIN_STAKE, CHAIN_MIN_TRANSFER, MockStaking } from "../mocks/MockStaking.sol";
 import { MockAlpha } from "../mocks/MockAlpha.sol";
@@ -10,6 +9,7 @@ import { ALPHA_PRECOMPILE } from "src/interfaces/IAlpha.sol";
 import { AlphaVault } from "src/AlphaVault.sol";
 import { IAlphaVaultAbi } from "src/interfaces/IAlphaVaultAbi.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
+import { MAX_VALIDATORS } from "src/interfaces/IValidatorRegistry.sol";
 import { VaultMath } from "src/libraries/VaultMath.sol";
 import { VaultReads } from "src/libraries/VaultReads.sol";
 import {
@@ -258,7 +258,6 @@ abstract contract BackingCampaignHandler is Test {
         }
     }
 
-    /// @dev A sync over missing backing drains the ten largest collectable strays and no smaller one in their place.
     function _assertLargestStraysCollected(bytes32[] memory strays, uint256[] memory piles) private view {
         uint256 drained;
         uint256 smallestDrained = type(uint256).max;
@@ -273,7 +272,7 @@ abstract contract BackingCampaignHandler is Test {
         }
         assertEq(
             drained,
-            strays.length < MAX_STRAYS_PER_COLLECTION ? strays.length : MAX_STRAYS_PER_COLLECTION,
+            strays.length < MAX_VALIDATORS ? strays.length : MAX_VALIDATORS,
             "a sync collects up to ten listed strays"
         );
         assertGe(smallestDrained, largestLeft, "and the largest ones first");
@@ -485,30 +484,32 @@ abstract contract BackingCampaignHarness is CampaignHarness {
         return _getVaultStake(from, NETUID1) == 0 ? 0 : _sweepDuringCrash(NETUID1, from);
     }
 
-    /// @dev Pile `i` of `n` takes `i + 1` parts of `n(n + 1)/2`. The count shrinks from `wanted` until the smallest
-    ///      pile clears the chain's transfer minimum, so every return lands; zero when none can.
-    function returnablePileCount(uint256 amount, uint256 wanted) external view returns (uint256 piles) {
+    function _smallestOfRisingPiles(uint256 amount, uint256 pileCount) private pure returns (uint256) {
+        uint256 sharesAcrossPiles = pileCount * (pileCount + 1) / 2;
+        return amount / sharesAcrossPiles;
+    }
+
+    function largestReturnablePileCount(uint256 amount, uint256 wanted) external view returns (uint256 pileCount) {
         uint256 price = MockAlpha(ALPHA_PRECOMPILE).chainAlphaPrice(uint16(NETUID1));
-        for (piles = wanted; piles != 0; --piles) {
-            if (amount / (piles * (piles + 1) / 2) * price / 1e18 >= CHAIN_MIN_TRANSFER) break;
+        for (pileCount = wanted; pileCount != 0; --pileCount) {
+            uint256 smallestPileTao = _smallestOfRisingPiles(amount, pileCount) * price / 1e18;
+            if (smallestPileTao >= CHAIN_MIN_TRANSFER) break;
         }
     }
 
-    function simulateReturn(bytes32[] memory hotkeys, uint256 amount) external {
+    function simulateReturnInRisingPiles(bytes32[] memory hotkeys, uint256 amount) external {
         uint256 last = hotkeys.length - 1;
-        uint256 part = amount / (hotkeys.length * (hotkeys.length + 1) / 2);
+        uint256 smallestPile = _smallestOfRisingPiles(amount, hotkeys.length);
         uint256 returned;
         for (uint256 i; i < last; ++i) {
-            _strangerReturns(NETUID1, hotkeys[i], part * (i + 1));
-            returned += part * (i + 1);
+            _strangerReturns(NETUID1, hotkeys[i], smallestPile * (i + 1));
+            returned += smallestPile * (i + 1);
         }
         _strangerReturns(NETUID1, hotkeys[last], amount - returned);
     }
 
-    /// @dev The piles a sync collects beyond the record: listed, owned, proven to clear the floor, and under a hotkey
-    ///      that neither the record nor, before a declaration, its resolution names.
     function collectableStrays() public view returns (bytes32[] memory strays, uint256[] memory piles) {
-        bytes32[] memory named = _namedHotkeys();
+        bytes32[] memory named = _recordedAndResolvedHotkeys();
         bytes32[] memory listed = _listedHotkeys(_subnetColdkey(NETUID1));
         strays = new bytes32[](listed.length);
         piles = new uint256[](listed.length);
@@ -528,7 +529,7 @@ abstract contract BackingCampaignHarness is CampaignHarness {
         }
     }
 
-    function _namedHotkeys() private view returns (bytes32[] memory named) {
+    function _recordedAndResolvedHotkeys() private view returns (bytes32[] memory named) {
         named = VaultReads.stakedUnderOf(vault.recordedSlots(TOKEN1));
         (uint256 shortSince,) = vault.recovery(TOKEN1);
         if (shortSince != 0) return named;
@@ -911,17 +912,15 @@ abstract contract BackingCampaignHarness is CampaignHarness {
         }
     }
 
-    /// @dev Alpha the campaign's sweeps took from the clone that the record may still expect.
-    function _unbookedLoss() internal view virtual returns (uint256) {
+    function _sweptAlphaStillRecorded() internal view virtual returns (uint256) {
         return 0;
     }
 
-    /// @dev A swept pile stays in the record until its loss is booked or the alpha returns.
     function _assertTrackedBackingWithinChainHoldings() internal view {
         uint256 slots = vault.recordedSlots(TOKEN1).length;
         assertLe(
             trackedBacking(),
-            chainHoldings() + _unbookedLoss() + BACKING_SLACK_RAO * slots,
+            chainHoldings() + _sweptAlphaStillRecorded() + BACKING_SLACK_RAO * slots,
             "the record expects more than the clone ever held"
         );
     }

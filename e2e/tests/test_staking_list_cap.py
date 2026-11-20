@@ -29,14 +29,12 @@ STRANGER = "//CapStranger"
 OWNER = "//CapOwner"
 VAULT_CAP = 96
 PARKING_RESERVE = 1
-MAX_STRAYS_PER_COLLECTION = 10
+MAX_VALIDATORS = 10
 EQUAL_WEIGHTS = [5_000, 5_000]
-# docs/recovery.md: what one stake move and one list read cost on chain.
-MOVE_GAS = 75_000
-MOVE_GAS_PER_ENTRY = 8_750
-LIST_READ_GAS_PER_ENTRY = 6_000
-# The vault's own bookkeeping around the moves, measured at about 0.3M: one move more must break the bound.
-VAULT_OVERHEAD_GAS = 1_000_000
+RUNBOOK_MOVE_GAS = 75_000
+RUNBOOK_MOVE_GAS_PER_LIST_ENTRY = 8_750
+RUNBOOK_LIST_READ_GAS_PER_ENTRY = 6_000
+VAULT_BOOKKEEPING_GAS_ALLOWANCE = 1_000_000
 
 
 @pytest.mark.scenario
@@ -104,7 +102,7 @@ def test_list_reaches_the_cap_syncs_there_and_replacement_reopens_it(env, recove
     )
 
     old_coldkey = env.clone_coldkey(token_id)
-    strays = validators[:MAX_STRAYS_PER_COLLECTION]
+    strays = validators[:MAX_VALIDATORS]
     _, gift = env.floor_boundary(netuid, 3 * env.chain_min_stake_tao())
     extrinsics.add_stakes(
         [ss58 for _, ss58 in strays], netuid, 10 * env.chain_min_stake_tao(), signer_uri=STRANGER,
@@ -123,7 +121,7 @@ def test_list_reaches_the_cap_syncs_there_and_replacement_reopens_it(env, recove
     )
     sync_block = chain.receipt_block_number(receipt, "Cap: sync")
     collected = [swapped, merged_onto] + [pubkey for pubkey, _ in strays]
-    moves = MAX_STRAYS_PER_COLLECTION + 1
+    moves = MAX_VALIDATORS + 1
     held_before = env.total_stake_across(old_coldkey, netuid, collected, sync_block - 1)
     parked = env.stake(parking_hotkey, old_coldkey, netuid, sync_block)
     assert abs(parked - held_before) <= moves * config.ROUNDING_DUST_SLOT_RAO, (
@@ -137,9 +135,9 @@ def test_list_reaches_the_cap_syncs_there_and_replacement_reopens_it(env, recove
     gas_used = chain.receipt_gas_used(receipt)
     assert gas_used is not None, f"the sync's receipt carries no gasUsed: {receipt}"
     quoted = (
-        moves * (MOVE_GAS + MOVE_GAS_PER_ENTRY * VAULT_CAP)
-        + 2 * VAULT_CAP * LIST_READ_GAS_PER_ENTRY
-        + VAULT_OVERHEAD_GAS
+        moves * (RUNBOOK_MOVE_GAS + RUNBOOK_MOVE_GAS_PER_LIST_ENTRY * VAULT_CAP)
+        + 2 * VAULT_CAP * RUNBOOK_LIST_READ_GAS_PER_ENTRY
+        + VAULT_BOOKKEEPING_GAS_ALLOWANCE
     )
     assert gas_used <= quoted, (
         f"the sync used {gas_used} gas for {moves} moves on a full list; the runbook quotes {quoted}"

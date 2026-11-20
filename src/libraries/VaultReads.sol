@@ -15,12 +15,8 @@ library VaultReads {
     uint256 internal constant NO_SHORT_SLOT = type(uint256).max;
     /// @dev Frozen with no deadline until recovery is declared.
     uint256 internal constant UNDECLARED_SHORTFALL = type(uint256).max;
-    /// @dev Every move a clone signs pays the chain's walk of its whole staking list, and a sync is the only call
-    ///      that moves a position reading short. Capping the list keeps the worst sync inside one transaction.
     uint256 private constant STAKING_LIST_CAP = 96;
-    /// @dev The cap's last entry is kept for the parking hotkey, so recovery can always park.
     uint256 private constant PARKING_RESERVE = 1;
-    /// @dev Far enough under the cap that a registry update landing just below it is still admitted whole.
     uint256 private constant REPLACEMENT_OPENS_AT = 64;
 
     function coldkeyOf(address evmAddress) internal view returns (bytes32) {

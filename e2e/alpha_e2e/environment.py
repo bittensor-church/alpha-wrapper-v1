@@ -482,8 +482,8 @@ class Environment:
         extrinsics.transfer_stake_and_hotkey(mailbox_ss58, hotkey_ss58, mailbox_ss58, netuid, amount_rao)
 
     def replace_clone(self, token_id: int, uid: str, message: str, private_key: Optional[str] = None) -> dict:
-        """Move the token's position to a fresh clone once the old one's staking list holds 64
-        entries, in a block that stake reads either side of it can measure."""
+        """Move the token's position to a fresh clone, in a block that stake reads either side of it can
+        measure."""
         return self.vault_send_between_epochs(
             self.netuid_of(token_id), 4_000_000, message, "replaceClone(uint256,bytes32)", token_id, uid,
             private_key=private_key, label="replaceClone",

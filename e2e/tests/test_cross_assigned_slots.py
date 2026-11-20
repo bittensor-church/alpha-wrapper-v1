@@ -18,7 +18,6 @@ from alpha_e2e import bootstrap, chain, checks, config, exits, extrinsics, incid
 LARGER_VALIDATOR_URI = "//CrossLargerValidator"
 LARGER_HOTKEY_URI = "//CrossLargerHotkey"
 SMALLER_SUCCESSOR_URI = "//CrossSmallerSuccessor"
-# One association, one per-subnet swap fee and transaction fees.
 LARGER_VALIDATOR_FUNDING_RAO = 2 * config.RAO_PER_TAO
 WEIGHTS = [6_000, 4_000]
 

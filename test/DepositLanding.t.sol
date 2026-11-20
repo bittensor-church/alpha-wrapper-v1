@@ -177,7 +177,6 @@ contract DepositLandingTest is DepositScenarios {
         vault.wrap(NETUID1, hotkey5, 0);
     }
 
-    /// @dev A crumb on the other subnet keeps hotkey1 listed once its pile is swept, so the list stays at 95.
     function test_HeldHotkeyAndParking_AreAdmittedAtNinetyFiveEntries() public {
         _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(5000, 5000));
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
@@ -194,17 +193,21 @@ contract DepositLandingTest is DepositScenarios {
         assertEq(_parkedStake(NETUID1), 18 * ALPHA, "the other slot's 18 alpha parks on the entry kept for it");
     }
 
-    /// @dev Replacement opens at 64 entries; a registry update landing one entry under it must not hit the cap.
-    function test_TenNewValidators_LandFromSixtyThreeEntries() public {
+    function test_TenNewValidators_LandFromOneEntryBelowReplacement() public {
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         bytes32 cloneColdkey = _subnetColdkey(NETUID1);
-        _fillListTo(cloneColdkey, 63);
+        uint256 entriesBefore = REPLACEMENT_OPENS_AT - 1;
+        _fillListTo(cloneColdkey, entriesBefore);
         bytes32[] memory next = _setValidatorCount(NETUID1, VALIDATOR_CAP);
 
         vault.rebalance(NETUID1);
 
         _assertSpread(next, cloneColdkey, NETUID1, 3 * ALPHA, 3 * ALPHA);
-        assertEq(_stakingHotkeyCount(cloneColdkey), 70, "ten new entries for the three the rotation emptied");
+        assertEq(
+            _stakingHotkeyCount(cloneColdkey),
+            entriesBefore + VALIDATOR_CAP - 3,
+            "ten new entries for the three the rotation emptied"
+        );
     }
 
     function testFuzz_DepositOntoAnUnlistedValidator_PassesOnlyBelowTheReserve(uint256 entries) public {

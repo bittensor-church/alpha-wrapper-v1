@@ -15,13 +15,13 @@ import { MockStaking } from "./mocks/MockStaking.sol";
 import { STAKING_PRECOMPILE } from "src/interfaces/IStaking.sol";
 
 contract BackingHandler is BackingCampaignHandler {
+    uint256 private constant MAX_RETURNED_PILES = 12;
+
     uint256 public strayAnnexations;
     uint256 public strayCollections;
     uint256 public replacements;
-    /// @dev Alpha the chain swept that no stranger has returned yet.
-    uint256 public sweptAlpha;
-    /// @dev The swept alpha the record may still expect: not returned, and no record rewritten since.
-    uint256 public unbookedLoss;
+    uint256 public sweptAlphaNotReturned;
+    uint256 public sweptAlphaStillRecorded;
 
     constructor(
         AlphaVault _vault,
@@ -70,34 +70,32 @@ contract BackingHandler is BackingCampaignHandler {
         _backing().simulateSilentMove(from, to);
     }
 
-    /// @dev The chain's sweep takes a pile out of the clone.
-    function sweep(uint256 fromSeed) external {
+    function sweepDuringCrash(uint256 fromSeed) external {
         uint256 swept = _backing().simulateSweep(touchedHotkeys[bound(fromSeed, 0, touchedHotkeys.length - 1)]);
-        sweptAlpha += swept;
-        unbookedLoss += swept;
+        sweptAlphaNotReturned += swept;
+        sweptAlphaStillRecorded += swept;
     }
 
-    /// @dev A stranger returns the swept alpha in up to twelve piles of unequal size, under hotkeys the record does
-    ///      not name: more than one sync collects.
-    function returnSwept(uint256 toSeed, uint256 pileSeed) external {
-        uint256 piles = _backing().returnablePileCount(sweptAlpha, bound(pileSeed, 1, 12));
-        if (piles == 0) return;
-        bytes32[] memory hotkeys = new bytes32[](piles);
-        for (uint256 i; i < piles; ++i) {
+    function strangerReturnsSweptInRisingPiles(uint256 toSeed, uint256 pileSeed) external {
+        uint256 pileCount =
+            _backing().largestReturnablePileCount(sweptAlphaNotReturned, bound(pileSeed, 1, MAX_RETURNED_PILES));
+        if (pileCount == 0) return;
+        bytes32[] memory hotkeys = new bytes32[](pileCount);
+        for (uint256 i; i < pileCount; ++i) {
             hotkeys[i] = keccak256(abi.encode("returned", toSeed, i));
             _remember(hotkeys[i]);
         }
-        _backing().simulateReturn(hotkeys, sweptAlpha);
-        sweptAlpha = 0;
-        unbookedLoss = 0;
+        _backing().simulateReturnInRisingPiles(hotkeys, sweptAlphaNotReturned);
+        sweptAlphaNotReturned = 0;
+        sweptAlphaStillRecorded = 0;
     }
 
     function _afterAllocation() internal override {
-        unbookedLoss = 0;
+        sweptAlphaStillRecorded = 0;
     }
 
     function _afterRecordMatchesChain() internal override {
-        unbookedLoss = 0;
+        sweptAlphaStillRecorded = 0;
     }
 
     function sourceFor(uint256 sourceSeed) public view returns (bytes32) {
@@ -192,8 +190,8 @@ abstract contract BackingCampaignSetup is BackingCampaignHarness {
         return handler;
     }
 
-    function _unbookedLoss() internal view override returns (uint256) {
-        return handler.unbookedLoss();
+    function _sweptAlphaStillRecorded() internal view override returns (uint256) {
+        return handler.sweptAlphaStillRecorded();
     }
 
     function assertMovedPilesLeft(bytes32 previousColdkey) external view {
@@ -313,7 +311,7 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
             vault.recordedSlots(TOKEN1)[0].stakedUnder, keccak256(abi.encode("stray", uint256(1))), "and is recorded"
         );
 
-        handler.sweep(3);
+        handler.sweepDuringCrash(3);
         assertEq(vault.recordedSlots(TOKEN1).length, 3, "one slot per attested hotkey before recovery");
         _assertSharedInvariants();
         handler.syncBacking();
@@ -325,7 +323,7 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         _assertSharedInvariants();
         assertEq(handler.recoveriesClosed(), 1, "an expired shortfall is written off");
         assertLt(trackedBacking(), owed, "the write-off shrank the obligation");
-        handler.returnSwept(1, 2);
+        handler.strangerReturnsSweptInRisingPiles(1, 2);
         handler.recoverStray(_seedSelecting(keccak256(abi.encode("returned", uint256(1), uint256(0)))));
         handler.recoverStray(_seedSelecting(keccak256(abi.encode("returned", uint256(1), uint256(1)))));
         _assertSharedInvariants();
@@ -337,8 +335,8 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         _assertSharedInvariants();
         assertEq(_parkedStake(NETUID1), 0, "the rebalance spreads the parked backing again");
 
-        handler.sweep(1);
-        handler.returnSwept(2, 2);
+        handler.sweepDuringCrash(1);
+        handler.strangerReturnsSweptInRisingPiles(2, 2);
         _assertSharedInvariants();
         handler.syncBacking();
         _assertSharedInvariants();
@@ -347,8 +345,8 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         _advanceRegistryNonce();
         handler.rebalance();
 
-        handler.sweep(1);
-        handler.returnSwept(4, 12);
+        handler.sweepDuringCrash(1);
+        handler.strangerReturnsSweptInRisingPiles(4, 12);
         handler.syncBacking();
         _assertSharedInvariants();
         assertGt(lens.writeOffDeadline(TOKEN1), 0, "twelve returned piles outnumber what one sync collects");
@@ -361,11 +359,11 @@ contract BackingCampaignPathsTest is BackingCampaignSetup {
         _advanceRegistryNonce();
         handler.rebalance();
 
-        handler.sweep(1);
+        handler.sweepDuringCrash(1);
         _assertSharedInvariants();
         handler.syncBacking();
         _assertSharedInvariants();
-        handler.returnSwept(3, 2);
+        handler.strangerReturnsSweptInRisingPiles(3, 2);
         handler.recoverHeldStray(0);
         handler.recoverHeldStray(0);
         _assertSharedInvariants();

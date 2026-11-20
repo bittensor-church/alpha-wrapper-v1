@@ -45,7 +45,6 @@ error BackingNotSecured();
 error Parked();
 /// @dev The parking hotkey already belongs to another coldkey; deploy with an unused one.
 error ParkingHotkeyUnavailable();
-/// @dev The clone's staking list holds fewer than 64 entries.
 error StakingListHasRoom();
 /// @dev No receiving hotkey with an owner record resolves for this attested hotkey.
 ///      Restore an owner record or replace the registry entry; the backing timer cannot fix it.
