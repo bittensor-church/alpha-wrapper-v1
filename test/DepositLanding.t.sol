@@ -158,6 +158,28 @@ contract DepositLandingTest is DepositScenarios {
         assertEq(lens.totalStake(TOKEN1), 30 * ALPHA, "deposit and exit go through after replacement");
     }
 
+    function test_RecoverStray_AtTheCap_LandsOnAFundedSlotWhenTheFirstSlotIsEmpty() public {
+        _depositAndWrap(alice, NETUID1, 30 * ALPHA);
+        bytes32 cloneColdkey = _subnetColdkey(NETUID1);
+        _strangerTransfer(hotkey3, cloneColdkey, NETUID2, CRUMB);
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2), _weights(6000, 4000));
+        vault.rebalance(NETUID1);
+        _fillListTo(cloneColdkey, STAKING_LIST_CAP - 1);
+        _setValidators(NETUID1, _hotkeys(hotkey4, hotkey1, hotkey2), _weights(3334, 3333, 3333));
+        vault.rebalance(NETUID1);
+        assertEq(vault.recordedSlots(TOKEN1)[0].stakedUnder, hotkey4, "the new validator takes the first slot");
+        assertEq(_getVaultStake(hotkey4, NETUID1), 0, "and stays unfunded at the cap");
+        _strangerTransfer(hotkey3, cloneColdkey, NETUID1, 3 * ALPHA);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit BackingRecovered(TOKEN1, hotkey3, hotkey1, 3 * ALPHA);
+        vault.recoverStray(TOKEN1, hotkey3);
+
+        assertEq(_getVaultStake(hotkey3, NETUID1), 0, "the stray leaves the rotated-out validator");
+        assertEq(lens.totalStake(TOKEN1), 33 * ALPHA, "and joins the backing on the largest funded slot");
+        assertEq(_stakingHotkeyCount(cloneColdkey), STAKING_LIST_CAP - 1, "without growing the list");
+    }
+
     function test_UnlistedValidator_IsAdmittedAtNinetyFourEntriesAndRefusedAtNinetyFive() public {
         _setValidators(NETUID1, _hotkeys(hotkey1), _weights(BPS_BASE));
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);

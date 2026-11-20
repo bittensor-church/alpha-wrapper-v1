@@ -273,7 +273,7 @@ contract RecoveryDeadlineTest is BackingScenarios {
         vault.recoverStray(TOKEN1, parking);
 
         assertEq(lens.totalStake(TOKEN1), 33 * ALPHA, "the parking pile joins the live backing");
-        assertEq(vault.recordedSlots(TOKEN1)[0].tracked, FIRST_SLOT + 3 * ALPHA, "booked on the first slot");
+        assertEq(vault.recordedSlots(TOKEN1)[0].tracked, FIRST_SLOT + 3 * ALPHA, "booked on the largest slot");
         assertEq(_parkedStake(NETUID1), 0, "leaving the parking hotkey empty");
         assertEq(lens.writeOffDeadline(TOKEN1), 0, "with no clock started");
         assertFalse(vault.awaitingAttestation(TOKEN1), "and nothing parked");

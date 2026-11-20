@@ -535,7 +535,8 @@ contract AlphaVault is ERC1155, ERC1155Supply, ReentrancyGuard, IAlphaVaultAbi {
     function _annex(VaultAllocation.Context memory context, VaultReads.Backing memory backing, bytes32[] memory strays)
         private returns (bytes32 home, uint256 annexed) {
         bytes32[] memory hotkeys = backing.hotkeys;
-        home = hotkeys[0]; uint256 before = backing.balances[0];
+        uint256 homeIndex = VaultMath.indexOfLargest(backing.balances);
+        home = hotkeys[homeIndex]; uint256 before = backing.balances[homeIndex];
         (uint256 balance,) = _gather(context, strays, home, VaultAllocation.CollectionPolicy.RevertBelowFloor);
         if (balance <= before) revert NothingToRecover();
         _reanchor(context.tokenId, hotkeys, VaultReads.stakesUnder(hotkeys, context.coldkey, context.netuid));

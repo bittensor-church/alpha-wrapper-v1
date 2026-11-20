@@ -332,17 +332,18 @@ contract BackingRecoveryTest is BackingScenarios {
         vault.recoverStray(TOKEN1, hotkey4);
     }
 
-    function test_RecoverStray_AnnexesADonationToTheFirstSlot() public {
+    function test_RecoverStray_AnnexesADonationToTheLargestSlot() public {
+        _setValidators(NETUID1, _hotkeys(hotkey1, hotkey2, hotkey3), _weights(2000, 6000, 2000));
         _depositAndWrap(alice, NETUID1, 30 * ALPHA);
         _strangerReturns(NETUID1, hotkey4, 3 * ALPHA);
 
         vm.expectEmit(true, true, true, true, address(vault));
-        emit BackingRecovered(TOKEN1, hotkey4, hotkey1, 3 * ALPHA);
+        emit BackingRecovered(TOKEN1, hotkey4, hotkey2, 3 * ALPHA);
         vault.recoverStray(TOKEN1, hotkey4);
 
         assertEq(lens.totalStake(TOKEN1), 33 * ALPHA, "the donation is new backing");
         assertFalse(vault.awaitingAttestation(TOKEN1), "and nothing parked");
-        assertEq(vault.recordedSlots(TOKEN1)[0].tracked, FIRST_SLOT + 3 * ALPHA, "booked on the first slot");
+        assertEq(vault.recordedSlots(TOKEN1)[1].tracked, 21 * ALPHA, "booked on the largest slot");
     }
 
     function test_RecoverStray_CarriesAStrayBelowTheMoveFloorHomeWithTheSlotsOwnPile() public {

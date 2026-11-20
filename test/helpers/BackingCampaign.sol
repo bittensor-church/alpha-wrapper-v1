@@ -670,12 +670,12 @@ abstract contract BackingCampaignHarness is CampaignHarness {
         return rotatedOut && _belowFloorAtAnyPrice(richest);
     }
 
-    /// @dev Annexing refuses only when the stray holds stake and neither it nor the first slot's hotkey holds a pile that
-    ///      clears the floor at any price.
+    /// @dev Annexing refuses only when the stray holds stake and neither it nor the largest slot's hotkey holds a pile
+    ///      that clears the floor at any price.
     function annexBelowFloor(bytes32 source) external view returns (bool) {
-        (bytes32[] memory hotkeys,,) = resolvedSlots();
+        (, uint256[] memory balances,) = resolvedSlots();
         uint256 stray = _getVaultStake(source, NETUID1);
-        uint256 home = _getVaultStake(hotkeys[0], NETUID1);
+        uint256 home = balances[VaultMath.indexOfLargest(balances)];
         return stray != 0 && _belowFloorAtAnyPrice(stray > home ? stray : home);
     }
 
