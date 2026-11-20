@@ -90,6 +90,14 @@ library VaultReads {
         return dissolving || !ownGeneration || !registered;
     }
 
+    enum SubnetPhase { Registered, Dissolving, Dissolved }
+
+    function subnetPhaseOf(uint256 tokenId) internal view returns (SubnetPhase) {
+        (bool ownGeneration, bool registered, bool dissolving) = _subnetState(tokenId);
+        if (ownGeneration && dissolving) return SubnetPhase.Dissolving;
+        return ownGeneration && registered ? SubnetPhase.Registered : SubnetPhase.Dissolved;
+    }
+
     function isDissolving(uint16 netuid) internal view returns (bool) {
         return ISubnet(SUBNET_PRECOMPILE).isSubnetDissolving(netuid);
     }
@@ -100,8 +108,11 @@ library VaultReads {
 
     /// @dev A transfer the chain will refuse burns every unit of gas forwarded to it; refuse it here.
     function requireTransfersEnabled(uint16 netuid) internal view {
-        (,,,,,,,,, bool transfersEnabled,,) = ISubnet(SUBNET_PRECOMPILE).getSubnetCapacityConfig(netuid);
-        if (!transfersEnabled) revert AlphaTransfersDisabled(netuid);
+        if (!transfersEnabled(netuid)) revert AlphaTransfersDisabled(netuid);
+    }
+
+    function transfersEnabled(uint16 netuid) internal view returns (bool enabled) {
+        (,,,,,,,,, enabled,,) = ISubnet(SUBNET_PRECOMPILE).getSubnetCapacityConfig(netuid);
     }
 
     /// @dev TAO arriving during/after dissolution backs redemptions, not the claim index.
