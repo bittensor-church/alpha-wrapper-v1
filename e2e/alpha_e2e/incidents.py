@@ -295,6 +295,7 @@ def assert_parked_refuses_allocation_and_pays_exits(
     assert quote_revert == chain.encoded_call(PARKED_ERROR), (
         f"{context}: previewWrap should revert {PARKED_ERROR} while parked, got {quote_revert}"
     )
+    assert env.position_status(token_id).awaiting_attestation, f"{context}: positionStatus should read parked"
     exits.unwrap(env, token_id, shares, f"{context}: the exit should pay from the parking hotkey", hotkeys=parking)
     exits.unwrap_for_tao(
         env, token_id, shares, f"{context}: the TAO exit should sell from the parking hotkey", hotkeys=parking,

@@ -29,6 +29,23 @@ def read_stake(hotkey_pubkey: str, coldkey_pubkey: str, netuid: int, block: Opti
     ))
 
 
+SUBNET_REGISTERED, SUBNET_DISSOLVING, SUBNET_DISSOLVED = range(3)
+
+
+@dataclass(frozen=True)
+class PositionStatus:
+    """The lens's one-call position status; the fields after `subnet_phase` are read while
+    the subnet is registered."""
+    subnet_phase: int = SUBNET_REGISTERED
+    awaiting_attestation: bool = False
+    write_off_deadline: int = 0
+    backing_locked: bool = False
+    alpha_transfers_enabled: bool = False
+
+
+OPEN_POSITION = PositionStatus(alpha_transfers_enabled=True)
+
+
 @dataclass
 class Environment:
     netuids: List[int]
@@ -212,6 +229,26 @@ class Environment:
             token_id, shares, block=block,
         )
         return int(lines[0]), int(lines[1])
+
+    def shares_to_unwrap(self, token_id: int, alpha: int, block: Optional[int] = None) -> Tuple[int, int]:
+        """(shares, alpha RAO quoted) of the smallest burn whose exit quote covers `alpha`,
+        live or as of `block`."""
+        lines = chain.cast_call_lines(
+            self.lens_address, "sharesToUnwrap(uint256,uint256)(uint256,uint256)",
+            token_id, alpha, block=block,
+        )
+        return int(lines[0]), int(lines[1])
+
+    def position_status(self, token_id: int) -> PositionStatus:
+        """The lens's status of a position: a struct of static fields decodes as its flat members."""
+        lines = chain.cast_call_lines(
+            self.lens_address, "positionStatus(uint256)(uint8,bool,uint256,bool,bool)", token_id,
+        )
+        return PositionStatus(
+            subnet_phase=int(lines[0]), awaiting_attestation=lines[1] == "true",
+            write_off_deadline=int(lines[2]), backing_locked=lines[3] == "true",
+            alpha_transfers_enabled=lines[4] == "true",
+        )
 
     def chain_min_stake_tao(self) -> int:
         """The minimum a partial unstake enforces; the vault's floor for every move, transfer and partial sale."""

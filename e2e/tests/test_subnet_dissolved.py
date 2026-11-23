@@ -11,6 +11,7 @@ import pytest
 
 from alpha_e2e import chain, checks, config, exits, extrinsics
 from alpha_e2e.checks import assert_csv_rows, run_observability_script, volume_row
+from alpha_e2e.environment import OPEN_POSITION, SUBNET_DISSOLVED, PositionStatus
 
 
 @pytest.mark.scenario
@@ -92,6 +93,12 @@ def test_dissolution_refunds_holders_and_mailboxes_without_affecting_other_subne
     share_price_revert = chain.revert_data(env.lens_address, "sharePrice(uint256)", dissolved_token_id)
     assert share_price_revert == chain.encoded_call("SubnetDissolved()"), (
         f"sharePrice should revert as SubnetDissolved for the dissolved subnet, reverts with {share_price_revert}"
+    )
+    assert env.position_status(dissolved_token_id) == PositionStatus(subnet_phase=SUBNET_DISSOLVED), (
+        "positionStatus should read only the dissolved phase"
+    )
+    assert env.position_status(surviving_token_id) == OPEN_POSITION, (
+        "positionStatus of the control position should stay open"
     )
     print(f"  Dissolved: position clone holds {dissolved_clone_tao} wei, mailbox "
           f"{parked_mailbox_tao} wei; alpha zeroed, sharePrice reverts")

@@ -60,6 +60,11 @@ def assert_rails_skip_hotkey(
     assert abs(quoted_alpha - delivered) <= config.ROUNDING_DUST_TOTAL_RAO, (
         f"{context}: previewUnwrap quoted {quoted_alpha} RAO but the exit paid {delivered}"
     )
+    fewest_shares, covered_alpha = env.shares_to_unwrap(token_id, quoted_alpha, block=exit_block - 1)
+    assert fewest_shares <= shares // 2 and covered_alpha == quoted_alpha, (
+        f"{context}: sharesToUnwrap asked {fewest_shares} shares quoting {covered_alpha} RAO for the "
+        f"{quoted_alpha} RAO that {shares // 2} shares were quoted"
+    )
 
     tao_receipt, _ = exits.unwrap_for_tao(
         env, token_id, shares // 4, f"{context}: the TAO exit failed", hotkeys=located, label=f"unwrapForTao [{tag}]",

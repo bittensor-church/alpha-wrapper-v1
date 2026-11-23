@@ -78,9 +78,9 @@ from the parking hotkey, so move the received alpha to a validator with
 `moveStake` to earn emissions. Deposits wait for a new validator set. See
 [parked positions](recovery.md#parked-positions).
 
-The lens's `positionStatus(tokenId)` reads the parked flag, the write-off
-deadline, the subnet's dissolution phase, locked backing and the alpha-transfer
-switch in one call that answers in every state.
+The lens's `positionStatus(tokenId)` reads the subnet's dissolution phase in
+every state and, while the subnet is registered, the parked flag, the write-off
+deadline, locked backing and the alpha-transfer switch, all in one call.
 
 ## Claim TAO and reclaim deposits
 

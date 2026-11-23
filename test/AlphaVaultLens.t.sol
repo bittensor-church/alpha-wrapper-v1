@@ -14,6 +14,7 @@ import {
     Parked,
     SharePriceBelowPrecision,
     ShortfallOnFile,
+    SlippageExceeded,
     SubnetDissolved,
     SubnetInDissolutionBlackoutPeriod,
     ZeroAddress
@@ -56,11 +57,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
 
     function test_SharePrice_RefusesToQuoteBelowItsPrecision() public {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-        bytes32[] memory recorded = _hotkeys(hotkey1, hotkey2, hotkey3);
-        for (uint256 i; i < recorded.length; ++i) {
-            _sweepDuringCrash(NETUID1, recorded[i]);
-        }
-        _runOutRecoveryWindow(TOKEN1);
+        _writeOffTheWholeBacking();
         _reattestValidators(NETUID1);
         uint256 bobShares = _depositAndWrap(bob, NETUID1, 10 * ALPHA);
 
@@ -75,11 +72,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
     function testFuzz_SharePrice_QuotesZeroAfterACompleteWriteOff(uint256 deposit) public {
         deposit = bound(deposit, ALPHA, MAX_SUBNET_ALPHA);
         _depositAndWrap(alice, NETUID1, deposit);
-        bytes32[] memory recorded = _hotkeys(hotkey1, hotkey2, hotkey3);
-        for (uint256 i; i < recorded.length; ++i) {
-            _sweepDuringCrash(NETUID1, recorded[i]);
-        }
-        _runOutRecoveryWindow(TOKEN1);
+        _writeOffTheWholeBacking();
 
         assertEq(lens.totalStake(TOKEN1), 0, "the scenario needs the whole backing written off");
         assertEq(lens.sharePrice(TOKEN1), 0);
@@ -648,7 +641,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
     {
         deposit = bound(deposit, ALPHA, MAX_SUBNET_ALPHA / 2);
         emissions = bound(emissions, 0, MAX_SUBNET_ALPHA / 2);
-        alpha = bound(alpha, 1, deposit);
+        alpha = bound(alpha, 1, _alphaTheWholeSupplyRedeems(deposit, emissions));
         uint256 supply = _depositAndWrap(alice, NETUID1, deposit);
         _simulateEmissions(NETUID1, emissions);
         uint256 plainShares = alpha * supply / (deposit + emissions);
@@ -664,7 +657,46 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         assertLt(oneShareUnitLess, alpha, "one share unit fewer falls short");
     }
 
-    function test_SharesToUnwrap_TheAlphaExitPaysTheAlphaAskedFor() public {
+    function testFuzz_RevertWhen_SharesToUnwrapAsksMoreAlphaThanTheSupplyRedeems(
+        uint256 deposit,
+        uint256 emissions,
+        uint256 excess
+    ) public {
+        deposit = bound(deposit, ALPHA, MAX_SUBNET_ALPHA / 2);
+        emissions = bound(emissions, 0, MAX_SUBNET_ALPHA / 2);
+        uint256 redeemable = _alphaTheWholeSupplyRedeems(deposit, emissions);
+        excess = bound(excess, 1, type(uint256).max - redeemable);
+        uint256 supply = _depositAndWrap(alice, NETUID1, deposit);
+        _simulateEmissions(NETUID1, emissions);
+
+        (uint256 shares,) = lens.sharesToUnwrap(TOKEN1, redeemable);
+        assertLe(shares, supply, "the supply covers what it redeems");
+        vm.expectRevert(InsufficientShares.selector);
+        lens.sharesToUnwrap(TOKEN1, redeemable + 1);
+        vm.expectRevert(InsufficientShares.selector);
+        lens.sharesToUnwrap(TOKEN1, redeemable + excess);
+    }
+
+    function testFuzz_SharesToUnwrap_TheAlphaExitPaysTheQuotedAlpha(uint256 deposit, uint256 emissions, uint256 alpha)
+        public
+    {
+        // 2 alpha per slot keeps an exit of 1% of the smallest backing above the 0.04-alpha floor.
+        deposit = bound(deposit, 6 * ALPHA, MAX_SUBNET_ALPHA / 2);
+        emissions = bound(emissions, 0, MAX_SUBNET_ALPHA / 2);
+        uint256 backing = deposit + emissions;
+        alpha = bound(alpha, backing / 100, backing * 99 / 100);
+        uint256 supply = _depositAndWrap(alice, NETUID1, deposit);
+        _simulateEmissions(NETUID1, emissions);
+
+        (uint256 shares, uint256 alphaOut) = lens.sharesToUnwrap(TOKEN1, alpha);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), alphaOut);
+
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), alpha, "the exit pays the alpha asked for");
+        assertEq(vault.balanceOf(alice, TOKEN1), supply - shares, "the exit burns the quoted shares");
+    }
+
+    function test_SharesToUnwrap_TheAlphaExitPaysTheQuotedAlpha() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
         _simulateEmissions(NETUID1, 6 * ALPHA);
 
@@ -676,6 +708,21 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 153 * ALPHA);
         assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 153 * ALPHA, "the exit honors the quote");
+    }
+
+    function test_SharesToUnwrap_ChainTransferRoundingPaysTheExitLessThanTheQuote() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        _simulateEmissions(NETUID1, 6 * ALPHA);
+        (uint256 shares,) = lens.sharesToUnwrap(TOKEN1, 153 * ALPHA);
+        MockStaking(STAKING_PRECOMPILE).setTransferStakeRoundingLoss(1);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(SlippageExceeded.selector, 153 * ALPHA - 1));
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 153 * ALPHA);
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 153 * ALPHA - 1);
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 153 * ALPHA - 1, "the quote less the RAO the chain rounded");
     }
 
     function test_SharesToUnwrap_AStrangerTransferLowersTheSharesAndKeepsTheAlpha() public {
@@ -692,13 +739,31 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         assertEq(alphaOut, 2 * ALPHA, "the same alpha");
     }
 
-    function test_SharesToUnwrap_QuotesAParkedPosition() public {
+    function test_SharesToUnwrap_AWrittenOffLossRaisesTheSharesForTheSameAlpha() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        _sweepDuringCrash(NETUID1, hotkey1);
+        _runOutRecoveryWindow(TOKEN1);
+        assertEq(lens.totalStake(TOKEN1), 199.98e9, "the scenario needs the swept third written off");
+
+        (uint256 shares, uint256 alphaOut) = lens.sharesToUnwrap(TOKEN1, 100 * ALPHA);
+        // 1e11 * (3e20 + 1e9) / (199.98e9 + 1), rounded up
+        assertEq(shares, 150_015_001_499_899_914_984, "shares");
+        assertEq(alphaOut, 100 * ALPHA, "alpha");
+        (uint256 oneShareUnitLess,) = lens.previewUnwrap(TOKEN1, shares - 1);
+        assertEq(oneShareUnitLess, 100 * ALPHA - 1, "one share unit fewer falls short");
+    }
+
+    function test_SharesToUnwrap_AParkedPositionsExitPaysTheQuotedAlpha() public {
         _parkedPosition(300 * ALPHA);
         assertTrue(vault.awaitingAttestation(TOKEN1), "the scenario needs a parked position");
 
         (uint256 shares, uint256 alphaOut) = lens.sharesToUnwrap(TOKEN1, ALPHA);
         assertEq(shares, 1e18, "shares");
         assertEq(alphaOut, ALPHA, "alpha");
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), ALPHA);
+        assertEq(_getStake(vault.parkingHotkey(), alice, NETUID1), ALPHA, "paid from the parking hotkey");
     }
 
     function test_SharesToUnwrap_QuotesNothingForZeroAlpha() public {
@@ -716,6 +781,8 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
 
         vm.expectRevert(InsufficientShares.selector);
         lens.sharesToUnwrap(TOKEN1, 300 * ALPHA + 1);
+        vm.expectRevert(InsufficientShares.selector);
+        lens.sharesToUnwrap(TOKEN1, type(uint256).max);
     }
 
     function test_RevertWhen_SharesToUnwrapHasNoSharesOutstanding() public {
@@ -725,11 +792,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
 
     function test_RevertWhen_SharesToUnwrapAfterACompleteWriteOff() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
-        bytes32[] memory recorded = _hotkeys(hotkey1, hotkey2, hotkey3);
-        for (uint256 i; i < recorded.length; ++i) {
-            _sweepDuringCrash(NETUID1, recorded[i]);
-        }
-        _runOutRecoveryWindow(TOKEN1);
+        _writeOffTheWholeBacking();
         assertEq(lens.totalStake(TOKEN1), 0, "the scenario needs the whole backing written off");
 
         vm.expectRevert(InsufficientShares.selector);
@@ -779,56 +842,69 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
     function test_PositionStatus_ReadsAnOpenPosition() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
 
-        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Registered, false, 0, false, true);
+        _assertStatus(TOKEN1, _openPositionStatus());
     }
 
     function test_PositionStatus_ReadsARegisteredSubnetBeforeItsCloneExists() public view {
         assertEq(vault.subnetClone(TOKEN2), address(0), "the scenario needs a position with no clone");
-        _assertStatus(TOKEN2, VaultReads.SubnetPhase.Registered, false, 0, false, true);
-    }
-
-    function test_PositionStatus_ReadsAnUnregisteredSubnetAsDissolved() public view {
-        _assertStatus(TOKEN_OF_AN_UNREGISTERED_SUBNET, VaultReads.SubnetPhase.Dissolved, false, 0, false, false);
+        _assertStatus(TOKEN2, _openPositionStatus());
     }
 
     function test_PositionStatus_ReportsAParkedPosition() public {
         _parkedPosition(300 * ALPHA);
 
-        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Registered, true, 0, false, true);
+        _assertStatus(TOKEN1, _parkedPositionStatus());
     }
 
     function test_PositionStatus_CarriesTheWriteOffDeadlineOfAShortfall() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
         _sweepDuringCrash(NETUID1, hotkey1);
-        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Registered, false, type(uint256).max, false, true);
+        AlphaVaultLens.PositionStatus memory expected = _openPositionStatus();
+        expected.writeOffDeadline = type(uint256).max;
+        _assertStatus(TOKEN1, expected);
 
         vault.syncBacking(TOKEN1);
-        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Registered, false, block.timestamp + RECOVERY_WINDOW, false, true);
+        _assertStatus(TOKEN1, _declaredShortfallStatus());
     }
 
     function test_PositionStatus_ReportsLockedBacking() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
         MockStaking(STAKING_PRECOMPILE).setLockedAlpha(_subnetColdkey(NETUID1), NETUID1, hotkey1, ALPHA);
 
-        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Registered, false, 0, true, true);
+        _assertStatus(TOKEN1, _lockedBackingStatus());
     }
 
     function test_PositionStatus_ReportsDisabledAlphaTransfers() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
         _setTransfersEnabled(NETUID1, false);
 
-        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Registered, false, 0, false, false);
+        AlphaVaultLens.PositionStatus memory expected = _openPositionStatus();
+        expected.alphaTransfersEnabled = false;
+        _assertStatus(TOKEN1, expected);
     }
 
-    function test_PositionStatus_AnswersThroughDissolution() public {
+    function test_PositionStatus_ReportsOnlyThePhaseOfAParkedPositionThroughDissolution() public {
+        _parkedPosition(300 * ALPHA);
+        _assertStatus(TOKEN1, _parkedPositionStatus());
+
+        _assertOnlyThePhaseIsReportedThroughDissolution();
+    }
+
+    function test_PositionStatus_ReportsOnlyThePhaseOfADeclaredShortfallThroughDissolution() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        _sweepDuringCrash(NETUID1, hotkey1);
+        vault.syncBacking(TOKEN1);
+        _assertStatus(TOKEN1, _declaredShortfallStatus());
 
-        _simulateDissolutionStarted(NETUID1);
-        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Dissolving, false, 0, false, false);
+        _assertOnlyThePhaseIsReportedThroughDissolution();
+    }
 
-        _simulateTaoAwardedOnDissolution(TOKEN1, 5 * TAO);
-        _simulateDissolutionCompleted(NETUID1);
-        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Dissolved, false, 0, false, false);
+    function test_PositionStatus_ReportsOnlyThePhaseOfLockedBackingThroughDissolution() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        MockStaking(STAKING_PRECOMPILE).setLockedAlpha(_subnetColdkey(NETUID1), NETUID1, hotkey1, ALPHA);
+        _assertStatus(TOKEN1, _lockedBackingStatus());
+
+        _assertOnlyThePhaseIsReportedThroughDissolution();
     }
 
     function test_PositionStatus_TellsAReplacedGenerationFromItsSuccessor() public {
@@ -836,27 +912,86 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         _simulateNewNetworkRegistered(TOKEN1, 5 * TAO);
         uint256 successor = vault.currentTokenId(NETUID1);
 
-        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Dissolved, false, 0, false, false);
-        _assertStatus(successor, VaultReads.SubnetPhase.Registered, false, 0, false, true);
+        _assertOnlyThePhaseIsReported(TOKEN1, VaultReads.SubnetPhase.Dissolved);
+        _assertStatus(successor, _openPositionStatus());
 
         _simulateDissolutionStarted(NETUID1);
-        _assertStatus(TOKEN1, VaultReads.SubnetPhase.Dissolved, false, 0, false, false);
-        _assertStatus(successor, VaultReads.SubnetPhase.Dissolving, false, 0, false, false);
+        _assertOnlyThePhaseIsReported(TOKEN1, VaultReads.SubnetPhase.Dissolved);
+        _assertOnlyThePhaseIsReported(successor, VaultReads.SubnetPhase.Dissolving);
     }
 
-    function _assertStatus(
-        uint256 tokenId,
-        VaultReads.SubnetPhase subnetPhase,
-        bool awaitingAttestation,
-        uint256 writeOffDeadline,
-        bool backingLocked,
-        bool alphaTransfersEnabled
-    ) private view {
+    function testFuzz_PositionStatus_ReadsAnUnregisteredSubnetAsDissolved(uint256 netuid) public view {
+        netuid = bound(netuid, NETUID2 + 1, type(uint16).max);
+
+        _assertOnlyThePhaseIsReported(netuid, VaultReads.SubnetPhase.Dissolved);
+    }
+
+    function testFuzz_PositionStatus_ReadsATokenOfAnotherGenerationAsDissolved(
+        uint256 netuid,
+        uint256 generation,
+        bool dissolving
+    ) public {
+        netuid = bound(netuid, 0, type(uint16).max);
+        generation = bound(generation, 1, type(uint64).max);
+        _setDissolving(netuid, dissolving);
+
+        _assertOnlyThePhaseIsReported(netuid + generation * 65_536, VaultReads.SubnetPhase.Dissolved);
+    }
+
+    // deposit * 1e9 shares on deposit + emissions RAO: the 1e9 cancels out of supply * (stake + 1) / (supply + 1e9).
+    function _alphaTheWholeSupplyRedeems(uint256 deposit, uint256 emissions) private pure returns (uint256) {
+        return deposit * (deposit + emissions + 1) / (deposit + 1);
+    }
+
+    function _writeOffTheWholeBacking() private {
+        bytes32[] memory recorded = _hotkeys(hotkey1, hotkey2, hotkey3);
+        for (uint256 i; i < recorded.length; ++i) {
+            _sweepDuringCrash(NETUID1, recorded[i]);
+        }
+        _runOutRecoveryWindow(TOKEN1);
+    }
+
+    function _openPositionStatus() private pure returns (AlphaVaultLens.PositionStatus memory status) {
+        status.subnetPhase = VaultReads.SubnetPhase.Registered;
+        status.alphaTransfersEnabled = true;
+    }
+
+    function _parkedPositionStatus() private pure returns (AlphaVaultLens.PositionStatus memory status) {
+        status = _openPositionStatus();
+        status.awaitingAttestation = true;
+    }
+
+    function _declaredShortfallStatus() private view returns (AlphaVaultLens.PositionStatus memory status) {
+        status = _openPositionStatus();
+        status.writeOffDeadline = block.timestamp + RECOVERY_WINDOW;
+    }
+
+    function _lockedBackingStatus() private pure returns (AlphaVaultLens.PositionStatus memory status) {
+        status = _openPositionStatus();
+        status.backingLocked = true;
+    }
+
+    function _assertOnlyThePhaseIsReportedThroughDissolution() private {
+        _simulateDissolutionStarted(NETUID1);
+        _assertOnlyThePhaseIsReported(TOKEN1, VaultReads.SubnetPhase.Dissolving);
+
+        _simulateTaoAwardedOnDissolution(TOKEN1, 5 * TAO);
+        _simulateDissolutionCompleted(NETUID1);
+        _assertOnlyThePhaseIsReported(TOKEN1, VaultReads.SubnetPhase.Dissolved);
+    }
+
+    function _assertOnlyThePhaseIsReported(uint256 tokenId, VaultReads.SubnetPhase subnetPhase) private view {
+        AlphaVaultLens.PositionStatus memory expected;
+        expected.subnetPhase = subnetPhase;
+        _assertStatus(tokenId, expected);
+    }
+
+    function _assertStatus(uint256 tokenId, AlphaVaultLens.PositionStatus memory expected) private view {
         AlphaVaultLens.PositionStatus memory status = lens.positionStatus(tokenId);
-        assertEq(uint8(status.subnetPhase), uint8(subnetPhase), "subnet phase");
-        assertEq(status.awaitingAttestation, awaitingAttestation, "awaiting attestation");
-        assertEq(status.writeOffDeadline, writeOffDeadline, "write-off deadline");
-        assertEq(status.backingLocked, backingLocked, "locked backing");
-        assertEq(status.alphaTransfersEnabled, alphaTransfersEnabled, "alpha transfers enabled");
+        assertEq(uint8(status.subnetPhase), uint8(expected.subnetPhase), "subnet phase");
+        assertEq(status.awaitingAttestation, expected.awaitingAttestation, "awaiting attestation");
+        assertEq(status.writeOffDeadline, expected.writeOffDeadline, "write-off deadline");
+        assertEq(status.backingLocked, expected.backingLocked, "locked backing");
+        assertEq(status.alphaTransfersEnabled, expected.alphaTransfersEnabled, "alpha transfers enabled");
     }
 }

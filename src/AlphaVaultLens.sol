@@ -24,7 +24,7 @@ contract AlphaVaultLens {
         VaultReads.Backing backing;
     }
 
-    /// @dev `backingLocked` and `alphaTransfersEnabled` are read while the subnet is registered.
+    /// @dev The fields after `subnetPhase` are read while the subnet is registered.
     struct PositionStatus {
         VaultReads.SubnetPhase subnetPhase;
         bool awaitingAttestation;
@@ -101,10 +101,10 @@ contract AlphaVaultLens {
     /// @notice Position state in one read that answers in every subnet phase.
     function positionStatus(uint256 tokenId) external view returns (PositionStatus memory status) {
         status.subnetPhase = VaultReads.subnetPhaseOf(tokenId);
-        status.awaitingAttestation = vault.awaitingAttestation(tokenId);
-        status.writeOffDeadline = writeOffDeadline(tokenId);
         if (status.subnetPhase != VaultReads.SubnetPhase.Registered) return status;
 
+        status.awaitingAttestation = vault.awaitingAttestation(tokenId);
+        status.writeOffDeadline = writeOffDeadline(tokenId);
         uint16 netuid = VaultMath.netuidOf(tokenId); address clone = vault.subnetClone(tokenId);
         status.backingLocked = clone != address(0) && VaultReads.lockedAlphaOf(VaultReads.coldkeyOf(clone), netuid) != 0;
         status.alphaTransfersEnabled = VaultReads.transfersEnabled(netuid);
@@ -162,8 +162,8 @@ contract AlphaVaultLens {
     function sharesToUnwrap(uint256 tokenId, uint256 alpha) external view returns (uint256 shares, uint256 alphaOut) {
         _requireCurrentRegistration(tokenId);
         uint256 stake = totalStake(tokenId); uint256 supply = vault.totalSupply(tokenId);
+        if (alpha > VaultMath.assetsFor(stake, supply, supply)) revert InsufficientShares();
         shares = VaultMath.sharesToRedeem(stake, supply, alpha);
-        if (shares > supply) revert InsufficientShares();
         alphaOut = VaultMath.assetsFor(stake, supply, shares);
     }
 

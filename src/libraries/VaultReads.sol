@@ -77,25 +77,24 @@ library VaultReads {
         registered = subnet.getNetworkRegistrationBlock(netuid) != 0; dissolving = subnet.isSubnetDissolving(netuid);
     }
 
-    /// @dev Whether the token's generation is gone; reverts while it is still being cleaned up.
-    function isDissolved(uint256 tokenId) internal view returns (bool) {
-        (bool ownGeneration, bool registered, bool dissolving) = _subnetState(tokenId);
-        if (ownGeneration && dissolving) revert SubnetInDissolutionBlackoutPeriod();
-        return !ownGeneration || !registered;
-    }
-
-    /// @dev Alpha balances are in flux from the start of dissolution on.
-    function isDissolvingOrDissolved(uint256 tokenId) internal view returns (bool) {
-        (bool ownGeneration, bool registered, bool dissolving) = _subnetState(tokenId);
-        return dissolving || !ownGeneration || !registered;
-    }
-
     enum SubnetPhase { Registered, Dissolving, Dissolved }
 
     function subnetPhaseOf(uint256 tokenId) internal view returns (SubnetPhase) {
         (bool ownGeneration, bool registered, bool dissolving) = _subnetState(tokenId);
         if (ownGeneration && dissolving) return SubnetPhase.Dissolving;
         return ownGeneration && registered ? SubnetPhase.Registered : SubnetPhase.Dissolved;
+    }
+
+    /// @dev Whether the token's generation is gone; reverts while it is still being cleaned up.
+    function isDissolved(uint256 tokenId) internal view returns (bool) {
+        SubnetPhase phase = subnetPhaseOf(tokenId);
+        if (phase == SubnetPhase.Dissolving) revert SubnetInDissolutionBlackoutPeriod();
+        return phase == SubnetPhase.Dissolved;
+    }
+
+    /// @dev Alpha balances are in flux from the start of dissolution on.
+    function isDissolvingOrDissolved(uint256 tokenId) internal view returns (bool) {
+        return subnetPhaseOf(tokenId) != SubnetPhase.Registered;
     }
 
     function isDissolving(uint16 netuid) internal view returns (bool) {
