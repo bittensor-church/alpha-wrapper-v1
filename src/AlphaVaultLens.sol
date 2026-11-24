@@ -6,7 +6,7 @@ import { VaultAllocation } from "./libraries/VaultAllocation.sol";
 import { VaultMath } from "./libraries/VaultMath.sol";
 import { VaultReads } from "./libraries/VaultReads.sol";
 import {
-    LockedBacking, NoSharesOutstanding, Parked,
+    InsufficientShares, LockedBacking, NoSharesOutstanding, Parked,
     SharePriceBelowPrecision, ShortfallOnFile,
     SubnetDissolved, ZeroAddress
 } from "./VaultErrors.sol";
@@ -134,6 +134,15 @@ contract AlphaVaultLens {
         _requireCurrentRegistration(tokenId);
         if (vault.awaitingAttestation(tokenId)) revert Parked();
         return VaultMath.sharesFor(totalStake(tokenId), vault.totalSupply(tokenId), assets);
+    }
+
+    /// @notice Smallest number of shares to unwrap to receive at least `alpha` RAO.
+    /// @dev Reverts `InsufficientShares` when all shares together are worth less than `alpha`.
+    function sharesForAlpha(uint256 tokenId, uint256 alpha) external view returns (uint256) {
+        _requireCurrentRegistration(tokenId);
+        uint256 stake = totalStake(tokenId); uint256 supply = vault.totalSupply(tokenId);
+        if (alpha > VaultMath.assetsFor(stake, supply, supply)) revert InsufficientShares();
+        return VaultMath.sharesForRoundedUp(stake, supply, alpha);
     }
 
     /// @notice Estimated exit payout: live alpha RAO or dissolved TAO wei.

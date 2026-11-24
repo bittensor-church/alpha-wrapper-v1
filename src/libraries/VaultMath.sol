@@ -25,6 +25,10 @@ library VaultMath {
         return Math.mulDiv(shares, stake + VIRTUAL_ASSETS, supply + VIRTUAL_SHARES);
     }
 
+    function sharesForRoundedUp(uint256 stake, uint256 supply, uint256 assets) internal pure returns (uint256) {
+        return Math.mulDiv(assets, supply + VIRTUAL_SHARES, stake + VIRTUAL_ASSETS, Math.Rounding.Ceil);
+    }
+
     function sumBalances(uint256[] memory balances) internal pure returns (uint256 total) {
         for (uint256 i; i < balances.length;) { total += balances[i]; unchecked { ++i; } }
     }

@@ -8,11 +8,13 @@ import { AlphaVaultLens } from "src/AlphaVaultLens.sol";
 import {
     AlphaTransfersDisabled,
     BackingShortfall,
+    InsufficientShares,
     LockedBacking,
     NoSharesOutstanding,
     Parked,
     SharePriceBelowPrecision,
     ShortfallOnFile,
+    SlippageExceeded,
     SubnetDissolved,
     SubnetInDissolutionBlackoutPeriod,
     ZeroAddress
@@ -55,11 +57,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
 
     function test_SharePrice_RefusesToQuoteBelowItsPrecision() public {
         _depositAndWrap(alice, NETUID1, 10 * ALPHA);
-        bytes32[] memory recorded = _hotkeys(hotkey1, hotkey2, hotkey3);
-        for (uint256 i; i < recorded.length; ++i) {
-            _sweepDuringCrash(NETUID1, recorded[i]);
-        }
-        _runOutRecoveryWindow(TOKEN1);
+        _writeOffTheWholeBacking();
         _reattestValidators(NETUID1);
         uint256 bobShares = _depositAndWrap(bob, NETUID1, 10 * ALPHA);
 
@@ -74,11 +72,7 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
     function testFuzz_SharePrice_QuotesZeroAfterACompleteWriteOff(uint256 deposit) public {
         deposit = bound(deposit, ALPHA, MAX_SUBNET_ALPHA);
         _depositAndWrap(alice, NETUID1, deposit);
-        bytes32[] memory recorded = _hotkeys(hotkey1, hotkey2, hotkey3);
-        for (uint256 i; i < recorded.length; ++i) {
-            _sweepDuringCrash(NETUID1, recorded[i]);
-        }
-        _runOutRecoveryWindow(TOKEN1);
+        _writeOffTheWholeBacking();
 
         assertEq(lens.totalStake(TOKEN1), 0, "the scenario needs the whole backing written off");
         assertEq(lens.sharePrice(TOKEN1), 0);
@@ -640,5 +634,230 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         assertEq(_totalVaultStakeAcrossHotkeys(NETUID1), 35 * ALPHA, "totalStake tracks live stake");
         // 1e18 * (3.5e10 + 1) / (3e19 + 1e9), floored.
         assertEq(lens.sharePrice(TOKEN1), 1_166_666_666, "sharePrice rises with emissions");
+    }
+
+    function testFuzz_SharesForAlpha_AreTheFewestThatRedeemTheAlpha(uint256 deposit, uint256 emissions, uint256 alpha)
+        public
+    {
+        deposit = bound(deposit, ALPHA, MAX_SUBNET_ALPHA / 2);
+        emissions = bound(emissions, 0, MAX_SUBNET_ALPHA / 2);
+        alpha = bound(alpha, 1, _alphaTheWholeSupplyRedeems(deposit, emissions));
+        uint256 supply = _depositAndWrap(alice, NETUID1, deposit);
+        _simulateEmissions(NETUID1, emissions);
+        uint256 plainShares = alpha * supply / (deposit + emissions);
+
+        uint256 shares = lens.sharesForAlpha(TOKEN1, alpha);
+
+        assertGe(shares, plainShares, "never below the plain pro-rata shares");
+        assertLe(shares, plainShares + 1e9 + 1, "at most the shares of one RAO above them, plus one");
+        (uint256 quoted,) = lens.previewUnwrap(TOKEN1, shares);
+        assertEq(quoted, alpha, "a share unit is worth under one RAO, so the shares redeem the alpha exactly");
+        (uint256 oneShareUnitLess,) = lens.previewUnwrap(TOKEN1, shares - 1);
+        assertLt(oneShareUnitLess, alpha, "one share unit fewer falls short");
+    }
+
+    function testFuzz_RevertWhen_SharesForMoreAlphaThanTheSupplyRedeems(
+        uint256 deposit,
+        uint256 emissions,
+        uint256 excess
+    ) public {
+        deposit = bound(deposit, ALPHA, MAX_SUBNET_ALPHA / 2);
+        emissions = bound(emissions, 0, MAX_SUBNET_ALPHA / 2);
+        uint256 redeemable = _alphaTheWholeSupplyRedeems(deposit, emissions);
+        excess = bound(excess, 1, type(uint256).max - redeemable);
+        uint256 supply = _depositAndWrap(alice, NETUID1, deposit);
+        _simulateEmissions(NETUID1, emissions);
+
+        assertLe(lens.sharesForAlpha(TOKEN1, redeemable), supply, "the supply covers what it redeems");
+        vm.expectRevert(InsufficientShares.selector);
+        lens.sharesForAlpha(TOKEN1, redeemable + 1);
+        vm.expectRevert(InsufficientShares.selector);
+        lens.sharesForAlpha(TOKEN1, redeemable + excess);
+    }
+
+    function testFuzz_SharesForAlpha_TheAlphaExitPaysTheAlpha(uint256 deposit, uint256 emissions, uint256 alpha)
+        public
+    {
+        deposit = bound(deposit, ALPHA, MAX_SUBNET_ALPHA / 2);
+        emissions = bound(emissions, 0, MAX_SUBNET_ALPHA / 2);
+        alpha = bound(alpha, ALPHA_FLOOR, _alphaTheWholeSupplyRedeems(deposit, emissions));
+        uint256 supply = _depositAndWrap(alice, NETUID1, deposit);
+        _simulateEmissions(NETUID1, emissions);
+
+        uint256 shares = lens.sharesForAlpha(TOKEN1, alpha);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), alpha);
+
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), alpha, "the exit pays the alpha asked for");
+        assertEq(vault.balanceOf(alice, TOKEN1), supply - shares, "the exit burns the quoted shares");
+    }
+
+    function test_SharesForAlpha_TheAlphaExitPaysTheAlpha() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        _simulateEmissions(NETUID1, 6 * ALPHA);
+
+        uint256 shares = lens.sharesForAlpha(TOKEN1, 153 * ALPHA);
+        // 1.53e11 * (3e20 + 1e9) / (306e9 + 1), rounded up
+        assertEq(shares, 150_000_000_000_009_803_922, "shares");
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 153 * ALPHA);
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 153 * ALPHA, "the exit pays the alpha asked for");
+    }
+
+    function test_SharesForAlpha_ChainTransferRoundingPaysTheExitLessThanTheAlpha() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        _simulateEmissions(NETUID1, 6 * ALPHA);
+        uint256 shares = lens.sharesForAlpha(TOKEN1, 153 * ALPHA);
+        MockStaking(STAKING_PRECOMPILE).setTransferStakeRoundingLoss(1);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(SlippageExceeded.selector, 153 * ALPHA - 1));
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 153 * ALPHA);
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 153 * ALPHA - 1);
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 153 * ALPHA - 1, "the alpha less the RAO the chain rounded");
+    }
+
+    function test_SharesForAlpha_AStrangerTransferLowersTheSharesForTheSameAlpha() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        assertEq(lens.sharesForAlpha(TOKEN1, 2 * ALPHA), 2e18, "a billion shares per RAO at the initial rate");
+
+        _strangerTransfer(hotkey1, _subnetColdkey(NETUID1), NETUID1, 300 * ALPHA);
+
+        // 2e9 * (3e20 + 1e9) / (600e9 + 1), rounded up
+        assertEq(
+            lens.sharesForAlpha(TOKEN1, 2 * ALPHA),
+            1_000_000_000_001_666_667,
+            "half the shares once the backing doubles"
+        );
+    }
+
+    function test_SharesForAlpha_AWrittenOffLossRaisesTheSharesForTheSameAlpha() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        _sweepDuringCrash(NETUID1, hotkey1);
+        _runOutRecoveryWindow(TOKEN1);
+        assertEq(lens.totalStake(TOKEN1), 199.98e9, "the scenario needs the swept third written off");
+
+        uint256 shares = lens.sharesForAlpha(TOKEN1, 100 * ALPHA);
+        // 1e11 * (3e20 + 1e9) / (199.98e9 + 1), rounded up
+        assertEq(shares, 150_015_001_499_899_914_984, "shares");
+        (uint256 oneShareUnitLess,) = lens.previewUnwrap(TOKEN1, shares - 1);
+        assertEq(oneShareUnitLess, 100 * ALPHA - 1, "one share unit fewer falls short");
+    }
+
+    function test_SharesForAlpha_RedeemMoreThanTheAlphaOnceAShareUnitIsWorthOverOneRao() public {
+        uint256 supply = _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, supply - 1e9, _toSubstrate(alice), 0);
+        assertEq(_getVaultStake(hotkey3, NETUID1), 1, "the scenario needs the exit's last RAO to keep hotkey3 listed");
+        _strangerTransfer(hotkey3, _subnetColdkey(NETUID1), NETUID1, 300 * ALPHA);
+
+        uint256 shares = lens.sharesForAlpha(TOKEN1, 100 * ALPHA);
+        // 1e11 * (1e9 + 1e9) / (300e9 + 2), rounded up; each share unit is worth 150 RAO
+        assertEq(shares, 666_666_667, "shares");
+        (uint256 oneShareUnitLess,) = lens.previewUnwrap(TOKEN1, shares - 1);
+        assertEq(oneShareUnitLess, 100 * ALPHA - 100, "one share unit fewer falls short");
+
+        uint256 paidBefore = _userStakeAcrossHotkeys(alice, NETUID1);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 100 * ALPHA);
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1) - paidBefore, 100 * ALPHA + 50, "the exit pays 50 RAO over");
+    }
+
+    function test_SharesForAlpha_AParkedPositionsExitPaysTheAlpha() public {
+        _parkedPosition(300 * ALPHA);
+        assertTrue(vault.awaitingAttestation(TOKEN1), "the scenario needs a parked position");
+
+        uint256 shares = lens.sharesForAlpha(TOKEN1, ALPHA);
+        assertEq(shares, 1e18, "shares");
+
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), ALPHA);
+        assertEq(_getStake(vault.parkingHotkey(), alice, NETUID1), ALPHA, "paid from the parking hotkey");
+    }
+
+    function test_SharesForAlpha_AreZeroForZeroAlpha() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+
+        assertEq(lens.sharesForAlpha(TOKEN1, 0), 0);
+    }
+
+    function test_RevertWhen_SharesForMoreAlphaThanTheSupplyRedeems() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        assertEq(lens.sharesForAlpha(TOKEN1, 300 * ALPHA), 300e18, "the whole backing takes the whole supply");
+
+        vm.expectRevert(InsufficientShares.selector);
+        lens.sharesForAlpha(TOKEN1, 300 * ALPHA + 1);
+        vm.expectRevert(InsufficientShares.selector);
+        lens.sharesForAlpha(TOKEN1, type(uint256).max);
+    }
+
+    function test_RevertWhen_SharesForAlphaHasNoSharesOutstanding() public {
+        vm.expectRevert(InsufficientShares.selector);
+        lens.sharesForAlpha(TOKEN1, 1);
+    }
+
+    function test_RevertWhen_SharesForAlphaAfterACompleteWriteOff() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        _writeOffTheWholeBacking();
+        assertEq(lens.totalStake(TOKEN1), 0, "the scenario needs the whole backing written off");
+
+        vm.expectRevert(InsufficientShares.selector);
+        lens.sharesForAlpha(TOKEN1, 1);
+    }
+
+    function test_RevertWhen_SharesForAlphaMeetsMissingBacking() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        _sweepDuringCrash(NETUID1, hotkey1);
+
+        vm.expectRevert(abi.encodeWithSelector(BackingShortfall.selector, uint16(NETUID1), hotkey1, 100.02e9));
+        lens.sharesForAlpha(TOKEN1, ALPHA);
+
+        vault.syncBacking(TOKEN1);
+        vm.expectRevert(ShortfallOnFile.selector);
+        lens.sharesForAlpha(TOKEN1, ALPHA);
+    }
+
+    function test_RevertWhen_SharesForAlphaMeetsLockedBacking() public {
+        _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        MockStaking(STAKING_PRECOMPILE).setLockedAlpha(_subnetColdkey(NETUID1), NETUID1, hotkey1, ALPHA);
+
+        vm.expectRevert(LockedBacking.selector);
+        lens.sharesForAlpha(TOKEN1, ALPHA);
+    }
+
+    function test_RevertWhen_SharesForAlphaOnADissolvedTokenId() public {
+        _depositAndWrap(alice, NETUID1, 100 * ALPHA);
+
+        _simulateDissolutionStarted(NETUID1);
+        _simulateTaoAwardedOnDissolution(TOKEN1, 5 * TAO);
+        _simulateDissolutionCompleted(NETUID1);
+
+        vm.expectRevert(SubnetDissolved.selector);
+        lens.sharesForAlpha(TOKEN1, ALPHA);
+    }
+
+    function test_RevertWhen_SharesForAlphaInBlackoutOfCurrentRegistration() public {
+        _depositAndWrap(alice, NETUID1, 10 * ALPHA);
+
+        _simulateDissolutionStarted(NETUID1);
+
+        vm.expectRevert(SubnetInDissolutionBlackoutPeriod.selector);
+        lens.sharesForAlpha(TOKEN1, ALPHA);
+    }
+
+    function _alphaTheWholeSupplyRedeems(uint256 deposit, uint256 emissions) private pure returns (uint256) {
+        uint256 supply = deposit * 1e9;
+        return supply * (deposit + emissions + 1) / (supply + 1e9);
+    }
+
+    function _writeOffTheWholeBacking() private {
+        bytes32[] memory recorded = _hotkeys(hotkey1, hotkey2, hotkey3);
+        for (uint256 i; i < recorded.length; ++i) {
+            _sweepDuringCrash(NETUID1, recorded[i]);
+        }
+        _runOutRecoveryWindow(TOKEN1);
     }
 }
