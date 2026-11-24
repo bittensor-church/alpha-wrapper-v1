@@ -646,13 +646,12 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         _simulateEmissions(NETUID1, emissions);
         uint256 plainShares = alpha * supply / (deposit + emissions);
 
-        (uint256 shares, uint256 alphaOut) = lens.sharesForAlpha(TOKEN1, alpha);
+        uint256 shares = lens.sharesForAlpha(TOKEN1, alpha);
 
-        assertEq(alphaOut, alpha, "a share unit is worth under one RAO, so the alpha is met exactly");
         assertGe(shares, plainShares, "never below the plain pro-rata shares");
         assertLe(shares, plainShares + 1e9 + 1, "at most the shares of one RAO above them, plus one");
         (uint256 quoted,) = lens.previewUnwrap(TOKEN1, shares);
-        assertEq(quoted, alphaOut, "the exit quote of those shares");
+        assertEq(quoted, alpha, "a share unit is worth under one RAO, so the shares redeem the alpha exactly");
         (uint256 oneShareUnitLess,) = lens.previewUnwrap(TOKEN1, shares - 1);
         assertLt(oneShareUnitLess, alpha, "one share unit fewer falls short");
     }
@@ -669,51 +668,47 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         uint256 supply = _depositAndWrap(alice, NETUID1, deposit);
         _simulateEmissions(NETUID1, emissions);
 
-        (uint256 shares,) = lens.sharesForAlpha(TOKEN1, redeemable);
-        assertLe(shares, supply, "the supply covers what it redeems");
+        assertLe(lens.sharesForAlpha(TOKEN1, redeemable), supply, "the supply covers what it redeems");
         vm.expectRevert(InsufficientShares.selector);
         lens.sharesForAlpha(TOKEN1, redeemable + 1);
         vm.expectRevert(InsufficientShares.selector);
         lens.sharesForAlpha(TOKEN1, redeemable + excess);
     }
 
-    function testFuzz_SharesForAlpha_TheAlphaExitPaysTheQuotedAlpha(uint256 deposit, uint256 emissions, uint256 alpha)
+    function testFuzz_SharesForAlpha_TheAlphaExitPaysTheAlpha(uint256 deposit, uint256 emissions, uint256 alpha)
         public
     {
-        // 2 alpha per slot keeps an exit of 1% of the smallest backing above the 0.04-alpha floor.
-        deposit = bound(deposit, 6 * ALPHA, MAX_SUBNET_ALPHA / 2);
+        deposit = bound(deposit, ALPHA, MAX_SUBNET_ALPHA / 2);
         emissions = bound(emissions, 0, MAX_SUBNET_ALPHA / 2);
-        uint256 backing = deposit + emissions;
-        alpha = bound(alpha, backing / 100, backing * 99 / 100);
+        alpha = bound(alpha, ALPHA_FLOOR, _alphaTheWholeSupplyRedeems(deposit, emissions));
         uint256 supply = _depositAndWrap(alice, NETUID1, deposit);
         _simulateEmissions(NETUID1, emissions);
 
-        (uint256 shares, uint256 alphaOut) = lens.sharesForAlpha(TOKEN1, alpha);
+        uint256 shares = lens.sharesForAlpha(TOKEN1, alpha);
         vm.prank(alice);
-        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), alphaOut);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), alpha);
 
         assertEq(_userStakeAcrossHotkeys(alice, NETUID1), alpha, "the exit pays the alpha asked for");
         assertEq(vault.balanceOf(alice, TOKEN1), supply - shares, "the exit burns the quoted shares");
     }
 
-    function test_SharesForAlpha_TheAlphaExitPaysTheQuotedAlpha() public {
+    function test_SharesForAlpha_TheAlphaExitPaysTheAlpha() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
         _simulateEmissions(NETUID1, 6 * ALPHA);
 
-        (uint256 shares, uint256 alphaOut) = lens.sharesForAlpha(TOKEN1, 153 * ALPHA);
+        uint256 shares = lens.sharesForAlpha(TOKEN1, 153 * ALPHA);
         // 1.53e11 * (3e20 + 1e9) / (306e9 + 1), rounded up
         assertEq(shares, 150_000_000_000_009_803_922, "shares");
-        assertEq(alphaOut, 153 * ALPHA, "alpha");
 
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 153 * ALPHA);
-        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 153 * ALPHA, "the exit honors the quote");
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 153 * ALPHA, "the exit pays the alpha asked for");
     }
 
-    function test_SharesForAlpha_ChainTransferRoundingPaysTheExitLessThanTheQuote() public {
+    function test_SharesForAlpha_ChainTransferRoundingPaysTheExitLessThanTheAlpha() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
         _simulateEmissions(NETUID1, 6 * ALPHA);
-        (uint256 shares,) = lens.sharesForAlpha(TOKEN1, 153 * ALPHA);
+        uint256 shares = lens.sharesForAlpha(TOKEN1, 153 * ALPHA);
         MockStaking(STAKING_PRECOMPILE).setTransferStakeRoundingLoss(1);
 
         vm.prank(alice);
@@ -722,21 +717,21 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
 
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 153 * ALPHA - 1);
-        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 153 * ALPHA - 1, "the quote less the RAO the chain rounded");
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1), 153 * ALPHA - 1, "the alpha less the RAO the chain rounded");
     }
 
-    function test_SharesForAlpha_AStrangerTransferLowersTheSharesAndKeepsTheAlpha() public {
+    function test_SharesForAlpha_AStrangerTransferLowersTheSharesForTheSameAlpha() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
-        (uint256 shares, uint256 alphaOut) = lens.sharesForAlpha(TOKEN1, 2 * ALPHA);
-        assertEq(shares, 2e18, "a billion shares per RAO at the initial rate");
-        assertEq(alphaOut, 2 * ALPHA, "alpha at the initial rate");
+        assertEq(lens.sharesForAlpha(TOKEN1, 2 * ALPHA), 2e18, "a billion shares per RAO at the initial rate");
 
         _strangerTransfer(hotkey1, _subnetColdkey(NETUID1), NETUID1, 300 * ALPHA);
 
-        (shares, alphaOut) = lens.sharesForAlpha(TOKEN1, 2 * ALPHA);
         // 2e9 * (3e20 + 1e9) / (600e9 + 1), rounded up
-        assertEq(shares, 1_000_000_000_001_666_667, "half the shares once the backing doubles");
-        assertEq(alphaOut, 2 * ALPHA, "the same alpha");
+        assertEq(
+            lens.sharesForAlpha(TOKEN1, 2 * ALPHA),
+            1_000_000_000_001_666_667,
+            "half the shares once the backing doubles"
+        );
     }
 
     function test_SharesForAlpha_AWrittenOffLossRaisesTheSharesForTheSameAlpha() public {
@@ -745,39 +740,53 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         _runOutRecoveryWindow(TOKEN1);
         assertEq(lens.totalStake(TOKEN1), 199.98e9, "the scenario needs the swept third written off");
 
-        (uint256 shares, uint256 alphaOut) = lens.sharesForAlpha(TOKEN1, 100 * ALPHA);
+        uint256 shares = lens.sharesForAlpha(TOKEN1, 100 * ALPHA);
         // 1e11 * (3e20 + 1e9) / (199.98e9 + 1), rounded up
         assertEq(shares, 150_015_001_499_899_914_984, "shares");
-        assertEq(alphaOut, 100 * ALPHA, "alpha");
         (uint256 oneShareUnitLess,) = lens.previewUnwrap(TOKEN1, shares - 1);
         assertEq(oneShareUnitLess, 100 * ALPHA - 1, "one share unit fewer falls short");
     }
 
-    function test_SharesForAlpha_AParkedPositionsExitPaysTheQuotedAlpha() public {
+    function test_SharesForAlpha_RedeemMoreThanTheAlphaOnceAShareUnitIsWorthOverOneRao() public {
+        uint256 supply = _depositAndWrap(alice, NETUID1, 300 * ALPHA);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, supply - 1e9, _toSubstrate(alice), 0);
+        assertEq(_getVaultStake(hotkey3, NETUID1), 1, "the scenario needs the exit's last RAO to keep hotkey3 listed");
+        _strangerTransfer(hotkey3, _subnetColdkey(NETUID1), NETUID1, 300 * ALPHA);
+
+        uint256 shares = lens.sharesForAlpha(TOKEN1, 100 * ALPHA);
+        // 1e11 * (1e9 + 1e9) / (300e9 + 2), rounded up; each share unit is worth 150 RAO
+        assertEq(shares, 666_666_667, "shares");
+        (uint256 oneShareUnitLess,) = lens.previewUnwrap(TOKEN1, shares - 1);
+        assertEq(oneShareUnitLess, 100 * ALPHA - 100, "one share unit fewer falls short");
+
+        uint256 paidBefore = _userStakeAcrossHotkeys(alice, NETUID1);
+        vm.prank(alice);
+        vault.unwrap(TOKEN1, shares, _toSubstrate(alice), 100 * ALPHA);
+        assertEq(_userStakeAcrossHotkeys(alice, NETUID1) - paidBefore, 100 * ALPHA + 50, "the exit pays 50 RAO over");
+    }
+
+    function test_SharesForAlpha_AParkedPositionsExitPaysTheAlpha() public {
         _parkedPosition(300 * ALPHA);
         assertTrue(vault.awaitingAttestation(TOKEN1), "the scenario needs a parked position");
 
-        (uint256 shares, uint256 alphaOut) = lens.sharesForAlpha(TOKEN1, ALPHA);
+        uint256 shares = lens.sharesForAlpha(TOKEN1, ALPHA);
         assertEq(shares, 1e18, "shares");
-        assertEq(alphaOut, ALPHA, "alpha");
 
         vm.prank(alice);
         vault.unwrap(TOKEN1, shares, _toSubstrate(alice), ALPHA);
         assertEq(_getStake(vault.parkingHotkey(), alice, NETUID1), ALPHA, "paid from the parking hotkey");
     }
 
-    function test_SharesForAlpha_QuotesNothingForZeroAlpha() public {
+    function test_SharesForAlpha_AreZeroForZeroAlpha() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
 
-        (uint256 shares, uint256 alphaOut) = lens.sharesForAlpha(TOKEN1, 0);
-        assertEq(shares, 0, "shares");
-        assertEq(alphaOut, 0, "alpha");
+        assertEq(lens.sharesForAlpha(TOKEN1, 0), 0);
     }
 
     function test_RevertWhen_SharesForMoreAlphaThanTheSupplyRedeems() public {
         _depositAndWrap(alice, NETUID1, 300 * ALPHA);
-        (uint256 shares,) = lens.sharesForAlpha(TOKEN1, 300 * ALPHA);
-        assertEq(shares, 300e18, "the whole backing takes the whole supply");
+        assertEq(lens.sharesForAlpha(TOKEN1, 300 * ALPHA), 300e18, "the whole backing takes the whole supply");
 
         vm.expectRevert(InsufficientShares.selector);
         lens.sharesForAlpha(TOKEN1, 300 * ALPHA + 1);
@@ -839,9 +848,9 @@ contract AlphaVaultLensTest is AlphaVaultTestBase {
         lens.sharesForAlpha(TOKEN1, ALPHA);
     }
 
-    // deposit * 1e9 shares on deposit + emissions RAO: the 1e9 cancels out of supply * (stake + 1) / (supply + 1e9).
     function _alphaTheWholeSupplyRedeems(uint256 deposit, uint256 emissions) private pure returns (uint256) {
-        return deposit * (deposit + emissions + 1) / (deposit + 1);
+        uint256 supply = deposit * 1e9;
+        return supply * (deposit + emissions + 1) / (supply + 1e9);
     }
 
     function _writeOffTheWholeBacking() private {

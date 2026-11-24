@@ -213,14 +213,11 @@ class Environment:
         )
         return int(lines[0]), int(lines[1])
 
-    def shares_for_alpha(self, token_id: int, alpha: int, block: Optional[int] = None) -> Tuple[int, int]:
-        """(shares, alpha RAO quoted) of the smallest burn whose exit quote covers `alpha`,
-        live or as of `block`."""
-        lines = chain.cast_call_lines(
-            self.lens_address, "sharesForAlpha(uint256,uint256)(uint256,uint256)",
-            token_id, alpha, block=block,
-        )
-        return int(lines[0]), int(lines[1])
+    def shares_for_alpha(self, token_id: int, alpha: int, block: Optional[int] = None) -> int:
+        """Smallest number of shares whose unwrap pays at least `alpha` RAO, live or as of `block`."""
+        return int(chain.cast_call(
+            self.lens_address, "sharesForAlpha(uint256,uint256)(uint256)", token_id, alpha, block=block,
+        ))
 
     def chain_min_stake_tao(self) -> int:
         """The minimum a partial unstake enforces; the vault's floor for every move, transfer and partial sale."""

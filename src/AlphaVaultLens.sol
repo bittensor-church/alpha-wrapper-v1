@@ -136,14 +136,13 @@ contract AlphaVaultLens {
         return VaultMath.sharesFor(totalStake(tokenId), vault.totalSupply(tokenId), assets);
     }
 
-    /// @notice Fewest shares whose alpha exit `previewUnwrap` quotes at `alpha` RAO or more, with that quote.
-    /// @dev Quotes a parked position. `InsufficientShares` means the outstanding shares redeem less.
-    function sharesForAlpha(uint256 tokenId, uint256 alpha) external view returns (uint256 shares, uint256 alphaOut) {
+    /// @notice Smallest number of shares to unwrap to receive at least `alpha` RAO.
+    /// @dev Reverts `InsufficientShares` when all shares together are worth less than `alpha`.
+    function sharesForAlpha(uint256 tokenId, uint256 alpha) external view returns (uint256) {
         _requireCurrentRegistration(tokenId);
         uint256 stake = totalStake(tokenId); uint256 supply = vault.totalSupply(tokenId);
         if (alpha > VaultMath.assetsFor(stake, supply, supply)) revert InsufficientShares();
-        shares = VaultMath.sharesForRoundedUp(stake, supply, alpha);
-        alphaOut = VaultMath.assetsFor(stake, supply, shares);
+        return VaultMath.sharesForRoundedUp(stake, supply, alpha);
     }
 
     /// @notice Estimated exit payout: live alpha RAO or dissolved TAO wei.

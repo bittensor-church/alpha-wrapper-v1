@@ -227,9 +227,7 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
     }
 
     function _assertHalfTheSharesUnwrapFiveAlpha() private view {
-        (uint256 shares, uint256 alphaOut) = lens.sharesForAlpha(TOKEN1, 5 * ALPHA);
-        assertEq(shares, 5e18);
-        assertEq(alphaOut, 5 * ALPHA);
+        assertEq(lens.sharesForAlpha(TOKEN1, 5 * ALPHA), 5e18);
     }
 
     function _stakeOfAliceAcrossTheAttestedSet() private view returns (uint256) {
