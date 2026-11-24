@@ -34,7 +34,7 @@ After a netuid is recycled, call `createMailbox` again before wrapping.
 Shares transfer as ERC-1155 balances. Keep the token id from `Deposited`.
 Shares use 18 decimals. `sharePrice(tokenId)` is alpha RAO per 1e18 share
 units, about 1e9 at the initial rate; `previewUnwrap(tokenId, shares)` quotes a
-specific burn and `sharesToUnwrap(tokenId, alpha)` the burn for a chosen alpha
+specific burn and `sharesForAlpha(tokenId, alpha)` the burn for a chosen alpha
 amount. The lens's `totalStake(tokenId)` and
 `resolvedBacking(tokenId)` show the position's backing.
 
@@ -77,10 +77,6 @@ still transfer and accrued TAO stays claimable. The lens reports
 from the parking hotkey, so move the received alpha to a validator with
 `moveStake` to earn emissions. Deposits wait for a new validator set. See
 [parked positions](recovery.md#parked-positions).
-
-The lens's `positionStatus(tokenId)` reads the subnet's dissolution phase in
-every state and, while the subnet is registered, the parked flag, the write-off
-deadline, locked backing and the alpha-transfer switch, all in one call.
 
 ## Claim TAO and reclaim deposits
 

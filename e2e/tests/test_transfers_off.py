@@ -7,12 +7,9 @@ are off, the vault's alpha rail (which delivers by moving staked alpha)
 refuses, while both TAO rails still pay out at the chain's quote: they only
 ever sell alpha for TAO.
 """
-from dataclasses import replace
-
 import pytest
 
 from alpha_e2e import checks, config, exits, extrinsics
-from alpha_e2e.environment import OPEN_POSITION
 from alpha_e2e.substrate import h160_to_ss58
 
 
@@ -41,15 +38,9 @@ def test_disabling_alpha_transfers_preserves_both_tao_exit_rails(env):
         f"the mailbox holds {seed_alpha} RAO after a {config.DEPOSIT_RAO} RAO transfer"
     )
 
-    assert env.position_status(position_token_id) == OPEN_POSITION, "positionStatus of an open position"
-
     for netuid in env.netuids:
         extrinsics.toggle_transfer(netuid, False)
         print(f"  netuid {netuid}: alpha transfers disabled")
-
-    assert env.position_status(position_token_id) == replace(OPEN_POSITION, alpha_transfers_enabled=False), (
-        "positionStatus should read the alpha-transfer switch off"
-    )
 
     with pytest.raises(extrinsics.ExtrinsicError) as refused_transfer:
         extrinsics.transfer_stake(

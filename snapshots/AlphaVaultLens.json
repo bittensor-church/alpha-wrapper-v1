@@ -1,11 +1,11 @@
 {
-  "batchClaimableTaoOf (20 distinct positions)": "719325",
-  "batchClaimableTaoOf (20 repeated ids)": "291825",
-  "claimableTaoOf": "40690",
-  "previewUnwrap": "91275",
-  "previewUnwrap (10 validators)": "183851",
-  "previewUnwrap: resolve a cut edge": "127588",
-  "previewWrap": "95493",
-  "sharesToUnwrap": "94971",
-  "sharesToUnwrap (10 validators)": "187548"
+  "batchClaimableTaoOf (20 distinct positions)": "717643",
+  "batchClaimableTaoOf (20 repeated ids)": "290143",
+  "claimableTaoOf": "40585",
+  "previewUnwrap": "91147",
+  "previewUnwrap (10 validators)": "183723",
+  "previewUnwrap: resolve a cut edge": "127460",
+  "previewWrap": "95282",
+  "sharesForAlpha": "94936",
+  "sharesForAlpha (10 validators)": "187513"
 }

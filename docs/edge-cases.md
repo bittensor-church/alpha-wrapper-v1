@@ -15,7 +15,7 @@ After cleanup, the old token permanently redeems for its clone's unreserved TAO.
 `ClaimBelowNativePrecision` without burning shares. Combining shares with another
 holder can clear that rounding boundary. With no unreserved refund, `unwrap`
 reverts `NothingToUnwrap` and `previewUnwrap` returns `(0, 0)`.
-`sharePrice`, `previewWrap` and `sharesToUnwrap` reject dissolved positions.
+`sharePrice`, `previewWrap` and `sharesForAlpha` reject dissolved positions.
 Accrued `claimTao` entitlements remain available.
 
 A later subnet using the same netuid has a separate token and clone. The old

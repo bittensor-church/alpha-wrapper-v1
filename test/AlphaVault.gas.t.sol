@@ -157,12 +157,12 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         _assertQuotesHalfOfTenAlpha(shares);
     }
 
-    function test_gas_sharesToUnwrap() public {
+    function test_gas_sharesForAlpha() public {
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
 
-        lens.sharesToUnwrap(TOKEN1, 5 * ALPHA);
-        vm.snapshotGasLastCall("AlphaVaultLens", "sharesToUnwrap");
+        lens.sharesForAlpha(TOKEN1, 5 * ALPHA);
+        vm.snapshotGasLastCall("AlphaVaultLens", "sharesForAlpha");
 
         _assertHalfTheSharesUnwrapFiveAlpha();
     }
@@ -227,7 +227,7 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
     }
 
     function _assertHalfTheSharesUnwrapFiveAlpha() private view {
-        (uint256 shares, uint256 alphaOut) = lens.sharesToUnwrap(TOKEN1, 5 * ALPHA);
+        (uint256 shares, uint256 alphaOut) = lens.sharesForAlpha(TOKEN1, 5 * ALPHA);
         assertEq(shares, 5e18);
         assertEq(alphaOut, 5 * ALPHA);
     }
@@ -513,13 +513,13 @@ contract AlphaVaultGasTest is AlphaVaultTestBase {
         _assertQuotesHalfOfTenAlpha(shares);
     }
 
-    function test_gas_sharesToUnwrap_10Validators() public {
+    function test_gas_sharesForAlpha_10Validators() public {
         _setValidatorCount(NETUID1, VALIDATOR_CAP);
         _simulateAlphaDeposit(alice, NETUID1, 10 * ALPHA);
         _wrap(alice, NETUID1);
 
-        lens.sharesToUnwrap(TOKEN1, 5 * ALPHA);
-        vm.snapshotGasLastCall("AlphaVaultLens", "sharesToUnwrap (10 validators)");
+        lens.sharesForAlpha(TOKEN1, 5 * ALPHA);
+        vm.snapshotGasLastCall("AlphaVaultLens", "sharesForAlpha (10 validators)");
 
         _assertHalfTheSharesUnwrapFiveAlpha();
     }

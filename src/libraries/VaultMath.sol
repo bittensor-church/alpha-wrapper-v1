@@ -25,7 +25,7 @@ library VaultMath {
         return Math.mulDiv(shares, stake + VIRTUAL_ASSETS, supply + VIRTUAL_SHARES);
     }
 
-    function sharesToRedeem(uint256 stake, uint256 supply, uint256 assets) internal pure returns (uint256) {
+    function sharesForRoundedUp(uint256 stake, uint256 supply, uint256 assets) internal pure returns (uint256) {
         return Math.mulDiv(assets, supply + VIRTUAL_SHARES, stake + VIRTUAL_ASSETS, Math.Rounding.Ceil);
     }
 
