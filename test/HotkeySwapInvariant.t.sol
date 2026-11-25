@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity 0.8.39;
 
 import { BackingCampaignHandler, BackingCampaignHarness } from "./helpers/BackingCampaign.sol";
 import { MockStaking } from "./mocks/MockStaking.sol";

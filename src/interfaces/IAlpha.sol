@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity 0.8.39;
 
 interface IAlpha {
     /// @notice Spot TAO per alpha, scaled by 1e18.

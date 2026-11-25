@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity 0.8.39;
 
 interface IAlphaVaultAbi {
     /// @dev `attestedHotkey` is the registry entry the caller chose; the alpha lands on its resolved hotkey.

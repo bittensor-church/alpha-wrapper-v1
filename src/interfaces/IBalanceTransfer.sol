@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity 0.8.39;
 
 address constant BALANCE_TRANSFER_PRECOMPILE = 0x0000000000000000000000000000000000000800;
 
