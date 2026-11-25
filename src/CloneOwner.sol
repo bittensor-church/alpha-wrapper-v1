@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity 0.8.39;
 
 import { INeuron, NEURON_PRECOMPILE } from "./interfaces/INeuron.sol";
 import { IStaking, STAKING_PRECOMPILE } from "./interfaces/IStaking.sol";

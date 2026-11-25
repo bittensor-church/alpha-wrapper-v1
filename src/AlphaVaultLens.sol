@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity 0.8.39;
 
 import { AlphaVault } from "./AlphaVault.sol";
 import { VaultAllocation } from "./libraries/VaultAllocation.sol";

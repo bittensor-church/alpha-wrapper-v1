@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity 0.8.39;
 
 import { AlphaVaultTestBase } from "./AlphaVaultTestBase.sol";
 import { ISubnet, SUBNET_PRECOMPILE } from "src/interfaces/ISubnet.sol";
